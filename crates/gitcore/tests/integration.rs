@@ -1,7 +1,7 @@
 //! gitcore 集成测试:在临时 git 仓库上验证真实行为。
 //! 每个测试自建临时 repo、用完即删。
 
-use gitcore::{Repo, UpdateOptions, UpdateOutcome};
+use gitcore::{IntegrationStrategy, Repo, UpdateOptions, UpdateOutcome};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -308,6 +308,67 @@ fn rerere_replays_previous_resolution() {
         std::fs::read_to_string(b.join("f.txt")).unwrap(),
         "1\nX\n3\n",
         "rerere 应重放上次 theirs 解法"
+    );
+
+    cleanup(&[&a, &remote, &b]);
+}
+
+#[test]
+fn rebase_conflict_resolve_and_continue() {
+    let (a, remote, b) = setup_conflict("rb");
+    let repo = Repo::open(&b).unwrap();
+    let opts = UpdateOptions {
+        strategy: IntegrationStrategy::Rebase,
+        ignore_whitespace: true,
+    };
+
+    let (files, autostash) = match repo.execute_update(&opts).unwrap() {
+        UpdateOutcome::Conflicted { files, autostash } => (files, autostash),
+        o => panic!("rebase 应产生冲突,实际 {o:?}"),
+    };
+    assert_eq!(files, vec![PathBuf::from("f.txt")]);
+
+    // rebase 期间 HEAD 是被 replay 到的基(origin/main),
+    // 所以 ours=远端(X)、theirs=本地提交(Y)——与 merge 相反。选 theirs 保留本地。
+    let segs = repo.read_conflict(&files[0]).unwrap();
+    let resolved = gitcore::rebuild(&segs, &[gitcore::Choice::Theirs]);
+    repo.resolve_file(&files[0], &resolved).unwrap();
+
+    assert!(matches!(
+        repo.continue_update(autostash).unwrap(),
+        UpdateOutcome::Resolved
+    ));
+    assert_eq!(
+        std::fs::read_to_string(b.join("f.txt")).unwrap(),
+        "1\nY\n3\n",
+        "rebase 选 theirs 应保留本地 Y"
+    );
+
+    cleanup(&[&a, &remote, &b]);
+}
+
+#[test]
+fn rebase_conflict_can_be_aborted() {
+    let (a, remote, b) = setup_conflict("rba");
+    let repo = Repo::open(&b).unwrap();
+    let opts = UpdateOptions {
+        strategy: IntegrationStrategy::Rebase,
+        ignore_whitespace: true,
+    };
+
+    let autostash = match repo.execute_update(&opts).unwrap() {
+        UpdateOutcome::Conflicted { autostash, .. } => autostash,
+        o => panic!("rebase 应产生冲突,实际 {o:?}"),
+    };
+
+    repo.abort_update(autostash).unwrap();
+    let st = repo.status().unwrap();
+    assert!(!st.dirty, "rebase abort 后应回到干净");
+    assert!(st.conflicted.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(b.join("f.txt")).unwrap(),
+        "1\nY\n3\n",
+        "rebase abort 应保留本地 b-change"
     );
 
     cleanup(&[&a, &remote, &b]);
