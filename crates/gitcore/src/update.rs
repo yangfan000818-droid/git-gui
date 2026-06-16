@@ -97,7 +97,7 @@ pub(crate) fn execute_update(repo: &Repo, opts: &UpdateOptions) -> Result<Update
     } else {
         match opts.strategy {
             IntegrationStrategy::Merge => merge(repo, opts.ignore_whitespace)?,
-            IntegrationStrategy::Rebase => rebase(repo)?,
+            IntegrationStrategy::Rebase => rebase(repo, opts.ignore_whitespace)?,
         }
     };
 
@@ -323,15 +323,18 @@ fn merge(repo: &Repo, ignore_whitespace: bool) -> Result<bool, Error> {
     finish_integration(repo, out, &args)
 }
 
-fn rebase(repo: &Repo) -> Result<bool, Error> {
-    let args = vec![
+fn rebase(repo: &Repo, ignore_whitespace: bool) -> Result<bool, Error> {
+    let mut args = vec![
         "-c",
         "rerere.enabled=true",
         "-c",
         "merge.conflictStyle=zdiff3",
         "rebase",
-        "@{u}",
     ];
+    if ignore_whitespace {
+        args.push("-Xignore-space-change"); // 与 merge 一致:消解空白伪冲突
+    }
+    args.push("@{u}");
     let out = repo.git_checked(&args)?;
     finish_integration(repo, out, &args)
 }
