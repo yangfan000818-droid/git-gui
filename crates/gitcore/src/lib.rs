@@ -18,7 +18,7 @@ pub use error::Error;
 pub use resolve::{parse_conflicts, rebuild, Choice, ConflictHunk, Resolution, Segment};
 pub use stash::{PopResult, StashRef};
 pub use status::RepoStatus;
-pub use update::{IntegrationStrategy, UpdateOptions, UpdateOutcome, UpdatePlan};
+pub use update::{IntegrationStrategy, PendingConflicts, UpdateOptions, UpdateOutcome, UpdatePlan};
 
 /// 一个 git 工作区的句柄;所有操作相对它执行。
 #[derive(Debug, Clone)]
@@ -74,6 +74,11 @@ impl Repo {
     /// 放弃整合,回到 Update 之前的状态(含还原 autostash)。
     pub fn abort_update(&self, autostash: Option<StashRef>) -> Result<(), Error> {
         update::abort_update(self, autostash)
+    }
+
+    /// 检测未完成的整合(中断/崩溃后):返回待解决冲突文件 + 扫回的 autostash。
+    pub fn resume_conflicts(&self) -> Result<Option<PendingConflicts>, Error> {
+        update::resume(self)
     }
 
     // 跑一个必须成功的 git 子命令,非零退出 → Err。

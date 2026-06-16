@@ -17,6 +17,14 @@ pub enum PopResult {
     Conflict(Vec<PathBuf>),
 }
 
+/// gitcore 创建的 autostash 标签前缀(用于扫描识别)。
+const AUTOSTASH_TAG: &str = "gitcore-autostash:";
+
+/// 生成一个带进程标识的 autostash 标签。
+pub(crate) fn autostash_label() -> String {
+    format!("{AUTOSTASH_TAG}{}", std::process::id())
+}
+
 /// 工作区脏则 stash(含 untracked)并返回引用;干净返回 None。
 pub(crate) fn autostash_push(repo: &Repo, label: &str) -> Result<Option<StashRef>, Error> {
     if repo.git(&["status", "--porcelain"])?.trim().is_empty() {
@@ -44,6 +52,19 @@ pub(crate) fn autostash_pop(repo: &Repo, stash: &StashRef) -> Result<PopResult, 
             repo,
         )?))
     }
+}
+
+/// 扫描 stash 列表,找回 gitcore 创建的 autostash(崩溃/中断后恢复用)。
+pub(crate) fn find_autostash(repo: &Repo) -> Result<Option<StashRef>, Error> {
+    let list = repo.git(&["stash", "list", "--format=%gs"])?;
+    for line in list.lines() {
+        if let Some(pos) = line.find(AUTOSTASH_TAG) {
+            return Ok(Some(StashRef {
+                label: line[pos..].trim().to_string(),
+            }));
+        }
+    }
+    Ok(None)
 }
 
 // 在 stash 列表里按 label 找到形如 stash@{N} 的引用。

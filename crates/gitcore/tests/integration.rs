@@ -235,3 +235,48 @@ fn merge_conflict_can_be_aborted() {
 
     cleanup(&[&a, &remote, &b]);
 }
+
+#[test]
+fn resume_finds_pending_conflict_and_restores_autostash() {
+    let (a, remote, b) = setup_conflict("rs");
+    // 让 b 工作区脏(无关文件 g.txt),迫使 execute_update 先 autostash。
+    write(&b, "g.txt", "dirty\n");
+
+    let repo = Repo::open(&b).unwrap();
+    let out = repo.execute_update(&UpdateOptions::default()).unwrap();
+    assert!(
+        matches!(
+            out,
+            UpdateOutcome::Conflicted {
+                autostash: Some(_),
+                ..
+            }
+        ),
+        "应冲突且有 autostash,实际 {out:?}"
+    );
+
+    // 模拟中断:丢弃上面返回的 autostash,重新打开仓库后扫描恢复。
+    let repo2 = Repo::open(&b).unwrap();
+    let (files, autostash) = repo2
+        .resume_conflicts()
+        .unwrap()
+        .expect("应检测到未完成的整合");
+    assert_eq!(files, vec![PathBuf::from("f.txt")]);
+    assert!(autostash.is_some(), "应扫回 autostash");
+
+    // 解决 + 完成,确认 autostash 还原(g.txt 回来)。
+    let segs = repo2.read_conflict(&files[0]).unwrap();
+    let resolved = gitcore::rebuild(&segs, &[gitcore::Choice::Theirs]);
+    repo2.resolve_file(&files[0], &resolved).unwrap();
+    assert!(matches!(
+        repo2.continue_update(autostash).unwrap(),
+        UpdateOutcome::Resolved
+    ));
+    assert_eq!(
+        std::fs::read_to_string(b.join("g.txt")).unwrap(),
+        "dirty\n",
+        "autostash 应还原无关脏文件"
+    );
+
+    cleanup(&[&a, &remote, &b]);
+}

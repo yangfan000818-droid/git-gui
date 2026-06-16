@@ -88,7 +88,7 @@ pub(crate) fn execute_update(repo: &Repo, opts: &UpdateOptions) -> Result<Update
     }
 
     // ① 脏工作区保护:先 stash。
-    let label = format!("gitcore-autostash:{}", std::process::id());
+    let label = stash::autostash_label();
     let autostash = stash::autostash_push(repo, &label)?;
 
     // ② 整合:本地无领先提交则快进,否则按策略合并/变基。
@@ -175,6 +175,22 @@ pub(crate) fn abort_update(repo: &Repo, autostash: Option<StashRef>) -> Result<(
         stash::autostash_pop(repo, &stash)?;
     }
     Ok(())
+}
+
+/// 未完成整合的恢复信息:待解决冲突文件 + 扫回的 autostash。
+pub type PendingConflicts = (Vec<PathBuf>, Option<StashRef>);
+
+/// 检测未完成的整合(中断/崩溃后):有进行中的 merge/rebase + 冲突文件时,
+/// 返回冲突文件 + 扫回的 autostash;否则 None。
+pub(crate) fn resume(repo: &Repo) -> Result<Option<PendingConflicts>, Error> {
+    if in_progress(repo)?.is_none() {
+        return Ok(None);
+    }
+    let files = crate::conflict::conflicted_files(repo)?;
+    if files.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some((files, stash::find_autostash(repo)?)))
 }
 
 // ---- 内部步骤 ----

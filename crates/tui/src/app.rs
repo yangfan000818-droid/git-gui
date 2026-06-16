@@ -119,6 +119,11 @@ fn dispatch(repo: &Repo, state: &mut AppState, c: char) -> bool {
                 }
                 Err(e) => state.message = format!("更新失败: {e}"),
             },
+            'R' => match repo.resume_conflicts() {
+                Ok(Some((files, autostash))) => enter_conflict(repo, state, files, autostash),
+                Ok(None) => state.message = "没有未完成的整合".into(),
+                Err(e) => state.message = format!("恢复失败: {e}"),
+            },
             _ => {}
         },
         Screen::Conflict(mut view) => match view.handle_key(repo, c) {
@@ -214,7 +219,7 @@ fn status_text(st: &RepoStatus) -> String {
     );
     if !st.conflicted.is_empty() {
         s.push_str(&format!(
-            "\n冲突文件:  {} 个(按 u 触发更新进入解决)",
+            "\n冲突文件:  {} 个(按 R 恢复解决)",
             st.conflicted.len()
         ));
     }
