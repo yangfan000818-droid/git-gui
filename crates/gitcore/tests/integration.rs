@@ -1,0 +1,124 @@
+//! gitcore 集成测试:在临时 git 仓库上验证真实行为。
+//! 每个测试自建临时 repo、用完即删。
+
+use gitcore::{Repo, UpdateOptions, UpdateOutcome};
+use std::path::PathBuf;
+use std::process::Command;
+
+fn unique_dir(tag: &str) -> PathBuf {
+    let mut dir = std::env::temp_dir();
+    dir.push(format!(
+        "gitcore-{tag}-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn git(dir: &PathBuf, args: &[&str]) {
+    let ok = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "git {args:?} failed in {dir:?}");
+}
+
+fn init_repo(tag: &str) -> PathBuf {
+    let dir = unique_dir(tag);
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "user.email", "t@t"]);
+    git(&dir, &["config", "user.name", "t"]);
+    dir
+}
+
+fn bare_remote(tag: &str) -> PathBuf {
+    let dir = unique_dir(tag);
+    git(&dir, &["init", "--bare", "-q", "-b", "main"]);
+    dir
+}
+
+fn clone(remote: &PathBuf, tag: &str) -> PathBuf {
+    let dir = unique_dir(tag);
+    git(&dir, &["clone", "-q", remote.to_str().unwrap(), "."]);
+    git(&dir, &["config", "user.email", "t@t"]);
+    git(&dir, &["config", "user.name", "t"]);
+    dir
+}
+
+fn write(dir: &PathBuf, name: &str, content: &str) {
+    std::fs::write(dir.join(name), content).unwrap();
+}
+
+fn commit_all(dir: &PathBuf, msg: &str) {
+    git(dir, &["add", "."]);
+    git(dir, &["commit", "-qm", msg]);
+}
+
+fn cleanup(dirs: &[&PathBuf]) {
+    for d in dirs {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+#[test]
+fn clean_repo_reports_branch_and_not_dirty() {
+    let dir = init_repo("clean");
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+
+    let st = Repo::open(&dir).unwrap().status().unwrap();
+    assert_eq!(st.branch.as_deref(), Some("main"));
+    assert!(!st.dirty, "刚提交完应当干净");
+    assert_eq!((st.ahead, st.behind), (0, 0));
+    assert!(st.upstream.is_none(), "没设 remote 不应有 upstream");
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn uncommitted_change_makes_repo_dirty() {
+    let dir = init_repo("dirty");
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+    write(&dir, "a.txt", "changed");
+
+    assert!(
+        Repo::open(&dir).unwrap().status().unwrap().dirty,
+        "改了未提交应当 dirty"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn execute_update_fast_forwards_when_behind() {
+    // a 先建仓推到裸库;b 克隆后,a 再推一个提交 → b 落后 1。
+    let a = init_repo("ff-a");
+    write(&a, "f.txt", "1");
+    commit_all(&a, "c1");
+
+    let remote = bare_remote("ff-remote");
+    git(&a, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    git(&a, &["push", "-q", "-u", "origin", "main"]);
+
+    let b = clone(&remote, "ff-b"); // 拿到 c1,track origin/main
+
+    write(&a, "f.txt", "2");
+    commit_all(&a, "c2");
+    git(&a, &["push", "-q", "origin", "main"]);
+
+    let outcome = Repo::open(&b)
+        .unwrap()
+        .execute_update(&UpdateOptions::default())
+        .unwrap();
+    assert!(
+        matches!(outcome, UpdateOutcome::FastForwarded { commits: 1 }),
+        "落后 1 应快进 1,实际 {outcome:?}"
+    );
+
+    cleanup(&[&a, &remote, &b]);
+}
