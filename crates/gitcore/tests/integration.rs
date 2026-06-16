@@ -280,3 +280,34 @@ fn resume_finds_pending_conflict_and_restores_autostash() {
 
     cleanup(&[&a, &remote, &b]);
 }
+
+#[test]
+fn rerere_replays_previous_resolution() {
+    let (a, remote, b) = setup_conflict("rr");
+    let repo = Repo::open(&b).unwrap();
+
+    // 第一次:冲突 → 选 theirs 解决 → continue。rerere 记录解法。
+    let (files, autostash) = match repo.execute_update(&UpdateOptions::default()).unwrap() {
+        UpdateOutcome::Conflicted { files, autostash } => (files, autostash),
+        o => panic!("应冲突,实际 {o:?}"),
+    };
+    let segs = repo.read_conflict(&files[0]).unwrap();
+    let resolved = gitcore::rebuild(&segs, &[gitcore::Choice::Theirs]);
+    repo.resolve_file(&files[0], &resolved).unwrap();
+    repo.continue_update(autostash).unwrap();
+
+    // 撤销这次 merge,回到冲突前。
+    git(&b, &["reset", "--hard", "HEAD~1"]);
+
+    // 第二次:同样冲突 → rerere 应自动重放上次解法(文件无标记)。
+    match repo.execute_update(&UpdateOptions::default()).unwrap() {
+        UpdateOutcome::Conflicted { files, .. } => {
+            let content = std::fs::read_to_string(b.join(&files[0])).unwrap();
+            assert_eq!(content, "1\nX\n3\n", "rerere 应重放上次 theirs 解法");
+            assert!(!content.contains("<<<<<<<"), "重放后不应残留冲突标记");
+        }
+        o => panic!("仍应停在冲突待确认,实际 {o:?}"),
+    }
+
+    cleanup(&[&a, &remote, &b]);
+}

@@ -142,11 +142,18 @@ pub(crate) fn continue_update(
 
     match in_progress(repo)? {
         Some(Integration::Merge) => {
-            repo.git(&["commit", "--no-edit"])?;
+            repo.git(&["-c", "rerere.enabled=true", "commit", "--no-edit"])?;
         }
         Some(Integration::Rebase) => {
             // 跳过 editor,用现成 message 继续。
-            repo.git(&["-c", "core.editor=true", "rebase", "--continue"])?;
+            repo.git(&[
+                "-c",
+                "rerere.enabled=true",
+                "-c",
+                "core.editor=true",
+                "rebase",
+                "--continue",
+            ])?;
         }
         None => {}
     }
@@ -279,7 +286,14 @@ fn fast_forward(repo: &Repo) -> Result<bool, Error> {
 
 fn merge(repo: &Repo, ignore_whitespace: bool) -> Result<bool, Error> {
     // -c merge.conflictStyle=zdiff3:让冲突标记带上 base 段,供魔法棒判断。
-    let mut args = vec!["-c", "merge.conflictStyle=zdiff3", "merge", "--no-edit"];
+    let mut args = vec![
+        "-c",
+        "rerere.enabled=true",
+        "-c",
+        "merge.conflictStyle=zdiff3",
+        "merge",
+        "--no-edit",
+    ];
     if ignore_whitespace {
         args.push("-Xignore-space-change"); // ④ 整合阶段就消解空白伪冲突
     }
@@ -289,7 +303,14 @@ fn merge(repo: &Repo, ignore_whitespace: bool) -> Result<bool, Error> {
 }
 
 fn rebase(repo: &Repo) -> Result<bool, Error> {
-    let args = vec!["-c", "merge.conflictStyle=zdiff3", "rebase", "@{u}"];
+    let args = vec![
+        "-c",
+        "rerere.enabled=true",
+        "-c",
+        "merge.conflictStyle=zdiff3",
+        "rebase",
+        "@{u}",
+    ];
     let out = repo.git_checked(&args)?;
     finish_integration(repo, out, &args)
 }
