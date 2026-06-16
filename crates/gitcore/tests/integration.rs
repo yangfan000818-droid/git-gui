@@ -122,3 +122,116 @@ fn execute_update_fast_forwards_when_behind() {
 
     cleanup(&[&a, &remote, &b]);
 }
+
+#[test]
+fn parse_and_rebuild_roundtrip() {
+    use gitcore::{parse_conflicts, rebuild, Choice};
+    let text =
+        "line1\n<<<<<<< HEAD\nY\n||||||| base\nline2\n=======\nX\n>>>>>>> origin/main\nline3\n";
+    let segs = parse_conflicts(text);
+    assert_eq!(rebuild(&segs, &[Choice::Theirs]), "line1\nX\nline3\n");
+    assert_eq!(rebuild(&segs, &[Choice::Ours]), "line1\nY\nline3\n");
+    assert_eq!(rebuild(&segs, &[Choice::Base]), "line1\nline2\nline3\n");
+}
+
+#[test]
+fn magic_classifies_hunks() {
+    use gitcore::{ConflictHunk, Resolution};
+    let only_theirs = ConflictHunk {
+        ours: "x\n".into(),
+        base: "x\n".into(),
+        theirs: "y\n".into(),
+    };
+    assert_eq!(only_theirs.magic(), Resolution::AutoTheirs);
+    let only_ours = ConflictHunk {
+        ours: "y\n".into(),
+        base: "x\n".into(),
+        theirs: "x\n".into(),
+    };
+    assert_eq!(only_ours.magic(), Resolution::AutoOurs);
+    let both = ConflictHunk {
+        ours: "a\n".into(),
+        base: "x\n".into(),
+        theirs: "b\n".into(),
+    };
+    assert_eq!(both.magic(), Resolution::NeedsUser);
+}
+
+// 造一个两边改同一行的真冲突;返回 (a, remote, b),b 处于冲突待解决。
+fn setup_conflict(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let a = init_repo(&format!("{tag}-a"));
+    write(&a, "f.txt", "1\n2\n3\n");
+    commit_all(&a, "base");
+    let remote = bare_remote(&format!("{tag}-remote"));
+    git(&a, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    git(&a, &["push", "-q", "-u", "origin", "main"]);
+
+    let b = clone(&remote, &format!("{tag}-b"));
+
+    write(&a, "f.txt", "1\nX\n3\n");
+    commit_all(&a, "a-change");
+    git(&a, &["push", "-q", "origin", "main"]);
+
+    write(&b, "f.txt", "1\nY\n3\n");
+    commit_all(&b, "b-change");
+    (a, remote, b)
+}
+
+#[test]
+fn merge_conflict_resolve_and_continue() {
+    let (a, remote, b) = setup_conflict("cf");
+    let repo = Repo::open(&b).unwrap();
+
+    let (files, autostash) = match repo.execute_update(&UpdateOptions::default()).unwrap() {
+        UpdateOutcome::Conflicted { files, autostash } => (files, autostash),
+        other => panic!("应当冲突,实际 {other:?}"),
+    };
+    assert_eq!(files, vec![PathBuf::from("f.txt")]);
+
+    let segs = repo.read_conflict(&files[0]).unwrap();
+    let hunks: Vec<_> = segs
+        .iter()
+        .filter_map(|s| match s {
+            gitcore::Segment::Conflict(h) => Some(h),
+            gitcore::Segment::Clean(_) => None,
+        })
+        .collect();
+    assert_eq!(hunks.len(), 1);
+    assert_eq!(hunks[0].magic(), gitcore::Resolution::NeedsUser);
+
+    let resolved = gitcore::rebuild(&segs, &[gitcore::Choice::Theirs]);
+    repo.resolve_file(&files[0], &resolved).unwrap();
+
+    assert!(matches!(
+        repo.continue_update(autostash).unwrap(),
+        UpdateOutcome::Resolved
+    ));
+    assert_eq!(
+        std::fs::read_to_string(b.join("f.txt")).unwrap(),
+        "1\nX\n3\n"
+    );
+
+    cleanup(&[&a, &remote, &b]);
+}
+
+#[test]
+fn merge_conflict_can_be_aborted() {
+    let (a, remote, b) = setup_conflict("ab");
+    let repo = Repo::open(&b).unwrap();
+
+    let autostash = match repo.execute_update(&UpdateOptions::default()).unwrap() {
+        UpdateOutcome::Conflicted { autostash, .. } => autostash,
+        other => panic!("应当冲突,实际 {other:?}"),
+    };
+
+    repo.abort_update(autostash).unwrap();
+    let st = repo.status().unwrap();
+    assert!(!st.dirty, "abort 后应回到干净");
+    assert!(st.conflicted.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(b.join("f.txt")).unwrap(),
+        "1\nY\n3\n"
+    );
+
+    cleanup(&[&a, &remote, &b]);
+}

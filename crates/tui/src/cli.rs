@@ -75,5 +75,6 @@ pub fn describe(outcome: &UpdateOutcome) -> String {
         UpdateOutcome::StashRestoreConflict { files } => {
             format!("整合成功,但暂存改动贴回时冲突 {} 个文件。", files.len())
         }
+        UpdateOutcome::Resolved => "冲突已解决,整合完成。".into(),
     }
 }

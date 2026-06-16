@@ -6,6 +6,7 @@
 mod conflict;
 mod error;
 mod git;
+mod resolve;
 mod stash;
 mod status;
 mod update;
@@ -14,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 pub use conflict::{conflicted_files, three_versions, ThreeVersions};
 pub use error::Error;
+pub use resolve::{parse_conflicts, rebuild, Choice, ConflictHunk, Resolution, Segment};
 pub use stash::{PopResult, StashRef};
 pub use status::RepoStatus;
 pub use update::{IntegrationStrategy, UpdateOptions, UpdateOutcome, UpdatePlan};
@@ -52,6 +54,26 @@ impl Repo {
     /// 执行完整 Update 流程(autostash → 整合 → restore)。
     pub fn execute_update(&self, opts: &UpdateOptions) -> Result<UpdateOutcome, Error> {
         update::execute_update(self, opts)
+    }
+
+    /// 读取一个冲突文件,解析成片段序列(含三版本)。
+    pub fn read_conflict(&self, path: &Path) -> Result<Vec<Segment>, Error> {
+        resolve::read_conflict(self, path)
+    }
+
+    /// 写回某文件的解决结果并标记为已解决(git add)。
+    pub fn resolve_file(&self, path: &Path, text: &str) -> Result<(), Error> {
+        resolve::write_resolution(self, path, text)
+    }
+
+    /// 冲突解决后完成整合,并还原 autostash。
+    pub fn continue_update(&self, autostash: Option<StashRef>) -> Result<UpdateOutcome, Error> {
+        update::continue_update(self, autostash)
+    }
+
+    /// 放弃整合,回到 Update 之前的状态(含还原 autostash)。
+    pub fn abort_update(&self, autostash: Option<StashRef>) -> Result<(), Error> {
+        update::abort_update(self, autostash)
     }
 
     // 跑一个必须成功的 git 子命令,非零退出 → Err。

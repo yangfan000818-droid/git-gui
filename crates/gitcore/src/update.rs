@@ -57,6 +57,8 @@ pub enum UpdateOutcome {
     },
     /// 整合成功,但 autostash 贴回时冲突。
     StashRestoreConflict { files: Vec<PathBuf> },
+    /// 冲突解决后整合完成。
+    Resolved,
 }
 
 /// 预检 + fetch + 计算计划,不改动工作区。
@@ -124,25 +126,95 @@ pub(crate) fn execute_update(repo: &Repo, opts: &UpdateOptions) -> Result<Update
     })
 }
 
+/// 冲突解决完毕后,完成整合并还原 autostash。
+pub(crate) fn continue_update(
+    repo: &Repo,
+    autostash: Option<StashRef>,
+) -> Result<UpdateOutcome, Error> {
+    let remaining = crate::conflict::conflicted_files(repo)?;
+    if !remaining.is_empty() {
+        // 还有没解决的,原样退回。
+        return Ok(UpdateOutcome::Conflicted {
+            files: remaining,
+            autostash,
+        });
+    }
+
+    match in_progress(repo)? {
+        Some(Integration::Merge) => {
+            repo.git(&["commit", "--no-edit"])?;
+        }
+        Some(Integration::Rebase) => {
+            // 跳过 editor,用现成 message 继续。
+            repo.git(&["-c", "core.editor=true", "rebase", "--continue"])?;
+        }
+        None => {}
+    }
+
+    if let Some(stash) = autostash {
+        if let PopResult::Conflict(files) = stash::autostash_pop(repo, &stash)? {
+            return Ok(UpdateOutcome::StashRestoreConflict { files });
+        }
+    }
+    Ok(UpdateOutcome::Resolved)
+}
+
+/// 放弃整合,回到 Update 之前的状态(含还原 autostash)。
+pub(crate) fn abort_update(repo: &Repo, autostash: Option<StashRef>) -> Result<(), Error> {
+    match in_progress(repo)? {
+        Some(Integration::Merge) => {
+            repo.git(&["merge", "--abort"])?;
+        }
+        Some(Integration::Rebase) => {
+            repo.git(&["rebase", "--abort"])?;
+        }
+        None => {}
+    }
+    // 整合已撤销,贴回脏改动通常是干净的。
+    if let Some(stash) = autostash {
+        stash::autostash_pop(repo, &stash)?;
+    }
+    Ok(())
+}
+
 // ---- 内部步骤 ----
+
+enum Integration {
+    Merge,
+    Rebase,
+}
+
+fn git_dir(repo: &Repo) -> Result<PathBuf, Error> {
+    let gd = PathBuf::from(repo.git(&["rev-parse", "--git-dir"])?.trim());
+    Ok(if gd.is_absolute() {
+        gd
+    } else {
+        repo.workdir().join(gd)
+    })
+}
+
+// 是否有正在进行的 merge / rebase。
+fn in_progress(repo: &Repo) -> Result<Option<Integration>, Error> {
+    let base = git_dir(repo)?;
+    if base.join("MERGE_HEAD").exists() {
+        Ok(Some(Integration::Merge))
+    } else if base.join("rebase-merge").exists() || base.join("rebase-apply").exists() {
+        Ok(Some(Integration::Rebase))
+    } else {
+        Ok(None)
+    }
+}
 
 // 预检:不能有正在进行的 merge / rebase(防止重入)。
 fn preflight(repo: &Repo) -> Result<(), Error> {
-    let git_dir = PathBuf::from(repo.git(&["rev-parse", "--git-dir"])?.trim());
-    let base = if git_dir.is_absolute() {
-        git_dir
-    } else {
-        repo.workdir().join(git_dir)
-    };
-    if base.join("MERGE_HEAD").exists() {
-        return Err(Error::Precondition(
-            "已有合并进行中,请先解决或 abort".into(),
-        ));
-    }
-    if base.join("rebase-merge").exists() || base.join("rebase-apply").exists() {
-        return Err(Error::Precondition(
-            "已有变基进行中,请先解决或 abort".into(),
-        ));
+    if let Some(kind) = in_progress(repo)? {
+        let what = match kind {
+            Integration::Merge => "合并",
+            Integration::Rebase => "变基",
+        };
+        return Err(Error::Precondition(format!(
+            "已有{what}进行中,请先解决或 abort"
+        )));
     }
     Ok(())
 }
@@ -190,7 +262,8 @@ fn fast_forward(repo: &Repo) -> Result<bool, Error> {
 }
 
 fn merge(repo: &Repo, ignore_whitespace: bool) -> Result<bool, Error> {
-    let mut args = vec!["merge", "--no-edit"];
+    // -c merge.conflictStyle=zdiff3:让冲突标记带上 base 段,供魔法棒判断。
+    let mut args = vec!["-c", "merge.conflictStyle=zdiff3", "merge", "--no-edit"];
     if ignore_whitespace {
         args.push("-Xignore-space-change"); // ④ 整合阶段就消解空白伪冲突
     }
@@ -200,7 +273,7 @@ fn merge(repo: &Repo, ignore_whitespace: bool) -> Result<bool, Error> {
 }
 
 fn rebase(repo: &Repo) -> Result<bool, Error> {
-    let args = vec!["rebase", "@{u}"];
+    let args = vec!["-c", "merge.conflictStyle=zdiff3", "rebase", "@{u}"];
     let out = repo.git_checked(&args)?;
     finish_integration(repo, out, &args)
 }
