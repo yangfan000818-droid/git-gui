@@ -1,9 +1,10 @@
-//! ratatui 全屏 TUI:status 面板 + 按键触发 update。
+//! ratatui 全屏 TUI:status 面板 + 冲突解决三栏视图。
 //!
-//! 交互效果需在真实终端运行;这里逻辑尽量薄,核心都在 gitcore。
+//! 交互效果需在真实终端运行;逻辑尽量薄,核心都在 gitcore。
 
 use crate::cli::describe;
-use gitcore::{Repo, RepoStatus, UpdateOptions};
+use crate::conflict_ui::{Action, ConflictView};
+use gitcore::{Repo, RepoStatus, UpdateOptions, UpdateOutcome};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -35,7 +36,13 @@ pub fn run() -> ExitCode {
     }
 }
 
+enum Screen {
+    Status,
+    Conflict(ConflictView),
+}
+
 struct AppState {
+    screen: Screen,
     status: Option<RepoStatus>,
     message: String,
 }
@@ -47,6 +54,7 @@ fn run_app(repo: &Repo) -> io::Result<()> {
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
     let mut state = AppState {
+        screen: Screen::Status,
         status: None,
         message: "就绪".into(),
     };
@@ -54,7 +62,7 @@ fn run_app(repo: &Repo) -> io::Result<()> {
 
     let res = event_loop(&mut terminal, repo, &mut state);
 
-    // 无论 event_loop 成败,都要还原终端,避免把用户终端搞坏。
+    // 无论成败都还原终端,避免把用户终端搞坏。
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
@@ -67,7 +75,7 @@ fn event_loop<B: Backend>(
     state: &mut AppState,
 ) -> io::Result<()> {
     loop {
-        terminal.draw(|f| ui(f, state))?;
+        terminal.draw(|f| draw(f, state))?;
         if !event::poll(Duration::from_millis(250))? {
             continue;
         }
@@ -75,22 +83,86 @@ fn event_loop<B: Backend>(
             if key.kind != KeyEventKind::Press {
                 continue;
             }
-            match key.code {
-                KeyCode::Char('q') => return Ok(()),
-                KeyCode::Char('r') => {
-                    reload(repo, state);
-                    state.message = "已刷新".into();
+            if let KeyCode::Char(c) = key.code {
+                if dispatch(repo, state, c) {
+                    return Ok(());
                 }
-                KeyCode::Char('u') => {
-                    match repo.execute_update(&UpdateOptions::default()) {
-                        Ok(outcome) => state.message = describe(&outcome),
-                        Err(e) => state.message = format!("更新失败: {e}"),
-                    }
-                    reload(repo, state); // 刷新数字,保留 message
-                }
-                _ => {}
             }
         }
+    }
+}
+
+fn draw(f: &mut Frame, state: &AppState) {
+    match &state.screen {
+        Screen::Status => draw_status(f, state),
+        Screen::Conflict(view) => view.render(f),
+    }
+}
+
+// 处理一次按键;返回 true 表示退出程序。
+fn dispatch(repo: &Repo, state: &mut AppState, c: char) -> bool {
+    // 把 screen 取出来(默认回落 Status),处理后各分支显式设回。
+    match std::mem::replace(&mut state.screen, Screen::Status) {
+        Screen::Status => match c {
+            'q' => return true,
+            'r' => {
+                reload(repo, state);
+                state.message = "已刷新".into();
+            }
+            'u' => match repo.execute_update(&UpdateOptions::default()) {
+                Ok(UpdateOutcome::Conflicted { files, autostash }) => {
+                    enter_conflict(repo, state, files, autostash)
+                }
+                Ok(outcome) => {
+                    state.message = describe(&outcome);
+                    reload(repo, state);
+                }
+                Err(e) => state.message = format!("更新失败: {e}"),
+            },
+            _ => {}
+        },
+        Screen::Conflict(mut view) => match view.handle_key(repo, c) {
+            Ok(Action::Quit) => return true,
+            Ok(Action::Continue(autostash)) => match repo.continue_update(autostash) {
+                Ok(UpdateOutcome::Conflicted { files, autostash }) => {
+                    enter_conflict(repo, state, files, autostash);
+                    state.message = "还有未解决的冲突".into();
+                }
+                Ok(outcome) => {
+                    state.message = describe(&outcome);
+                    reload(repo, state);
+                }
+                Err(e) => {
+                    state.message = format!("完成失败: {e}");
+                    reload(repo, state);
+                }
+            },
+            Ok(Action::Abort(autostash)) => {
+                state.message = match repo.abort_update(autostash) {
+                    Ok(()) => "已放弃整合".into(),
+                    Err(e) => format!("放弃失败: {e}"),
+                };
+                reload(repo, state);
+            }
+            Ok(Action::None) => state.screen = Screen::Conflict(view),
+            Err(e) => {
+                state.message = format!("操作失败: {e}");
+                state.screen = Screen::Conflict(view);
+            }
+        },
+    }
+    false
+}
+
+fn enter_conflict(
+    repo: &Repo,
+    state: &mut AppState,
+    files: Vec<std::path::PathBuf>,
+    autostash: Option<gitcore::StashRef>,
+) {
+    match ConflictView::load(repo, files, autostash) {
+        Ok(v) => state.screen = Screen::Conflict(v),
+        Err(e) => state.message = format!("加载冲突失败: {e}"),
     }
 }
 
@@ -101,7 +173,7 @@ fn reload(repo: &Repo, state: &mut AppState) {
     }
 }
 
-fn ui(f: &mut Frame, state: &AppState) {
+fn draw_status(f: &mut Frame, state: &AppState) {
     let chunks = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(6),
@@ -141,7 +213,10 @@ fn status_text(st: &RepoStatus) -> String {
         },
     );
     if !st.conflicted.is_empty() {
-        s.push_str(&format!("\n冲突文件:  {} 个", st.conflicted.len()));
+        s.push_str(&format!(
+            "\n冲突文件:  {} 个(按 u 触发更新进入解决)",
+            st.conflicted.len()
+        ));
     }
     s
 }
