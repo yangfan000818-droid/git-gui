@@ -299,15 +299,16 @@ fn rerere_replays_previous_resolution() {
     // 撤销这次 merge,回到冲突前。
     git(&b, &["reset", "--hard", "HEAD~1"]);
 
-    // 第二次:同样冲突 → rerere 应自动重放上次解法(文件无标记)。
+    // 第二次:同样冲突 → rerere 重放 + 自动确认 → 无需人工,直接完成。
     match repo.execute_update(&UpdateOptions::default()).unwrap() {
-        UpdateOutcome::Conflicted { files, .. } => {
-            let content = std::fs::read_to_string(b.join(&files[0])).unwrap();
-            assert_eq!(content, "1\nX\n3\n", "rerere 应重放上次 theirs 解法");
-            assert!(!content.contains("<<<<<<<"), "重放后不应残留冲突标记");
-        }
-        o => panic!("仍应停在冲突待确认,实际 {o:?}"),
+        UpdateOutcome::Resolved => {}
+        o => panic!("rerere 应全自动解决,实际 {o:?}"),
     }
+    assert_eq!(
+        std::fs::read_to_string(b.join("f.txt")).unwrap(),
+        "1\nX\n3\n",
+        "rerere 应重放上次 theirs 解法"
+    );
 
     cleanup(&[&a, &remote, &b]);
 }

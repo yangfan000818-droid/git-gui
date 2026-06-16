@@ -102,9 +102,16 @@ pub(crate) fn execute_update(repo: &Repo, opts: &UpdateOptions) -> Result<Update
     };
 
     if conflicted {
-        // ③ 停在冲突:autostash 保留,交给上层 / UI 处理。
+        // rerere 可能已重放解法:把已无冲突标记的文件自动标记为已解决。
+        auto_resolve_rerere(repo)?;
+        let remaining = crate::conflict::conflicted_files(repo)?;
+        if remaining.is_empty() {
+            // 全部被 rerere 解决 → 无需人工,直接完成整合。
+            return continue_update(repo, autostash);
+        }
+        // 还有真冲突:autostash 保留,交给上层 / UI 处理。
         return Ok(UpdateOutcome::Conflicted {
-            files: crate::conflict::conflicted_files(repo)?,
+            files: remaining,
             autostash,
         });
     }
@@ -201,6 +208,20 @@ pub(crate) fn resume(repo: &Repo) -> Result<Option<PendingConflicts>, Error> {
 }
 
 // ---- 内部步骤 ----
+
+// rerere 重放后:把已无冲突标记的文件自动 add(视为已解决)。
+fn auto_resolve_rerere(repo: &Repo) -> Result<(), Error> {
+    for file in crate::conflict::conflicted_files(repo)? {
+        let content = std::fs::read_to_string(repo.workdir().join(&file))?;
+        if !content.lines().any(|l| l.starts_with("<<<<<<<")) {
+            let p = file
+                .to_str()
+                .ok_or_else(|| Error::Parse("路径含非法字符".into()))?;
+            repo.git(&["add", "--", p])?;
+        }
+    }
+    Ok(())
+}
 
 enum Integration {
     Merge,
