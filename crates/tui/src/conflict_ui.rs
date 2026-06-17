@@ -440,4 +440,58 @@ mod tests {
         assert!(text.contains('○'), "全解文件应标 ○");
         assert!(text.contains('◆'), "待解文件应标 ◆");
     }
+
+    fn temp_repo(tag: &str) -> (Repo, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("tui-cf-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&dir)
+            .status()
+            .unwrap();
+        (Repo::open(&dir).unwrap(), dir)
+    }
+
+    // 状态机:n/p 切文件(边界不越界)、每个文件的选择独立保留。
+    // (导航键不碰 repo,这里 repo 仅为 handle_key 签名占位。)
+    #[test]
+    fn navigation_switches_files_and_keeps_choices() {
+        let (repo, dir) = temp_repo("nav");
+        let mut view = ConflictView {
+            files: vec![conflict_file("a.txt"), conflict_file("b.txt")],
+            idx: 0,
+            autostash: None,
+            message: String::new(),
+        };
+
+        // a.txt 改选 base
+        view.handle_key(&repo, 'b').unwrap();
+        assert_eq!(view.files[0].choices[0], Choice::Base);
+
+        // n 切到 b.txt,改选 ours
+        view.handle_key(&repo, 'n').unwrap();
+        assert_eq!(view.idx, 1);
+        view.handle_key(&repo, 'o').unwrap();
+        assert_eq!(view.files[1].choices[0], Choice::Ours);
+
+        // n 到末尾不越界
+        view.handle_key(&repo, 'n').unwrap();
+        assert_eq!(view.idx, 1, "n 到末尾应停住");
+
+        // p 切回 a.txt,选择仍是 base(独立保留)
+        view.handle_key(&repo, 'p').unwrap();
+        assert_eq!(view.idx, 0);
+        assert_eq!(
+            view.files[0].choices[0],
+            Choice::Base,
+            "切回文件后其选择应保留"
+        );
+
+        // p 到开头不越界
+        view.handle_key(&repo, 'p').unwrap();
+        assert_eq!(view.idx, 0, "p 到开头应停住");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
