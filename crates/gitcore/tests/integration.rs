@@ -2,7 +2,7 @@
 //! 每个测试自建临时 repo、用完即删。
 
 use gitcore::{IntegrationStrategy, Repo, UpdateOptions, UpdateOutcome};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn unique_dir(tag: &str) -> PathBuf {
@@ -41,7 +41,7 @@ fn bare_remote(tag: &str) -> PathBuf {
     dir
 }
 
-fn clone(remote: &PathBuf, tag: &str) -> PathBuf {
+fn clone(remote: &Path, tag: &str) -> PathBuf {
     let dir = unique_dir(tag);
     git(&dir, &["clone", "-q", remote.to_str().unwrap(), "."]);
     git(&dir, &["config", "user.email", "t@t"]);
@@ -49,7 +49,7 @@ fn clone(remote: &PathBuf, tag: &str) -> PathBuf {
     dir
 }
 
-fn write(dir: &PathBuf, name: &str, content: &str) {
+fn write(dir: &Path, name: &str, content: &str) {
     std::fs::write(dir.join(name), content).unwrap();
 }
 
@@ -155,6 +155,96 @@ fn magic_classifies_hunks() {
         theirs: "b\n".into(),
     };
     assert_eq!(both.magic(), Resolution::NeedsUser);
+}
+
+#[test]
+fn refine_whole_block_single_side_is_clean() {
+    use gitcore::{ConflictHunk, Segment};
+    // 整块只有 ours 改 → 行级魔法棒全自动,无残留冲突。
+    let h = ConflictHunk {
+        ours: "a\nB\nc\n".into(),
+        base: "a\nb\nc\n".into(),
+        theirs: "a\nb\nc\n".into(),
+    };
+    assert_eq!(h.refine(), vec![Segment::Clean("a\nB\nc\n".into())]);
+}
+
+#[test]
+fn refine_splits_inner_single_sides() {
+    use gitcore::{ConflictHunk, Segment};
+    // git 圈成一块,但行级看:行1 单边 ours、行2 真冲突、行3 单边 theirs。
+    let h = ConflictHunk {
+        ours: "A\nB\n4\n".into(),
+        base: "2\n3\n4\n".into(),
+        theirs: "2\nC\nD\n".into(),
+    };
+    assert_eq!(
+        h.refine(),
+        vec![
+            Segment::Clean("A\n".into()),
+            Segment::Conflict(ConflictHunk {
+                ours: "B\n".into(),
+                base: "3\n".into(),
+                theirs: "C\n".into(),
+            }),
+            Segment::Clean("D\n".into()),
+        ]
+    );
+}
+
+#[test]
+fn refine_keeps_real_conflict_for_user() {
+    use gitcore::{ConflictHunk, Segment};
+    // 同一行两边都改 → 仍需人工,只剩中间一行冲突。
+    let h = ConflictHunk {
+        ours: "a\nX\nc\n".into(),
+        base: "a\nb\nc\n".into(),
+        theirs: "a\nY\nc\n".into(),
+    };
+    assert_eq!(
+        h.refine(),
+        vec![
+            Segment::Clean("a\n".into()),
+            Segment::Conflict(ConflictHunk {
+                ours: "X\n".into(),
+                base: "b\n".into(),
+                theirs: "Y\n".into(),
+            }),
+            Segment::Clean("c\n".into()),
+        ]
+    );
+}
+
+#[test]
+fn read_conflict_applies_line_level_magic() {
+    use gitcore::{Choice, Segment};
+    let dir = init_repo("linemagic");
+    write(&dir, "x.txt", "init\n");
+    commit_all(&dir, "i");
+    // 手写一个 git 真实会产生的 zdiff3 冲突块:行1 单边 ours、行3 单边 theirs。
+    let conflicted =
+        "<<<<<<< ours\nA\nB\n4\n||||||| base\n2\n3\n4\n=======\n2\nC\nD\n>>>>>>> theirs\n";
+    write(&dir, "x.txt", conflicted);
+
+    let repo = Repo::open(&dir).unwrap();
+    let segs = repo.read_conflict(&PathBuf::from("x.txt")).unwrap();
+
+    // 行级魔法棒应自动解掉首尾单边行,只把中间一行留作冲突。
+    let conflicts: Vec<_> = segs
+        .iter()
+        .filter_map(|s| match s {
+            Segment::Conflict(h) => Some(h),
+            Segment::Clean(_) => None,
+        })
+        .collect();
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts[0].base, "3\n");
+
+    // 无论冲突行选哪边,单边行(A、D)都固定保留。
+    assert_eq!(gitcore::rebuild(&segs, &[Choice::Theirs]), "A\nC\nD\n");
+    assert_eq!(gitcore::rebuild(&segs, &[Choice::Ours]), "A\nB\nD\n");
+
+    cleanup(&[&dir]);
 }
 
 // 造一个两边改同一行的真冲突;返回 (a, remote, b),b 处于冲突待解决。
