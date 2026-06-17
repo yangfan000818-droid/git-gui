@@ -5,9 +5,11 @@
 
 mod commit;
 mod conflict;
+mod diff;
 mod diff3;
 mod error;
 mod git;
+mod log;
 mod push;
 mod resolve;
 mod stage;
@@ -19,7 +21,9 @@ use std::path::{Path, PathBuf};
 
 pub use commit::CommitOptions;
 pub use conflict::{conflicted_files, three_versions, ThreeVersions};
+pub use diff::DiffOptions;
 pub use error::Error;
+pub use log::{LogEntry, LogOptions};
 pub use push::PushOutcome;
 pub use resolve::{
     parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment,
@@ -112,6 +116,26 @@ impl Repo {
     /// 推送当前分支到 upstream。
     pub fn push(&self) -> Result<PushOutcome, Error> {
         push::push(self)
+    }
+
+    /// 获取提交历史。
+    pub fn log(&self, opts: &LogOptions) -> Result<Vec<LogEntry>, Error> {
+        log::log(self, opts)
+    }
+
+    /// 获取 diff 输出。
+    pub fn diff(&self, opts: &DiffOptions) -> Result<String, Error> {
+        diff::diff(self, opts)
+    }
+
+    /// 查看指定提交的完整内容(message + diff)。
+    pub fn show_commit(&self, sha: &str) -> Result<String, Error> {
+        diff::show_commit(self, sha)
+    }
+
+    /// 获取指定提交的完整消息(多行)。
+    pub fn commit_message(&self, sha: &str) -> Result<String, Error> {
+        diff::commit_message(self, sha)
     }
 
     // 跑一个必须成功的 git 子命令,非零退出 → Err。

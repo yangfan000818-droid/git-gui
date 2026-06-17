@@ -1,11 +1,12 @@
-//! ratatui 全屏 TUI:status 面板 + 冲突解决三栏视图 + stage 视图。
+//! ratatui 全屏 TUI:status 面板 + 冲突解决三栏视图 + stage 视图 + log 视图。
 //!
 //! 交互效果需在真实终端运行;逻辑尽量薄,核心都在 gitcore。
 
 use crate::cli::describe;
 use crate::conflict_ui::{self, ConflictView};
+use crate::log_ui::{self, LogView};
 use crate::stage_ui::{self, StageView};
-use gitcore::{Repo, RepoStatus, UpdateOptions, UpdateOutcome};
+use gitcore::{DiffOptions, Repo, RepoStatus, UpdateOptions, UpdateOutcome};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -13,7 +14,7 @@ use ratatui::crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::layout::{Constraint, Layout};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use std::io;
 use std::process::ExitCode;
@@ -41,6 +42,8 @@ enum Screen {
     Status,
     Conflict(ConflictView),
     Stage(StageView),
+    Log(LogView),
+    Diff(String), // diff 内容
 }
 
 struct AppState {
@@ -99,6 +102,8 @@ fn draw(f: &mut Frame, state: &AppState) {
         Screen::Status => draw_status(f, state),
         Screen::Conflict(view) => view.render(f),
         Screen::Stage(view) => view.render(f),
+        Screen::Log(view) => view.render(f),
+        Screen::Diff(content) => draw_diff(f, content),
     }
 }
 
@@ -115,6 +120,20 @@ fn dispatch(repo: &Repo, state: &mut AppState, c: char) -> bool {
             's' => match StageView::load(repo) {
                 Ok(v) => state.screen = Screen::Stage(v),
                 Err(e) => state.message = format!("进入 Stage 失败: {e}"),
+            },
+            'l' => match LogView::load(repo) {
+                Ok(v) => state.screen = Screen::Log(v),
+                Err(e) => state.message = format!("加载 Log 失败: {e}"),
+            },
+            'd' => match repo.diff(&DiffOptions::default()) {
+                Ok(content) => {
+                    if content.trim().is_empty() {
+                        state.message = "工作区无改动".into();
+                    } else {
+                        state.screen = Screen::Diff(content);
+                    }
+                }
+                Err(e) => state.message = format!("查看 diff 失败: {e}"),
             },
             'p' => match repo.push() {
                 Ok(gitcore::PushOutcome::Success) => {
@@ -160,6 +179,23 @@ fn dispatch(repo: &Repo, state: &mut AppState, c: char) -> bool {
                 state.screen = Screen::Stage(view);
             }
         },
+        Screen::Log(mut view) => match view.handle_key(repo, c) {
+            Ok(log_ui::Action::Back) => {
+                reload(repo, state);
+            }
+            Ok(log_ui::Action::None) => state.screen = Screen::Log(view),
+            Err(e) => {
+                state.message = format!("操作失败: {e}");
+                state.screen = Screen::Log(view);
+            }
+        },
+        Screen::Diff(_) => {
+            if c == 'q' {
+                reload(repo, state);
+            } else {
+                state.screen = std::mem::replace(&mut state.screen, Screen::Status);
+            }
+        }
         Screen::Conflict(mut view) => match view.handle_key(repo, c) {
             Ok(conflict_ui::Action::Quit) => return true,
             Ok(conflict_ui::Action::Continue(autostash)) => match repo.continue_update(autostash) {
@@ -232,8 +268,10 @@ fn draw_status(f: &mut Frame, state: &AppState) {
     );
 
     f.render_widget(
-        Paragraph::new(state.message.clone())
-            .block(Block::bordered().title(" s Stage · p Push · u 更新 · r 刷新 · q 退出 ")),
+        Paragraph::new(state.message.clone()).block(
+            Block::bordered()
+                .title(" s Stage · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 "),
+        ),
         chunks[2],
     );
 }
@@ -258,4 +296,24 @@ fn status_text(st: &RepoStatus) -> String {
         ));
     }
     s
+}
+
+fn draw_diff(f: &mut Frame, content: &str) {
+    let chunks = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(5),
+        Constraint::Length(3),
+    ])
+    .split(f.area());
+
+    f.render_widget(Paragraph::new(" Diff 视图 · 工作区改动"), chunks[0]);
+
+    f.render_widget(
+        Paragraph::new(content)
+            .block(Block::bordered().title(" Diff "))
+            .wrap(Wrap { trim: false }),
+        chunks[1],
+    );
+
+    f.render_widget(Paragraph::new("q 返回").block(Block::bordered()), chunks[2]);
 }
