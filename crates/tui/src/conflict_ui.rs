@@ -2,9 +2,10 @@
 //!
 //! 解析/重建/写回/继续 都靠 gitcore 已测的 API,这里只管状态与渲染。
 
-use gitcore::{Choice, ConflictHunk, Error, Repo, Segment, StashRef};
+use gitcore::{Choice, Error, Repo, Segment, StashRef};
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 use std::path::PathBuf;
@@ -61,7 +62,7 @@ impl ConflictView {
             .iter()
             .map(|&i| match &segs[i] {
                 Segment::Conflict(h) => h.magic().auto_choice().unwrap_or(Choice::Ours),
-                Segment::Clean(_) => Choice::Ours,
+                _ => Choice::Ours,
             })
             .collect();
         self.segments = segs;
@@ -69,15 +70,6 @@ impl ConflictView {
         self.choices = choices;
         self.cursor = 0;
         Ok(())
-    }
-
-    fn current(&self) -> Option<&ConflictHunk> {
-        self.hunks
-            .get(self.cursor)
-            .and_then(|&i| match &self.segments[i] {
-                Segment::Conflict(h) => Some(h),
-                Segment::Clean(_) => None,
-            })
     }
 
     pub fn handle_key(&mut self, repo: &Repo, c: char) -> Result<Action, Error> {
@@ -127,8 +119,16 @@ impl ConflictView {
         ])
         .split(f.area());
 
+        let auto_lines: usize = self
+            .segments
+            .iter()
+            .filter_map(|s| match s {
+                Segment::AutoResolved(t) => Some(t.lines().count()),
+                _ => None,
+            })
+            .sum();
         let head = format!(
-            " 冲突 {}/{}: {}   块 {}/{}",
+            " 冲突 {}/{}: {}   块 {}/{}   魔法棒自动解 {auto_lines} 行",
             self.idx + 1,
             self.files.len(),
             self.files[self.idx].display(),
@@ -146,7 +146,7 @@ impl ConflictView {
             None => "-",
         };
         let help = format!(
-            "当前块选: {pick}\no/t/b 选边 · j/k 切块 · w 写回本文件 · c 完成 · x 放弃 · q 退出\n{}",
+            "当前块选: {pick}   (绿色 ✓ = 魔法棒已自动解,无需处理)\no/t/b 选边 · j/k 切块 · w 写回本文件 · c 完成 · x 放弃 · q 退出\n{}",
             self.message
         );
         f.render_widget(Paragraph::new(help).block(Block::bordered()), rows[2]);
@@ -159,36 +159,175 @@ impl ConflictView {
             Constraint::Percentage(33),
         ])
         .split(area);
-
-        let (ours, base, theirs) = match self.current() {
-            Some(h) => (h.ours.as_str(), h.base.as_str(), h.theirs.as_str()),
-            None => ("(无冲突块)", "", ""),
-        };
         let sel = self.choices.get(self.cursor).copied();
 
+        let Some(hi) = self.current_idx() else {
+            for (i, title) in ["ours · 本地", "base · 祖先", "theirs · 远端"]
+                .into_iter()
+                .enumerate()
+            {
+                let p = Paragraph::new("(无冲突块)")
+                    .block(Block::bordered().title(format!("  {title}")));
+                f.render_widget(p, cols[i]);
+            }
+            return;
+        };
+        let (before, after) = self.auto_context(hi);
+        let h = match &self.segments[hi] {
+            Segment::Conflict(h) => h,
+            _ => return,
+        };
+
         f.render_widget(
-            panel("ours · 本地", ours, sel == Some(Choice::Ours)),
+            column_panel(
+                "ours · 本地",
+                &before,
+                &h.ours,
+                &after,
+                sel == Some(Choice::Ours),
+            ),
             cols[0],
         );
         f.render_widget(
-            panel("base · 祖先", base, sel == Some(Choice::Base)),
+            column_panel(
+                "base · 祖先",
+                &before,
+                &h.base,
+                &after,
+                sel == Some(Choice::Base),
+            ),
             cols[1],
         );
         f.render_widget(
-            panel("theirs · 远端", theirs, sel == Some(Choice::Theirs)),
+            column_panel(
+                "theirs · 远端",
+                &before,
+                &h.theirs,
+                &after,
+                sel == Some(Choice::Theirs),
+            ),
             cols[2],
         );
     }
+
+    fn current_idx(&self) -> Option<usize> {
+        self.hunks.get(self.cursor).copied()
+    }
+
+    /// 当前块前/后紧邻的自动定夺文本(同属一个原始冲突块的上下文)。
+    fn auto_context(&self, hi: usize) -> (Vec<&str>, Vec<&str>) {
+        let mut before = Vec::new();
+        for seg in self.segments[..hi].iter().rev() {
+            match seg {
+                Segment::AutoResolved(t) => before.push(t.as_str()),
+                _ => break,
+            }
+        }
+        before.reverse();
+        let mut after = Vec::new();
+        for seg in &self.segments[hi + 1..] {
+            match seg {
+                Segment::AutoResolved(t) => after.push(t.as_str()),
+                _ => break,
+            }
+        }
+        (before, after)
+    }
 }
 
-fn panel<'a>(title: &str, body: &'a str, selected: bool) -> Paragraph<'a> {
-    let mut block = Block::bordered();
-    if selected {
-        block = block
-            .title(format!("● {title}"))
-            .border_style(Style::default().fg(Color::Green));
-    } else {
-        block = block.title(format!("  {title}"));
+/// 一栏:前置自动定夺上下文(绿 ✓) + 本栏冲突版本(黄) + 后置上下文(绿 ✓)。
+fn column_panel<'a>(
+    title: &str,
+    before: &[&'a str],
+    conflict: &'a str,
+    after: &[&'a str],
+    selected: bool,
+) -> Paragraph<'a> {
+    let mut lines: Vec<Line> = Vec::new();
+    for &seg in before {
+        lines.extend(seg.lines().map(auto_line));
     }
-    Paragraph::new(body).block(block)
+    for l in conflict.lines() {
+        lines.push(conflict_line(l, selected));
+    }
+    for &seg in after {
+        lines.extend(seg.lines().map(auto_line));
+    }
+    let block = if selected {
+        Block::bordered()
+            .title(format!("● {title}"))
+            .border_style(Style::default().fg(Color::Green))
+    } else {
+        Block::bordered().title(format!("  {title}"))
+    };
+    Paragraph::new(lines).block(block)
+}
+
+/// 自动定夺行:绿色 + ✓ 前缀。
+fn auto_line(l: &str) -> Line<'_> {
+    Line::from(vec![
+        Span::styled("✓ ", Style::default().fg(Color::Green)),
+        Span::styled(l, Style::default().fg(Color::Green)),
+    ])
+}
+
+/// 冲突行:黄色,选中栏加粗。
+fn conflict_line(l: &str, selected: bool) -> Line<'_> {
+    let mut style = Style::default().fg(Color::Yellow);
+    if selected {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    Line::from(Span::styled(l, style))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gitcore::ConflictHunk;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    // 离屏渲染:当前块前后紧邻的自动定夺行应作为上下文(带 ✓)一并显示,
+    // 冲突两边内容也在场。钉住 auto_context 收集 + 上色映射不回归。
+    #[test]
+    fn renders_auto_resolved_context_around_conflict() {
+        let view = ConflictView {
+            files: vec!["f.txt".into()],
+            idx: 0,
+            segments: vec![
+                Segment::AutoResolved("A\n".into()),
+                Segment::Conflict(ConflictHunk {
+                    ours: "B\n".into(),
+                    base: "3\n".into(),
+                    theirs: "C\n".into(),
+                }),
+                Segment::AutoResolved("D\n".into()),
+            ],
+            hunks: vec![1],
+            choices: vec![Choice::Theirs],
+            cursor: 0,
+            autostash: None,
+            message: String::new(),
+        };
+
+        let mut terminal = Terminal::new(TestBackend::new(72, 14)).unwrap();
+        terminal.draw(|f| view.render(f)).unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+
+        assert!(text.contains('✓'), "应渲染自动定夺标记 ✓:\n{text}");
+        assert!(
+            text.contains('A') && text.contains('D'),
+            "应带上冲突前后的自动定夺上下文"
+        );
+        assert!(
+            text.contains('B') && text.contains('C'),
+            "应显示冲突两边内容"
+        );
+    }
 }

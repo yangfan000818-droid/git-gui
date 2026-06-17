@@ -158,7 +158,7 @@ fn magic_classifies_hunks() {
 }
 
 #[test]
-fn refine_whole_block_single_side_is_clean() {
+fn refine_whole_block_single_side_auto_resolved() {
     use gitcore::{ConflictHunk, Segment};
     // 整块只有 ours 改 → 行级魔法棒全自动,无残留冲突。
     let h = ConflictHunk {
@@ -166,7 +166,7 @@ fn refine_whole_block_single_side_is_clean() {
         base: "a\nb\nc\n".into(),
         theirs: "a\nb\nc\n".into(),
     };
-    assert_eq!(h.refine(), vec![Segment::Clean("a\nB\nc\n".into())]);
+    assert_eq!(h.refine(), vec![Segment::AutoResolved("a\nB\nc\n".into())]);
 }
 
 #[test]
@@ -181,13 +181,13 @@ fn refine_splits_inner_single_sides() {
     assert_eq!(
         h.refine(),
         vec![
-            Segment::Clean("A\n".into()),
+            Segment::AutoResolved("A\n".into()),
             Segment::Conflict(ConflictHunk {
                 ours: "B\n".into(),
                 base: "3\n".into(),
                 theirs: "C\n".into(),
             }),
-            Segment::Clean("D\n".into()),
+            Segment::AutoResolved("D\n".into()),
         ]
     );
 }
@@ -204,13 +204,13 @@ fn refine_keeps_real_conflict_for_user() {
     assert_eq!(
         h.refine(),
         vec![
-            Segment::Clean("a\n".into()),
+            Segment::AutoResolved("a\n".into()),
             Segment::Conflict(ConflictHunk {
                 ours: "X\n".into(),
                 base: "b\n".into(),
                 theirs: "Y\n".into(),
             }),
-            Segment::Clean("c\n".into()),
+            Segment::AutoResolved("c\n".into()),
         ]
     );
 }
@@ -234,7 +234,7 @@ fn read_conflict_applies_line_level_magic() {
         .iter()
         .filter_map(|s| match s {
             Segment::Conflict(h) => Some(h),
-            Segment::Clean(_) => None,
+            _ => None,
         })
         .collect();
     assert_eq!(conflicts.len(), 1);
@@ -283,7 +283,7 @@ fn merge_conflict_resolve_and_continue() {
         .iter()
         .filter_map(|s| match s {
             gitcore::Segment::Conflict(h) => Some(h),
-            gitcore::Segment::Clean(_) => None,
+            _ => None,
         })
         .collect();
     assert_eq!(hunks.len(), 1);

@@ -9,7 +9,10 @@ use std::path::Path;
 /// 文件的一个片段:无冲突文本,或一个冲突块。
 #[derive(Debug, Clone, PartialEq)]
 pub enum Segment {
+    /// 冲突块外的原文。
     Clean(String),
+    /// 行级魔法棒在冲突块内自动定夺的文本(下游同 Clean 直接输出)。
+    AutoResolved(String),
     Conflict(ConflictHunk),
 }
 
@@ -53,13 +56,13 @@ impl ConflictHunk {
     }
 
     /// 行级魔法棒:在 hunk 内部跑行级 diff3,把只有一边改动的行自动定夺,
-    /// 返回细分后的片段序列——整块可解 → 单个 Clean;部分可解 → Clean/Conflict
-    /// 交替;完全不可解 → 单个 Conflict。
+    /// 返回细分后的片段序列——整块可解 → 单个 AutoResolved;部分可解 →
+    /// AutoResolved/Conflict 交替;完全不可解 → 单个 Conflict。
     pub fn refine(&self) -> Vec<Segment> {
         crate::diff3::merge3(&self.ours, &self.base, &self.theirs)
             .into_iter()
             .map(|m| match m {
-                crate::diff3::Merge::Resolved(t) => Segment::Clean(t),
+                crate::diff3::Merge::Resolved(t) => Segment::AutoResolved(t),
                 crate::diff3::Merge::Conflict { ours, base, theirs } => {
                     Segment::Conflict(ConflictHunk { ours, base, theirs })
                 }
@@ -142,7 +145,7 @@ pub fn rebuild(segments: &[Segment], choices: &[Choice]) -> String {
     let mut ci = 0;
     for seg in segments {
         match seg {
-            Segment::Clean(t) => out.push_str(t),
+            Segment::Clean(t) | Segment::AutoResolved(t) => out.push_str(t),
             Segment::Conflict(h) => {
                 let choice = choices.get(ci).copied().unwrap_or(Choice::Ours);
                 ci += 1;
