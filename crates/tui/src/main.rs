@@ -7,6 +7,7 @@ mod cli;
 mod conflict_ui;
 mod log_ui;
 mod stage_ui;
+mod submodule_ui;
 
 use std::process::ExitCode;
 
