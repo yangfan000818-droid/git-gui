@@ -1,9 +1,10 @@
-//! ratatui 全屏 TUI:status 面板 + 冲突解决三栏视图。
+//! ratatui 全屏 TUI:status 面板 + 冲突解决三栏视图 + stage 视图。
 //!
 //! 交互效果需在真实终端运行;逻辑尽量薄,核心都在 gitcore。
 
 use crate::cli::describe;
-use crate::conflict_ui::{Action, ConflictView};
+use crate::conflict_ui::{self, ConflictView};
+use crate::stage_ui::{self, StageView};
 use gitcore::{Repo, RepoStatus, UpdateOptions, UpdateOutcome};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::{
@@ -39,6 +40,7 @@ pub fn run() -> ExitCode {
 enum Screen {
     Status,
     Conflict(ConflictView),
+    Stage(StageView),
 }
 
 struct AppState {
@@ -96,6 +98,7 @@ fn draw(f: &mut Frame, state: &AppState) {
     match &state.screen {
         Screen::Status => draw_status(f, state),
         Screen::Conflict(view) => view.render(f),
+        Screen::Stage(view) => view.render(f),
     }
 }
 
@@ -109,6 +112,23 @@ fn dispatch(repo: &Repo, state: &mut AppState, c: char) -> bool {
                 reload(repo, state);
                 state.message = "已刷新".into();
             }
+            's' => match StageView::load(repo) {
+                Ok(v) => state.screen = Screen::Stage(v),
+                Err(e) => state.message = format!("进入 Stage 失败: {e}"),
+            },
+            'p' => match repo.push() {
+                Ok(gitcore::PushOutcome::Success) => {
+                    state.message = "推送成功".into();
+                    reload(repo, state);
+                }
+                Ok(gitcore::PushOutcome::NoUpstream) => {
+                    state.message = "无 upstream,请先执行 git push -u origin <branch>".into();
+                }
+                Ok(gitcore::PushOutcome::NonFastForward) => {
+                    state.message = "非快进推送被拒,请先 pull".into();
+                }
+                Err(e) => state.message = format!("推送失败: {e}"),
+            },
             'u' => match repo.execute_update(&UpdateOptions::default()) {
                 Ok(UpdateOutcome::Conflicted { files, autostash }) => {
                     enter_conflict(repo, state, files, autostash)
@@ -126,9 +146,23 @@ fn dispatch(repo: &Repo, state: &mut AppState, c: char) -> bool {
             },
             _ => {}
         },
+        Screen::Stage(mut view) => match view.handle_key(repo, c) {
+            Ok(stage_ui::Action::Back) => {
+                reload(repo, state);
+            }
+            Ok(stage_ui::Action::Commit(sha)) => {
+                state.message = format!("已提交 {sha}");
+                reload(repo, state);
+            }
+            Ok(stage_ui::Action::None) => state.screen = Screen::Stage(view),
+            Err(e) => {
+                state.message = format!("操作失败: {e}");
+                state.screen = Screen::Stage(view);
+            }
+        },
         Screen::Conflict(mut view) => match view.handle_key(repo, c) {
-            Ok(Action::Quit) => return true,
-            Ok(Action::Continue(autostash)) => match repo.continue_update(autostash) {
+            Ok(conflict_ui::Action::Quit) => return true,
+            Ok(conflict_ui::Action::Continue(autostash)) => match repo.continue_update(autostash) {
                 Ok(UpdateOutcome::Conflicted { files, autostash }) => {
                     enter_conflict(repo, state, files, autostash);
                     state.message = "还有未解决的冲突".into();
@@ -142,14 +176,14 @@ fn dispatch(repo: &Repo, state: &mut AppState, c: char) -> bool {
                     reload(repo, state);
                 }
             },
-            Ok(Action::Abort(autostash)) => {
+            Ok(conflict_ui::Action::Abort(autostash)) => {
                 state.message = match repo.abort_update(autostash) {
                     Ok(()) => "已放弃整合".into(),
                     Err(e) => format!("放弃失败: {e}"),
                 };
                 reload(repo, state);
             }
-            Ok(Action::None) => state.screen = Screen::Conflict(view),
+            Ok(conflict_ui::Action::None) => state.screen = Screen::Conflict(view),
             Err(e) => {
                 state.message = format!("操作失败: {e}");
                 state.screen = Screen::Conflict(view);
@@ -199,7 +233,7 @@ fn draw_status(f: &mut Frame, state: &AppState) {
 
     f.render_widget(
         Paragraph::new(state.message.clone())
-            .block(Block::bordered().title(" u 更新 · r 刷新 · q 退出 ")),
+            .block(Block::bordered().title(" s Stage · p Push · u 更新 · r 刷新 · q 退出 ")),
         chunks[2],
     );
 }
