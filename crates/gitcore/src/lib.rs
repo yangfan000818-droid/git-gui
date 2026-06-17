@@ -4,6 +4,7 @@
 //! 设计:spawn git CLI + plumbing 命令拿可解析输出;每个写操作尽量可回退。
 
 mod conflict;
+mod diff3;
 mod error;
 mod git;
 mod resolve;
@@ -15,7 +16,9 @@ use std::path::{Path, PathBuf};
 
 pub use conflict::{conflicted_files, three_versions, ThreeVersions};
 pub use error::Error;
-pub use resolve::{parse_conflicts, rebuild, Choice, ConflictHunk, Resolution, Segment};
+pub use resolve::{
+    parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment,
+};
 pub use stash::{PopResult, StashRef};
 pub use status::RepoStatus;
 pub use update::{IntegrationStrategy, PendingConflicts, UpdateOptions, UpdateOutcome, UpdatePlan};
