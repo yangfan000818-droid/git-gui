@@ -92,13 +92,20 @@ pub(crate) fn execute_update(repo: &Repo, opts: &UpdateOptions) -> Result<Update
     let autostash = stash::autostash_push(repo, &label)?;
 
     // ② 整合:本地无领先提交则快进,否则按策略合并/变基。
-    let conflicted = if ahead == 0 {
-        fast_forward(repo)?
+    let integration = if ahead == 0 {
+        fast_forward(repo)
     } else {
         match opts.strategy {
-            IntegrationStrategy::Merge => merge(repo, opts.ignore_whitespace)?,
-            IntegrationStrategy::Rebase => rebase(repo, opts.ignore_whitespace)?,
+            IntegrationStrategy::Merge => merge(repo, opts.ignore_whitespace),
+            IntegrationStrategy::Rebase => rebase(repo, opts.ignore_whitespace),
         }
+    };
+    // 整合非冲突失败(如 pre-merge-commit hook 拒绝):不能让 `?` 直接抛错,
+    // 否则刚 push 的 autostash 会被遗弃在 stash 里(打脸 README「失败不丢改动」)。
+    // 先撤销半完成整合 + 还原脏改动,再把原始失败抛回。
+    let conflicted = match integration {
+        Ok(c) => c,
+        Err(cause) => return recover_or_strand(repo, autostash, cause),
     };
 
     if conflicted {
@@ -208,6 +215,41 @@ pub(crate) fn resume(repo: &Repo) -> Result<Option<PendingConflicts>, Error> {
 }
 
 // ---- 内部步骤 ----
+
+/// 整合非冲突失败时的收尾:撤销半完成的整合 + 还原 autostash,然后把原始失败抛回。
+///
+/// hook 在「已合并待提交」处拒绝会留下 MERGE_HEAD,必须先 abort,否则工作区/索引
+/// 被合并结果占着,脏改动贴不回来。还原失败(abort 出错 / 贴回冲突)时退而求其次:
+/// 点名 stash 的位置用 Precondition 报出来,让用户能手工取回,绝不无声丢改动。
+fn recover_or_strand(
+    repo: &Repo,
+    autostash: Option<StashRef>,
+    cause: Error,
+) -> Result<UpdateOutcome, Error> {
+    match in_progress(repo)? {
+        Some(Integration::Merge) => {
+            repo.git(&["merge", "--abort"])?;
+        }
+        Some(Integration::Rebase) => {
+            repo.git(&["rebase", "--abort"])?;
+        }
+        None => {}
+    }
+
+    if let Some(stash) = autostash {
+        match stash::autostash_pop(repo, &stash) {
+            Ok(PopResult::Clean) => {}
+            Ok(PopResult::Conflict(_)) | Err(_) => {
+                return Err(Error::Precondition(format!(
+                    "整合失败且改动未能自动还原,已保留在 stash「{}」,请手动 `git stash pop` 取回",
+                    stash.label
+                )));
+            }
+        }
+    }
+
+    Err(cause)
+}
 
 // rerere 重放后:把已无冲突标记的文件自动 add(视为已解决)。
 fn auto_resolve_rerere(repo: &Repo) -> Result<(), Error> {
