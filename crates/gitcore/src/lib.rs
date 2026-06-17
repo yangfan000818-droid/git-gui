@@ -4,6 +4,7 @@
 //! 设计:spawn git CLI + plumbing 命令拿可解析输出;每个写操作尽量可回退。
 
 mod commit;
+mod config;
 mod conflict;
 mod diff;
 mod diff3;
@@ -21,6 +22,7 @@ mod update;
 use std::path::{Path, PathBuf};
 
 pub use commit::CommitOptions;
+pub use config::{parse_repos_config, RepoConfig};
 pub use conflict::{conflicted_files, three_versions, ThreeVersions};
 pub use diff::DiffOptions;
 pub use error::Error;
