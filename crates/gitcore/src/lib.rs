@@ -33,7 +33,7 @@ pub use push::PushOutcome;
 pub use resolve::{
     parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment,
 };
-pub use stash::{PopResult, StashRef};
+pub use stash::{PopResult, StashEntry, StashRef};
 pub use status::{FileState, FileStatus, RepoStatus};
 pub use submodule::{Submodule, SubmoduleStatus};
 pub use update::{IntegrationStrategy, PendingConflicts, UpdateOptions, UpdateOutcome, UpdatePlan};
@@ -142,6 +142,31 @@ impl Repo {
     /// 获取指定提交的完整消息(多行)。
     pub fn commit_message(&self, sha: &str) -> Result<String, Error> {
         diff::commit_message(self, sha)
+    }
+
+    /// 列出所有 stash。
+    pub fn stashes(&self) -> Result<Vec<StashEntry>, Error> {
+        stash::list_stashes(self)
+    }
+
+    /// 创建新的 stash。
+    pub fn stash_push(&self, message: Option<&str>) -> Result<(), Error> {
+        stash::stash_push(self, message)
+    }
+
+    /// 应用指定 stash。
+    pub fn stash_apply(&self, reff: &str) -> Result<(), Error> {
+        stash::stash_apply(self, reff)
+    }
+
+    /// 弹出指定 stash。
+    pub fn stash_pop(&self, reff: &str) -> Result<PopResult, Error> {
+        stash::stash_pop(self, reff)
+    }
+
+    /// 丢弃指定 stash。
+    pub fn stash_drop(&self, reff: &str) -> Result<(), Error> {
+        stash::stash_drop(self, reff)
     }
 
     /// 列出所有子仓库。

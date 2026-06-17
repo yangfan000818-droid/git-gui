@@ -7,6 +7,7 @@ use crate::cli::describe;
 use crate::conflict_ui::{self, ConflictView};
 use crate::log_ui::{self, LogView};
 use crate::stage_ui::{self, StageView};
+use crate::stash_ui::{self, StashView};
 use crate::submodule_ui::{self, SubmoduleView};
 use gitcore::{parse_repos_config, DiffOptions, Repo, RepoStatus, UpdateOptions, UpdateOutcome};
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -87,6 +88,7 @@ enum Screen {
     Branch(BranchView),
     Conflict(ConflictView),
     Stage(StageView),
+    Stash(StashView),
     Log(LogView),
     Diff(String), // diff 内容
     Submodule(SubmoduleView),
@@ -199,6 +201,7 @@ fn draw(f: &mut Frame, state: &AppState) {
     match &state.screen {
         Screen::Status => draw_status(f, state),
         Screen::Branch(view) => view.render(f),
+        Screen::Stash(view) => view.render(f),
         Screen::Conflict(view) => view.render(f),
         Screen::Stage(view) => view.render(f),
         Screen::Log(view) => view.render(f),
@@ -222,6 +225,14 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                     match BranchView::load(repo) {
                         Ok(v) => state.screen = Screen::Branch(v),
                         Err(e) => state.message = format!("加载分支失败: {e}"),
+                    }
+                }
+            }
+            'h' => {
+                if let Some(repo) = state.current_repo() {
+                    match StashView::load(repo) {
+                        Ok(v) => state.screen = Screen::Stash(v),
+                        Err(e) => state.message = format!("加载 Stash 失败: {e}"),
                     }
                 }
             }
@@ -363,6 +374,24 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                 }
             }
         }
+        Screen::Stash(mut view) => {
+            if let Some(repo) = state.current_repo() {
+                match view.handle_key(repo, c) {
+                    Ok(stash_ui::Action::Back) => {
+                        reload(state);
+                    }
+                    Ok(stash_ui::Action::StashChanged) => {
+                        reload(state);
+                        state.screen = Screen::Stash(view);
+                    }
+                    Ok(stash_ui::Action::None) => state.screen = Screen::Stash(view),
+                    Err(e) => {
+                        state.message = format!("操作失败: {e}");
+                        state.screen = Screen::Stash(view);
+                    }
+                }
+            }
+        }
         Screen::Diff(_) => {
             if c == 'q' {
                 reload(state);
@@ -493,7 +522,7 @@ fn draw_status_single(f: &mut Frame, state: &AppState) {
 
     f.render_widget(
         Paragraph::new(state.message.clone()).block(Block::bordered().title(
-            " s Stage · b Branch · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
+            " s Stage · b Branch · h Stash · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
         )),
         chunks[2],
     );
@@ -570,7 +599,7 @@ fn draw_status_panel(f: &mut Frame, state: &AppState, area: ratatui::layout::Rec
 
     f.render_widget(
         Paragraph::new(state.message.clone()).block(Block::bordered().title(
-            " s Stage · b Branch · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
+            " s Stage · b Branch · h Stash · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
         )),
         chunks[2],
     );
