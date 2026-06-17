@@ -504,7 +504,10 @@ fn update_restores_autostash_when_integration_fails() {
     let repo = Repo::open(&b).unwrap();
     let result = repo.execute_update(&UpdateOptions::default());
 
-    assert!(result.is_err(), "整合被 hook 拒绝应返回错误,实际 {result:?}");
+    assert!(
+        result.is_err(),
+        "整合被 hook 拒绝应返回错误,实际 {result:?}"
+    );
 
     // 关键:脏改动不能被遗弃在 stash 里 —— autostash 应已还原。
     let stashes = repo.stashes().unwrap();
@@ -686,4 +689,53 @@ fn push_non_fast_forward_rejected() {
     );
 
     cleanup(&[&remote, &a, &b]);
+}
+
+// ========== fetch streaming(进度 / 取消)测试 ==========
+
+#[test]
+fn fetch_streaming_updates_remote_tracking() {
+    use gitcore::{CancelToken, Progress};
+    // a 推到裸库;b 克隆后 a 再推一提交 → fetch 后 b 应落后 1。
+    let a = init_repo("fs-a");
+    write(&a, "f.txt", "1");
+    commit_all(&a, "c1");
+    let remote = bare_remote("fs-remote");
+    git(&a, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    git(&a, &["push", "-q", "-u", "origin", "main"]);
+
+    let b = clone(&remote, "fs-b");
+
+    write(&a, "f.txt", "2");
+    commit_all(&a, "c2");
+    git(&a, &["push", "-q", "origin", "main"]);
+
+    let repo = Repo::open(&b).unwrap();
+    let cancel = CancelToken::default();
+    let mut cb = |_p: Progress| {};
+    repo.fetch_streaming(&mut cb, &cancel).unwrap();
+
+    // fetch 已更新 origin/main 到 c2,故应检测到落后 1。
+    assert_eq!(repo.status().unwrap().behind, 1, "fetch 后应落后 1");
+
+    cleanup(&[&a, &remote, &b]);
+}
+
+#[test]
+fn fetch_streaming_honors_precancelled_token() {
+    use gitcore::{CancelToken, Error, Progress};
+    let remote = bare_remote("fsc-remote");
+    let b = clone(&remote, "fsc-b");
+
+    let repo = Repo::open(&b).unwrap();
+    let cancel = CancelToken::default();
+    cancel.cancel(); // 进 fetch 前就取消:读循环第一轮即中止,与 fetch 快慢无关。
+    let mut cb = |_p: Progress| {};
+    let r = repo.fetch_streaming(&mut cb, &cancel);
+    assert!(
+        matches!(r, Err(Error::Cancelled)),
+        "预置取消应返回 Cancelled,实际 {r:?}"
+    );
+
+    cleanup(&[&remote, &b]);
 }

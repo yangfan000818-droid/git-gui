@@ -15,6 +15,8 @@ pub enum Error {
     Parse(String),
     /// 预检条件不满足(如无 upstream、已有合并进行中)。
     Precondition(String),
+    /// 长操作被用户取消(置位 CancelToken 后中止)。
+    Cancelled,
 }
 
 impl fmt::Display for Error {
@@ -31,6 +33,7 @@ impl fmt::Display for Error {
             Error::Io(e) => write!(f, "无法执行 git: {e}"),
             Error::Parse(s) => write!(f, "解析 git 输出失败: {s}"),
             Error::Precondition(s) => write!(f, "预检未通过: {s}"),
+            Error::Cancelled => write!(f, "操作已取消"),
         }
     }
 }
