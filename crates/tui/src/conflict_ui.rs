@@ -312,13 +312,8 @@ mod tests {
 
         let mut terminal = Terminal::new(TestBackend::new(72, 14)).unwrap();
         terminal.draw(|f| view.render(f)).unwrap();
-        let text: String = terminal
-            .backend()
-            .buffer()
-            .content
-            .iter()
-            .map(|c| c.symbol())
-            .collect();
+        let buf = terminal.backend().buffer();
+        let text: String = buf.content.iter().map(|c| c.symbol()).collect();
 
         assert!(text.contains('✓'), "应渲染自动定夺标记 ✓:\n{text}");
         assert!(
@@ -329,5 +324,16 @@ mod tests {
             text.contains('B') && text.contains('C'),
             "应显示冲突两边内容"
         );
+
+        // 上色锁死:✓ 与自动定夺行为绿、冲突行为黄。
+        let fg_of = |want: &str| -> Option<Color> {
+            buf.content
+                .iter()
+                .find(|c| c.symbol() == want)
+                .and_then(|c| c.style().fg)
+        };
+        assert_eq!(fg_of("✓"), Some(Color::Green), "✓ 标记应为绿色");
+        assert_eq!(fg_of("A"), Some(Color::Green), "自动定夺行应为绿色");
+        assert_eq!(fg_of("B"), Some(Color::Yellow), "冲突行应为黄色");
     }
 }
