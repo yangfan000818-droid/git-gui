@@ -5,6 +5,7 @@
 mod app;
 mod cli;
 mod conflict_ui;
+mod stage_ui;
 
 use std::process::ExitCode;
 
