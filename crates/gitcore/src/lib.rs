@@ -28,6 +28,7 @@ pub use config::{parse_repos_config, RepoConfig};
 pub use conflict::{conflicted_files, three_versions, ThreeVersions};
 pub use diff::DiffOptions;
 pub use error::Error;
+pub use git::{CancelToken, Progress};
 pub use log::{LogEntry, LogOptions};
 pub use push::PushOutcome;
 pub use resolve::{
@@ -69,9 +70,14 @@ impl Repo {
         update::plan_update(self, opts)
     }
 
-    /// 执行完整 Update 流程(autostash → 整合 → restore)。
-    pub fn execute_update(&self, opts: &UpdateOptions) -> Result<UpdateOutcome, Error> {
-        update::execute_update(self, opts)
+    /// 执行完整 Update 流程(autostash → 整合 → restore)。`cancel` 置位可在 fetch
+    /// 阶段中止并返回 `Error::Cancelled`(此时尚未 autostash,工作区不受影响)。
+    pub fn execute_update(
+        &self,
+        opts: &UpdateOptions,
+        cancel: &CancelToken,
+    ) -> Result<UpdateOutcome, Error> {
+        update::execute_update(self, opts, cancel)
     }
 
     /// 读取一个冲突文件,解析成片段序列(含三版本)。
@@ -122,6 +128,34 @@ impl Repo {
     /// 推送当前分支到 upstream。
     pub fn push(&self) -> Result<PushOutcome, Error> {
         push::push(self)
+    }
+
+    /// 流式 fetch:进度经 `on_progress` 上报,`cancel` 置位则中止并返回 `Error::Cancelled`。
+    /// 供需要进度条 / 可取消的长操作用;内部 update 流程仍走即时 fetch。
+    pub fn fetch_streaming(
+        &self,
+        on_progress: &mut dyn FnMut(Progress),
+        cancel: &CancelToken,
+    ) -> Result<(), Error> {
+        let out = self.git_streaming(&["fetch", "--prune", "--progress"], on_progress, cancel)?;
+        if out.success {
+            Ok(())
+        } else {
+            Err(Error::Git {
+                args: vec!["fetch".into(), "--prune".into(), "--progress".into()],
+                code: out.code,
+                stderr: out.stderr,
+            })
+        }
+    }
+
+    /// 流式推送:进度经 `on_progress` 上报,`cancel` 置位则中止。判定同 [`Repo::push`]。
+    pub fn push_streaming(
+        &self,
+        on_progress: &mut dyn FnMut(Progress),
+        cancel: &CancelToken,
+    ) -> Result<PushOutcome, Error> {
+        push::push_streaming(self, on_progress, cancel)
     }
 
     /// 获取提交历史。
@@ -202,5 +236,15 @@ impl Repo {
     // 跑一个 git 子命令,返回原始结果,不把非零当错误(用于可能冲突的整合)。
     pub(crate) fn git_checked(&self, args: &[&str]) -> Result<git::Output, Error> {
         git::run_checked(&self.workdir, args)
+    }
+
+    // 流式跑一个 git 子命令(进度回调 + 可取消),供 fetch / push 等长操作复用。
+    pub(crate) fn git_streaming(
+        &self,
+        args: &[&str],
+        on_progress: &mut dyn FnMut(Progress),
+        cancel: &CancelToken,
+    ) -> Result<git::Output, Error> {
+        git::run_streaming(&self.workdir, args, on_progress, cancel)
     }
 }

@@ -1,6 +1,6 @@
 //! CLI 模式:`tui status` / `tui update`,便于脚本化与自动化验证。
 
-use gitcore::{Repo, UpdateOptions, UpdateOutcome};
+use gitcore::{CancelToken, Repo, UpdateOptions, UpdateOutcome};
 use std::process::ExitCode;
 
 fn open() -> Result<Repo, ExitCode> {
@@ -49,7 +49,7 @@ pub fn update() -> ExitCode {
         Ok(r) => r,
         Err(c) => return c,
     };
-    match repo.execute_update(&UpdateOptions::default()) {
+    match repo.execute_update(&UpdateOptions::default(), &CancelToken::default()) {
         Ok(outcome) => {
             println!("{}", describe(&outcome));
             ExitCode::SUCCESS

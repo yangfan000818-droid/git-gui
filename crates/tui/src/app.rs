@@ -9,7 +9,9 @@ use crate::log_ui::{self, LogView};
 use crate::stage_ui::{self, StageView};
 use crate::stash_ui::{self, StashView};
 use crate::submodule_ui::{self, SubmoduleView};
-use gitcore::{parse_repos_config, DiffOptions, Repo, RepoStatus, UpdateOptions, UpdateOutcome};
+use gitcore::{
+    parse_repos_config, CancelToken, DiffOptions, Repo, RepoStatus, UpdateOptions, UpdateOutcome,
+};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -102,11 +104,20 @@ struct RepoEntry {
     status: Option<RepoStatus>,
 }
 
+// 后台执行中的 update:主循环轮询 rx 取结果,Esc 置位 cancel 请求取消。
+struct RunningUpdate {
+    cancel: CancelToken,
+    rx: std::sync::mpsc::Receiver<Result<UpdateOutcome, gitcore::Error>>,
+    handle: std::thread::JoinHandle<()>,
+}
+
 struct AppState {
     repos: Vec<RepoEntry>,
     current_index: usize,
     screen: Screen,
     message: String,
+    /// 有后台 update 在跑时为 Some;其间只接受 Esc 取消。
+    running: Option<RunningUpdate>,
 }
 
 impl AppState {
@@ -137,6 +148,7 @@ fn run_app(repo_list: Vec<(String, PathBuf)>) -> io::Result<()> {
         current_index: 0,
         screen: Screen::Status,
         message: "就绪".into(),
+        running: None,
     };
     reload(&mut state);
 
@@ -151,12 +163,29 @@ fn run_app(repo_list: Vec<(String, PathBuf)>) -> io::Result<()> {
 
 fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> io::Result<()> {
     loop {
+        poll_running(state);
         terminal.draw(|f| draw(f, state))?;
-        if !event::poll(Duration::from_millis(250))? {
+        // 后台 update 在跑时刷新更勤,及时反映完成 / 取消。
+        let timeout = if state.running.is_some() {
+            Duration::from_millis(50)
+        } else {
+            Duration::from_millis(250)
+        };
+        if !event::poll(timeout)? {
             continue;
         }
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            // 后台更新进行中:只接受 Esc 取消,其余按键忽略以免改动状态。
+            if state.running.is_some() {
+                if key.code == KeyCode::Esc {
+                    if let Some(r) = &state.running {
+                        r.cancel.cancel();
+                    }
+                    state.message = "正在取消…".into();
+                }
                 continue;
             }
             match key.code {
@@ -194,6 +223,40 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
                 _ => {}
             }
         }
+    }
+}
+
+// 后台 update 完成则取结果并落地(进冲突视图 / 刷新 / 报错 / 取消提示)。
+fn poll_running(state: &mut AppState) {
+    let outcome = match &state.running {
+        None => return,
+        Some(r) => r.rx.try_recv(),
+    };
+    let result = match outcome {
+        Ok(res) => res,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return, // 还在跑
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            state.running = None;
+            state.message = "更新线程意外退出".into();
+            return;
+        }
+    };
+    if let Some(running) = state.running.take() {
+        let _ = running.handle.join();
+    }
+    match result {
+        Ok(UpdateOutcome::Conflicted { files, autostash }) => {
+            enter_conflict(state, files, autostash)
+        }
+        Ok(outcome) => {
+            state.message = describe(&outcome);
+            reload(state);
+        }
+        Err(gitcore::Error::Cancelled) => {
+            state.message = "更新已取消".into();
+            reload(state);
+        }
+        Err(e) => state.message = format!("更新失败: {e}"),
     }
 }
 
@@ -300,17 +363,17 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                 }
             }
             'u' => {
-                if let Some(repo) = state.current_repo() {
-                    match repo.execute_update(&UpdateOptions::default()) {
-                        Ok(UpdateOutcome::Conflicted { files, autostash }) => {
-                            enter_conflict(state, files, autostash)
-                        }
-                        Ok(outcome) => {
-                            state.message = describe(&outcome);
-                            reload(state);
-                        }
-                        Err(e) => state.message = format!("更新失败: {e}"),
-                    }
+                // 异步执行:后台线程跑 update,主循环轮询结果,其间 Esc 可取消(fetch 阶段)。
+                let repo = state.current_repo().cloned();
+                if let Some(repo) = repo {
+                    let cancel = CancelToken::default();
+                    let token = cancel.clone();
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let handle = std::thread::spawn(move || {
+                        let _ = tx.send(repo.execute_update(&UpdateOptions::default(), &token));
+                    });
+                    state.running = Some(RunningUpdate { cancel, rx, handle });
+                    state.message = "更新中…(Esc 取消)".into();
                 }
             }
             'R' => {
