@@ -79,3 +79,100 @@ fn locate(repo: &Repo, label: &str) -> Result<Option<String>, Error> {
     }
     Ok(None)
 }
+
+// ========== 手动 stash 管理 ==========
+
+/// 一条 stash 记录。
+#[derive(Debug, Clone)]
+pub struct StashEntry {
+    /// stash@{N} 引用。
+    pub reff: String,
+    /// stash 消息。
+    pub message: String,
+    /// 来源分支。
+    pub branch: String,
+}
+
+/// 列出所有 stash。
+pub(crate) fn list_stashes(repo: &Repo) -> Result<Vec<StashEntry>, Error> {
+    let output = repo.git(&["stash", "list", "--pretty=format:%gd%x00%gs%x00%h:%s"])?;
+    let mut stashes = Vec::new();
+    for line in output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = line.split('\0').collect();
+        if parts.len() < 2 {
+            continue;
+        }
+        let reff = parts[0].to_string();
+        // git stash 默认消息格式: "WIP on <branch>: <commit>"
+        // 自定义消息: "<custom>"
+        let (branch, message) = parse_stash_message(parts[1]);
+        stashes.push(StashEntry {
+            reff,
+            message,
+            branch,
+        });
+    }
+    Ok(stashes)
+}
+
+/// 解析 stash 消息，提取分支名和实际消息。
+fn parse_stash_message(raw: &str) -> (String, String) {
+    if let Some(rest) = raw.strip_prefix("WIP on ") {
+        let branch = rest
+            .split(':')
+            .next()
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "?".into());
+        (branch, raw.to_string())
+    } else if let Some(rest) = raw.strip_prefix("On ") {
+        // "On <branch>: <message>"
+        let branch = rest
+            .split(':')
+            .next()
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "?".into());
+        (branch, raw.to_string())
+    } else {
+        ("?".into(), raw.to_string())
+    }
+}
+
+/// 创建新的 stash（含 untracked 文件）。
+pub(crate) fn stash_push(repo: &Repo, message: Option<&str>) -> Result<(), Error> {
+    let mut args = vec!["stash", "push", "--include-untracked"];
+    if let Some(msg) = message {
+        if !msg.is_empty() {
+            args.push("-m");
+            args.push(msg);
+        }
+    }
+    repo.git(&args)?;
+    Ok(())
+}
+
+/// 应用指定 stash（保留 stash）。
+pub(crate) fn stash_apply(repo: &Repo, reff: &str) -> Result<(), Error> {
+    repo.git(&["stash", "apply", reff])?;
+    Ok(())
+}
+
+/// 弹出指定 stash（apply + drop，冲突时保留）。
+pub(crate) fn stash_pop(repo: &Repo, reff: &str) -> Result<PopResult, Error> {
+    let out = repo.git_checked(&["stash", "pop", reff])?;
+    if out.success {
+        Ok(PopResult::Clean)
+    } else {
+        Ok(PopResult::Conflict(crate::conflict::conflicted_files(
+            repo,
+        )?))
+    }
+}
+
+/// 丢弃指定 stash。
+pub(crate) fn stash_drop(repo: &Repo, reff: &str) -> Result<(), Error> {
+    repo.git(&["stash", "drop", reff])?;
+    Ok(())
+}
