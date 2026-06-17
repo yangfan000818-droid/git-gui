@@ -739,3 +739,37 @@ fn fetch_streaming_honors_precancelled_token() {
 
     cleanup(&[&remote, &b]);
 }
+
+#[test]
+fn push_streaming_succeeds_to_bare_remote() {
+    use gitcore::{CancelToken, Progress};
+    let remote = bare_remote("pss-remote");
+    let dir = clone(&remote, "pss-local");
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+    git(&dir, &["push", "-q", "-u", "origin", "main"]); // 建立 upstream
+
+    write(&dir, "b.txt", "world");
+    commit_all(&dir, "second");
+
+    let repo = Repo::open(&dir).unwrap();
+    let cancel = CancelToken::default();
+    let mut cb = |_p: Progress| {};
+    assert_eq!(
+        repo.push_streaming(&mut cb, &cancel).unwrap(),
+        gitcore::PushOutcome::Success
+    );
+
+    // 验证 remote 真收到了 second。
+    let log = Command::new("git")
+        .args(["log", "--oneline"])
+        .current_dir(&remote)
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&log.stdout).contains("second"),
+        "remote 应收到 second 提交"
+    );
+
+    cleanup(&[&remote, &dir]);
+}

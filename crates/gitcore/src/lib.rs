@@ -132,12 +132,7 @@ impl Repo {
         on_progress: &mut dyn FnMut(Progress),
         cancel: &CancelToken,
     ) -> Result<(), Error> {
-        let out = git::run_streaming(
-            &self.workdir,
-            &["fetch", "--prune", "--progress"],
-            on_progress,
-            cancel,
-        )?;
+        let out = self.git_streaming(&["fetch", "--prune", "--progress"], on_progress, cancel)?;
         if out.success {
             Ok(())
         } else {
@@ -147,6 +142,15 @@ impl Repo {
                 stderr: out.stderr,
             })
         }
+    }
+
+    /// 流式推送:进度经 `on_progress` 上报,`cancel` 置位则中止。判定同 [`Repo::push`]。
+    pub fn push_streaming(
+        &self,
+        on_progress: &mut dyn FnMut(Progress),
+        cancel: &CancelToken,
+    ) -> Result<PushOutcome, Error> {
+        push::push_streaming(self, on_progress, cancel)
     }
 
     /// 获取提交历史。
@@ -227,5 +231,15 @@ impl Repo {
     // 跑一个 git 子命令,返回原始结果,不把非零当错误(用于可能冲突的整合)。
     pub(crate) fn git_checked(&self, args: &[&str]) -> Result<git::Output, Error> {
         git::run_checked(&self.workdir, args)
+    }
+
+    // 流式跑一个 git 子命令(进度回调 + 可取消),供 fetch / push 等长操作复用。
+    pub(crate) fn git_streaming(
+        &self,
+        args: &[&str],
+        on_progress: &mut dyn FnMut(Progress),
+        cancel: &CancelToken,
+    ) -> Result<git::Output, Error> {
+        git::run_streaming(&self.workdir, args, on_progress, cancel)
     }
 }
