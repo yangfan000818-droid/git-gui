@@ -464,6 +464,69 @@ fn rebase_conflict_can_be_aborted() {
     cleanup(&[&a, &remote, &b]);
 }
 
+// 造一个能自动合并的分叉(a、b 改不同文件,无冲突);返回 (a, remote, b),b ahead=1 behind=1。
+fn setup_divergent_no_conflict(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let a = init_repo(&format!("{tag}-a"));
+    write(&a, "f.txt", "base\n");
+    commit_all(&a, "base");
+    let remote = bare_remote(&format!("{tag}-remote"));
+    git(&a, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    git(&a, &["push", "-q", "-u", "origin", "main"]);
+
+    let b = clone(&remote, &format!("{tag}-b"));
+
+    write(&a, "a.txt", "from-a\n");
+    commit_all(&a, "a-change");
+    git(&a, &["push", "-q", "origin", "main"]);
+
+    write(&b, "b.txt", "from-b\n");
+    commit_all(&b, "b-change");
+    (a, remote, b)
+}
+
+// 整合阶段意外失败(非冲突)时,autostash 必须被还原,不能把脏改动遗弃在 stash 里。
+#[cfg(unix)]
+#[test]
+fn update_restores_autostash_when_integration_fails() {
+    use std::os::unix::fs::PermissionsExt;
+    let (a, remote, b) = setup_divergent_no_conflict("intfail");
+
+    // 装一个必定失败的 pre-merge-commit hook:自动合并能完成,但创建 merge commit 前被拒。
+    write(&b, ".git/hooks/pre-merge-commit", "#!/bin/sh\nexit 1\n");
+    let hook = b.join(".git/hooks/pre-merge-commit");
+    let mut perm = std::fs::metadata(&hook).unwrap().permissions();
+    perm.set_mode(0o755);
+    std::fs::set_permissions(&hook, perm).unwrap();
+
+    // 工作区弄脏(无关 untracked 文件)→ 触发 autostash。
+    write(&b, "dirty.txt", "WIP\n");
+
+    let repo = Repo::open(&b).unwrap();
+    let result = repo.execute_update(&UpdateOptions::default());
+
+    assert!(result.is_err(), "整合被 hook 拒绝应返回错误,实际 {result:?}");
+
+    // 关键:脏改动不能被遗弃在 stash 里 —— autostash 应已还原。
+    let stashes = repo.stashes().unwrap();
+    assert!(
+        stashes.is_empty(),
+        "整合失败后不应残留 autostash,实际 {stashes:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(b.join("dirty.txt")).unwrap(),
+        "WIP\n",
+        "脏改动应被还原回工作区"
+    );
+
+    // 不应残留半完成的 merge。
+    assert!(
+        repo.status().unwrap().conflicted.is_empty(),
+        "不应残留冲突/半完成整合"
+    );
+
+    cleanup(&[&a, &remote, &b]);
+}
+
 // ========== stage/commit/push 测试 ==========
 
 #[test]
