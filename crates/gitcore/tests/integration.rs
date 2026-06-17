@@ -463,3 +463,164 @@ fn rebase_conflict_can_be_aborted() {
 
     cleanup(&[&a, &remote, &b]);
 }
+
+// ========== stage/commit/push 测试 ==========
+
+#[test]
+fn stage_and_commit_advances_head() {
+    let dir = init_repo("sc");
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+
+    let repo = Repo::open(&dir).unwrap();
+
+    // 记录旧 HEAD
+    let old_head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let old_head = String::from_utf8_lossy(&old_head.stdout).trim().to_string();
+
+    write(&dir, "b.txt", "world");
+    repo.stage(&[Path::new("b.txt")]).unwrap();
+
+    let opts = gitcore::CommitOptions {
+        message: "add b".into(),
+        allow_empty: false,
+    };
+    let sha = repo.commit(&opts).unwrap();
+    assert_eq!(sha.len(), 8, "SHA 应为 8 位");
+
+    // 验证 HEAD 改变
+    let new_head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let new_head = String::from_utf8_lossy(&new_head.stdout).trim().to_string();
+    assert_ne!(old_head, new_head, "commit 应改变 HEAD");
+
+    let st = repo.status().unwrap();
+    assert!(!st.dirty, "commit 后应干净");
+    assert_eq!(st.files.len(), 0);
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn unstage_removes_from_index() {
+    let dir = init_repo("us");
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+
+    let repo = Repo::open(&dir).unwrap();
+    write(&dir, "b.txt", "world");
+    repo.stage(&[Path::new("b.txt")]).unwrap();
+
+    let st = repo.status().unwrap();
+    assert_eq!(st.files.len(), 1);
+    assert!(matches!(st.files[0].state, gitcore::FileState::Staged));
+
+    repo.unstage(&[Path::new("b.txt")]).unwrap();
+
+    let st = repo.status().unwrap();
+    assert_eq!(st.files.len(), 1);
+    assert!(matches!(st.files[0].state, gitcore::FileState::Untracked));
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn commit_empty_staging_fails() {
+    let dir = init_repo("ce");
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+
+    let repo = Repo::open(&dir).unwrap();
+    let opts = gitcore::CommitOptions {
+        message: "empty".into(),
+        allow_empty: false,
+    };
+
+    let err = repo.commit(&opts).unwrap_err();
+    assert!(
+        matches!(err, gitcore::Error::Precondition(_)),
+        "空暂存区应拒绝 commit"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn push_to_bare_remote() {
+    let remote = bare_remote("pbr");
+    let dir = clone(&remote, "pbr-local");
+
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+    git(&dir, &["push"]);
+
+    write(&dir, "b.txt", "world");
+    commit_all(&dir, "second");
+
+    let repo = Repo::open(&dir).unwrap();
+    let outcome = repo.push().unwrap();
+    assert_eq!(outcome, gitcore::PushOutcome::Success);
+
+    // 验证 remote 收到了
+    let remote_log = Command::new("git")
+        .args(["log", "--oneline"])
+        .current_dir(&remote)
+        .output()
+        .unwrap();
+    let log = String::from_utf8_lossy(&remote_log.stdout);
+    assert!(log.contains("second"), "remote 应收到 second 提交");
+
+    cleanup(&[&remote, &dir]);
+}
+
+#[test]
+fn push_without_upstream_returns_no_upstream() {
+    let dir = init_repo("pnu");
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+
+    let repo = Repo::open(&dir).unwrap();
+    let outcome = repo.push().unwrap();
+    assert_eq!(outcome, gitcore::PushOutcome::NoUpstream);
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn push_non_fast_forward_rejected() {
+    let remote = bare_remote("pnff");
+    let a = clone(&remote, "pnff-a");
+
+    // 初始提交(让 remote 有内容)
+    write(&a, "init.txt", "init");
+    commit_all(&a, "init");
+    git(&a, &["push", "-u", "origin", "main"]);
+
+    let b = clone(&remote, "pnff-b");
+
+    // a 再提交并推送
+    write(&a, "a.txt", "from-a");
+    commit_all(&a, "a-change");
+    git(&a, &["push"]);
+
+    // b 本地提交(不知道 a 的改动)
+    write(&b, "b.txt", "from-b");
+    commit_all(&b, "b-change");
+
+    let repo = Repo::open(&b).unwrap();
+    let outcome = repo.push().unwrap();
+    assert_eq!(
+        outcome,
+        gitcore::PushOutcome::NonFastForward,
+        "远端领先时 push 应被拒"
+    );
+
+    cleanup(&[&remote, &a, &b]);
+}

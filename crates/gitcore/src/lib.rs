@@ -3,24 +3,29 @@
 //! 所有前端(TUI / 未来 GUI)都依赖本 crate,不直接调用 git。
 //! 设计:spawn git CLI + plumbing 命令拿可解析输出;每个写操作尽量可回退。
 
+mod commit;
 mod conflict;
 mod diff3;
 mod error;
 mod git;
+mod push;
 mod resolve;
+mod stage;
 mod stash;
 mod status;
 mod update;
 
 use std::path::{Path, PathBuf};
 
+pub use commit::CommitOptions;
 pub use conflict::{conflicted_files, three_versions, ThreeVersions};
 pub use error::Error;
+pub use push::PushOutcome;
 pub use resolve::{
     parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment,
 };
 pub use stash::{PopResult, StashRef};
-pub use status::RepoStatus;
+pub use status::{FileState, FileStatus, RepoStatus};
 pub use update::{IntegrationStrategy, PendingConflicts, UpdateOptions, UpdateOutcome, UpdatePlan};
 
 /// 一个 git 工作区的句柄;所有操作相对它执行。
@@ -82,6 +87,31 @@ impl Repo {
     /// 检测未完成的整合(中断/崩溃后):返回待解决冲突文件 + 扫回的 autostash。
     pub fn resume_conflicts(&self) -> Result<Option<PendingConflicts>, Error> {
         update::resume(self)
+    }
+
+    /// 暂存指定文件。
+    pub fn stage(&self, paths: &[&Path]) -> Result<(), Error> {
+        stage::stage_files(self, paths)
+    }
+
+    /// 取消暂存指定文件。
+    pub fn unstage(&self, paths: &[&Path]) -> Result<(), Error> {
+        stage::unstage_files(self, paths)
+    }
+
+    /// 暂存所有改动和未跟踪文件。
+    pub fn stage_all(&self) -> Result<(), Error> {
+        stage::stage_all(self)
+    }
+
+    /// 创建提交,返回新提交的 SHA(前 8 位)。
+    pub fn commit(&self, opts: &CommitOptions) -> Result<String, Error> {
+        commit::commit(self, opts)
+    }
+
+    /// 推送当前分支到 upstream。
+    pub fn push(&self) -> Result<PushOutcome, Error> {
+        push::push(self)
     }
 
     // 跑一个必须成功的 git 子命令,非零退出 → Err。

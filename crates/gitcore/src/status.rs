@@ -16,6 +16,28 @@ pub struct RepoStatus {
     pub dirty: bool,
     /// 当前冲突文件。
     pub conflicted: Vec<PathBuf>,
+    /// 文件级状态(已暂存/已修改/未跟踪等)。
+    pub files: Vec<FileStatus>,
+}
+
+/// 单个文件的状态。
+#[derive(Debug, Clone)]
+pub struct FileStatus {
+    pub path: PathBuf,
+    pub state: FileState,
+}
+
+/// 文件在工作区和暂存区的状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileState {
+    /// 已暂存(待提交)。
+    Staged,
+    /// 已修改未暂存。
+    Modified,
+    /// 未跟踪。
+    Untracked,
+    /// 同一文件既有暂存又有新改动。
+    StagedAndModified,
 }
 
 pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
@@ -33,7 +55,9 @@ pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
         (0, 0)
     };
 
-    let dirty = !repo.git(&["status", "--porcelain"])?.trim().is_empty();
+    let porcelain = repo.git(&["status", "--porcelain=v1"])?;
+    let files = parse_porcelain(&porcelain);
+    let dirty = !files.is_empty();
     let conflicted = crate::conflict::conflicted_files(repo)?;
 
     Ok(RepoStatus {
@@ -43,6 +67,7 @@ pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
         ahead,
         dirty,
         conflicted,
+        files,
     })
 }
 
@@ -56,4 +81,34 @@ fn parse_left_right(s: &str) -> Result<(u32, u32), Error> {
         (Some(b), Some(a)) => Ok((b, a)),
         _ => Err(Error::Parse(format!("rev-list --count 输出异常: {s:?}"))),
     }
+}
+
+// 解析 git status --porcelain=v1 输出,每行格式: XY path
+// X = 暂存区状态, Y = 工作区状态
+// 例: "M " = 已暂存, " M" = 已修改, "MM" = 既暂存又修改, "??" = 未跟踪
+fn parse_porcelain(output: &str) -> Vec<FileStatus> {
+    output
+        .lines()
+        .filter_map(|line| {
+            if line.len() < 4 {
+                return None;
+            }
+            let x = line.chars().next()?;
+            let y = line.chars().nth(1)?;
+            let path = line[3..].trim().to_string();
+
+            let state = match (x, y) {
+                ('?', '?') => FileState::Untracked,
+                (' ', 'M') | (' ', 'D') => FileState::Modified,
+                ('M', ' ') | ('A', ' ') | ('D', ' ') | ('R', ' ') | ('C', ' ') => FileState::Staged,
+                ('M', 'M') | ('A', 'M') => FileState::StagedAndModified,
+                _ => return None, // 忽略其他状态(如冲突标记 UU 等,已在 conflicted 字段)
+            };
+
+            Some(FileStatus {
+                path: path.into(),
+                state,
+            })
+        })
+        .collect()
 }
