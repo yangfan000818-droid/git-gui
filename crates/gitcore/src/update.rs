@@ -1,5 +1,5 @@
 use crate::stash::{self, PopResult, StashRef};
-use crate::{Error, Repo};
+use crate::{CancelToken, Error, Progress, Repo};
 use std::path::PathBuf;
 
 /// 整合策略:合并或变基。
@@ -77,10 +77,14 @@ pub(crate) fn plan_update(repo: &Repo, _opts: &UpdateOptions) -> Result<UpdatePl
 }
 
 /// 执行完整 Update 流程。
-pub(crate) fn execute_update(repo: &Repo, opts: &UpdateOptions) -> Result<UpdateOutcome, Error> {
+pub(crate) fn execute_update(
+    repo: &Repo,
+    opts: &UpdateOptions,
+    cancel: &CancelToken,
+) -> Result<UpdateOutcome, Error> {
     preflight(repo)?;
     require_upstream(repo)?;
-    repo.git(&["fetch", "--prune"])?;
+    fetch(repo, cancel)?;
 
     let (behind, ahead) = ahead_behind(repo)?;
     if behind == 0 {
@@ -249,6 +253,22 @@ fn recover_or_strand(
     }
 
     Err(cause)
+}
+
+// 可取消的 fetch:取消 → Err(Cancelled);失败 → Err(Git)。execute_update 内部用,
+// 进度不上报(UI 进度走 fetch_streaming);带 --progress 是为给取消轮询留时机点。
+fn fetch(repo: &Repo, cancel: &CancelToken) -> Result<(), Error> {
+    let mut ignore = |_p: Progress| {};
+    let out = repo.git_streaming(&["fetch", "--prune", "--progress"], &mut ignore, cancel)?;
+    if out.success {
+        Ok(())
+    } else {
+        Err(Error::Git {
+            args: vec!["fetch".into(), "--prune".into(), "--progress".into()],
+            code: out.code,
+            stderr: out.stderr,
+        })
+    }
 }
 
 // rerere 重放后:把已无冲突标记的文件自动 add(视为已解决)。

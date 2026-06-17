@@ -9,7 +9,9 @@ use crate::log_ui::{self, LogView};
 use crate::stage_ui::{self, StageView};
 use crate::stash_ui::{self, StashView};
 use crate::submodule_ui::{self, SubmoduleView};
-use gitcore::{parse_repos_config, DiffOptions, Repo, RepoStatus, UpdateOptions, UpdateOutcome};
+use gitcore::{
+    parse_repos_config, CancelToken, DiffOptions, Repo, RepoStatus, UpdateOptions, UpdateOutcome,
+};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -301,7 +303,7 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
             }
             'u' => {
                 if let Some(repo) = state.current_repo() {
-                    match repo.execute_update(&UpdateOptions::default()) {
+                    match repo.execute_update(&UpdateOptions::default(), &CancelToken::default()) {
                         Ok(UpdateOutcome::Conflicted { files, autostash }) => {
                             enter_conflict(state, files, autostash)
                         }

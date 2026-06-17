@@ -1,7 +1,7 @@
 //! gitcore 集成测试:在临时 git 仓库上验证真实行为。
 //! 每个测试自建临时 repo、用完即删。
 
-use gitcore::{IntegrationStrategy, Repo, UpdateOptions, UpdateOutcome};
+use gitcore::{CancelToken, IntegrationStrategy, Repo, UpdateOptions, UpdateOutcome};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -113,7 +113,7 @@ fn execute_update_fast_forwards_when_behind() {
 
     let outcome = Repo::open(&b)
         .unwrap()
-        .execute_update(&UpdateOptions::default())
+        .execute_update(&UpdateOptions::default(), &CancelToken::default())
         .unwrap();
     assert!(
         matches!(outcome, UpdateOutcome::FastForwarded { commits: 1 }),
@@ -272,7 +272,10 @@ fn merge_conflict_resolve_and_continue() {
     let (a, remote, b) = setup_conflict("cf");
     let repo = Repo::open(&b).unwrap();
 
-    let (files, autostash) = match repo.execute_update(&UpdateOptions::default()).unwrap() {
+    let (files, autostash) = match repo
+        .execute_update(&UpdateOptions::default(), &CancelToken::default())
+        .unwrap()
+    {
         UpdateOutcome::Conflicted { files, autostash } => (files, autostash),
         other => panic!("应当冲突,实际 {other:?}"),
     };
@@ -309,7 +312,10 @@ fn merge_conflict_can_be_aborted() {
     let (a, remote, b) = setup_conflict("ab");
     let repo = Repo::open(&b).unwrap();
 
-    let autostash = match repo.execute_update(&UpdateOptions::default()).unwrap() {
+    let autostash = match repo
+        .execute_update(&UpdateOptions::default(), &CancelToken::default())
+        .unwrap()
+    {
         UpdateOutcome::Conflicted { autostash, .. } => autostash,
         other => panic!("应当冲突,实际 {other:?}"),
     };
@@ -333,7 +339,9 @@ fn resume_finds_pending_conflict_and_restores_autostash() {
     write(&b, "g.txt", "dirty\n");
 
     let repo = Repo::open(&b).unwrap();
-    let out = repo.execute_update(&UpdateOptions::default()).unwrap();
+    let out = repo
+        .execute_update(&UpdateOptions::default(), &CancelToken::default())
+        .unwrap();
     assert!(
         matches!(
             out,
@@ -377,7 +385,10 @@ fn rerere_replays_previous_resolution() {
     let repo = Repo::open(&b).unwrap();
 
     // 第一次:冲突 → 选 theirs 解决 → continue。rerere 记录解法。
-    let (files, autostash) = match repo.execute_update(&UpdateOptions::default()).unwrap() {
+    let (files, autostash) = match repo
+        .execute_update(&UpdateOptions::default(), &CancelToken::default())
+        .unwrap()
+    {
         UpdateOutcome::Conflicted { files, autostash } => (files, autostash),
         o => panic!("应冲突,实际 {o:?}"),
     };
@@ -390,7 +401,10 @@ fn rerere_replays_previous_resolution() {
     git(&b, &["reset", "--hard", "HEAD~1"]);
 
     // 第二次:同样冲突 → rerere 重放 + 自动确认 → 无需人工,直接完成。
-    match repo.execute_update(&UpdateOptions::default()).unwrap() {
+    match repo
+        .execute_update(&UpdateOptions::default(), &CancelToken::default())
+        .unwrap()
+    {
         UpdateOutcome::Resolved => {}
         o => panic!("rerere 应全自动解决,实际 {o:?}"),
     }
@@ -412,7 +426,7 @@ fn rebase_conflict_resolve_and_continue() {
         ignore_whitespace: true,
     };
 
-    let (files, autostash) = match repo.execute_update(&opts).unwrap() {
+    let (files, autostash) = match repo.execute_update(&opts, &CancelToken::default()).unwrap() {
         UpdateOutcome::Conflicted { files, autostash } => (files, autostash),
         o => panic!("rebase 应产生冲突,实际 {o:?}"),
     };
@@ -446,7 +460,7 @@ fn rebase_conflict_can_be_aborted() {
         ignore_whitespace: true,
     };
 
-    let autostash = match repo.execute_update(&opts).unwrap() {
+    let autostash = match repo.execute_update(&opts, &CancelToken::default()).unwrap() {
         UpdateOutcome::Conflicted { autostash, .. } => autostash,
         o => panic!("rebase 应产生冲突,实际 {o:?}"),
     };
@@ -502,7 +516,7 @@ fn update_restores_autostash_when_integration_fails() {
     write(&b, "dirty.txt", "WIP\n");
 
     let repo = Repo::open(&b).unwrap();
-    let result = repo.execute_update(&UpdateOptions::default());
+    let result = repo.execute_update(&UpdateOptions::default(), &CancelToken::default());
 
     assert!(
         result.is_err(),
@@ -772,4 +786,30 @@ fn push_streaming_succeeds_to_bare_remote() {
     );
 
     cleanup(&[&remote, &dir]);
+}
+
+// 预置取消应在 fetch 阶段(autostash 之前)就中止 update,不产生任何 stash。
+#[test]
+fn update_honors_precancelled_token_before_autostash() {
+    let (a, remote, b) = setup_divergent_no_conflict("ucancel");
+    // 弄脏工作区:若取消晚到(autostash 之后才生效),会残留 stash —— 用它反证取消够早。
+    write(&b, "dirty.txt", "WIP\n");
+
+    let repo = Repo::open(&b).unwrap();
+    let cancel = CancelToken::default();
+    cancel.cancel(); // 进 fetch 前取消:fetch 读循环第一轮即中止,早于 autostash。
+    let r = repo.execute_update(&UpdateOptions::default(), &cancel);
+    assert!(
+        matches!(r, Err(gitcore::Error::Cancelled)),
+        "预置取消应返回 Cancelled,实际 {r:?}"
+    );
+
+    // 取消发生在 autostash 之前:不应残留 stash,脏改动仍在工作区。
+    assert!(repo.stashes().unwrap().is_empty(), "取消不应残留 autostash");
+    assert_eq!(
+        std::fs::read_to_string(b.join("dirty.txt")).unwrap(),
+        "WIP\n"
+    );
+
+    cleanup(&[&a, &remote, &b]);
 }

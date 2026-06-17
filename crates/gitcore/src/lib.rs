@@ -70,9 +70,14 @@ impl Repo {
         update::plan_update(self, opts)
     }
 
-    /// 执行完整 Update 流程(autostash → 整合 → restore)。
-    pub fn execute_update(&self, opts: &UpdateOptions) -> Result<UpdateOutcome, Error> {
-        update::execute_update(self, opts)
+    /// 执行完整 Update 流程(autostash → 整合 → restore)。`cancel` 置位可在 fetch
+    /// 阶段中止并返回 `Error::Cancelled`(此时尚未 autostash,工作区不受影响)。
+    pub fn execute_update(
+        &self,
+        opts: &UpdateOptions,
+        cancel: &CancelToken,
+    ) -> Result<UpdateOutcome, Error> {
+        update::execute_update(self, opts, cancel)
     }
 
     /// 读取一个冲突文件,解析成片段序列(含三版本)。
