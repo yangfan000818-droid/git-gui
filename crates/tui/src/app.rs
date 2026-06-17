@@ -1,4 +1,4 @@
-//! ratatui 全屏 TUI:status 面板 + 冲突解决三栏视图 + stage 视图 + log 视图。
+//! ratatui 全屏 TUI:status 面板 + 冲突解决三栏视图 + stage 视图 + log 视图 + submodule 视图。
 //!
 //! 交互效果需在真实终端运行;逻辑尽量薄,核心都在 gitcore。
 
@@ -6,6 +6,7 @@ use crate::cli::describe;
 use crate::conflict_ui::{self, ConflictView};
 use crate::log_ui::{self, LogView};
 use crate::stage_ui::{self, StageView};
+use crate::submodule_ui::{self, SubmoduleView};
 use gitcore::{DiffOptions, Repo, RepoStatus, UpdateOptions, UpdateOutcome};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::{
@@ -17,12 +18,17 @@ use ratatui::layout::{Constraint, Layout};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use std::io;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
 pub fn run() -> ExitCode {
     let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
-    let repo = match Repo::open(&cwd) {
+    run_with_path(&cwd)
+}
+
+fn run_with_path(path: &PathBuf) -> ExitCode {
+    let repo = match Repo::open(path) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("打开仓库失败: {e}");
@@ -44,6 +50,7 @@ enum Screen {
     Stage(StageView),
     Log(LogView),
     Diff(String), // diff 内容
+    Submodule(SubmoduleView),
 }
 
 struct AppState {
@@ -104,6 +111,7 @@ fn draw(f: &mut Frame, state: &AppState) {
         Screen::Stage(view) => view.render(f),
         Screen::Log(view) => view.render(f),
         Screen::Diff(content) => draw_diff(f, content),
+        Screen::Submodule(view) => view.render(f),
     }
 }
 
@@ -121,6 +129,17 @@ fn dispatch(repo: &Repo, state: &mut AppState, c: char) -> bool {
                 Ok(v) => state.screen = Screen::Stage(v),
                 Err(e) => state.message = format!("进入 Stage 失败: {e}"),
             },
+            'S' => {
+                // 大写 S：进入 Submodule 视图
+                if let Some(ref st) = state.status {
+                    if st.submodules.is_empty() {
+                        state.message = "无子仓库".into();
+                    } else {
+                        state.screen =
+                            Screen::Submodule(SubmoduleView::load(st.submodules.clone()));
+                    }
+                }
+            }
             'l' => match LogView::load(repo) {
                 Ok(v) => state.screen = Screen::Log(v),
                 Err(e) => state.message = format!("加载 Log 失败: {e}"),
@@ -196,6 +215,18 @@ fn dispatch(repo: &Repo, state: &mut AppState, c: char) -> bool {
                 state.screen = std::mem::replace(&mut state.screen, Screen::Status);
             }
         }
+        Screen::Submodule(mut view) => match view.handle_key(c) {
+            submodule_ui::Action::Back => {
+                reload(repo, state);
+            }
+            submodule_ui::Action::SwitchTo(path) => {
+                // 切换到子仓库：退出当前 TUI，重新启动到子仓库路径
+                // TODO: 实现真正的切换（需要重构 run_app 接受路径参数）
+                state.message = format!("切换子仓库功能开发中: {}", path.display());
+                reload(repo, state);
+            }
+            submodule_ui::Action::None => state.screen = Screen::Submodule(view),
+        },
         Screen::Conflict(mut view) => match view.handle_key(repo, c) {
             Ok(conflict_ui::Action::Quit) => return true,
             Ok(conflict_ui::Action::Continue(autostash)) => match repo.continue_update(autostash) {
@@ -268,10 +299,10 @@ fn draw_status(f: &mut Frame, state: &AppState) {
     );
 
     f.render_widget(
-        Paragraph::new(state.message.clone()).block(
-            Block::bordered()
-                .title(" s Stage · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 "),
-        ),
+        Paragraph::new(state.message.clone())
+            .block(Block::bordered().title(
+                " s Stage · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
+            )),
         chunks[2],
     );
 }
@@ -294,6 +325,18 @@ fn status_text(st: &RepoStatus) -> String {
             "\n冲突文件:  {} 个(按 R 恢复解决)",
             st.conflicted.len()
         ));
+    }
+    if !st.submodules.is_empty() {
+        s.push_str(&format!("\n\n子仓库:    {} 个", st.submodules.len()));
+        for sub in &st.submodules {
+            let status_icon = match sub.status {
+                gitcore::SubmoduleStatus::Clean => "✓",
+                gitcore::SubmoduleStatus::Dirty => "●",
+                gitcore::SubmoduleStatus::Detached => "⚠",
+                gitcore::SubmoduleStatus::Uninitialized => "?",
+            };
+            s.push_str(&format!("\n  {} {}", status_icon, sub.name));
+        }
     }
     s
 }

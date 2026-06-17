@@ -1,4 +1,4 @@
-use crate::{Error, Repo};
+use crate::{Error, Repo, Submodule};
 use std::path::PathBuf;
 
 /// 工作区某一刻的状态快照。
@@ -18,6 +18,8 @@ pub struct RepoStatus {
     pub conflicted: Vec<PathBuf>,
     /// 文件级状态(已暂存/已修改/未跟踪等)。
     pub files: Vec<FileStatus>,
+    /// 子仓库列表。
+    pub submodules: Vec<Submodule>,
 }
 
 /// 单个文件的状态。
@@ -59,6 +61,7 @@ pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
     let files = parse_porcelain(&porcelain);
     let dirty = !files.is_empty();
     let conflicted = crate::conflict::conflicted_files(repo)?;
+    let submodules = repo.submodules().unwrap_or_default();
 
     Ok(RepoStatus {
         branch,
@@ -68,6 +71,7 @@ pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
         dirty,
         conflicted,
         files,
+        submodules,
     })
 }
 

@@ -15,6 +15,7 @@ mod resolve;
 mod stage;
 mod stash;
 mod status;
+mod submodule;
 mod update;
 
 use std::path::{Path, PathBuf};
@@ -30,6 +31,7 @@ pub use resolve::{
 };
 pub use stash::{PopResult, StashRef};
 pub use status::{FileState, FileStatus, RepoStatus};
+pub use submodule::{Submodule, SubmoduleStatus};
 pub use update::{IntegrationStrategy, PendingConflicts, UpdateOptions, UpdateOutcome, UpdatePlan};
 
 /// 一个 git 工作区的句柄;所有操作相对它执行。
@@ -136,6 +138,11 @@ impl Repo {
     /// 获取指定提交的完整消息(多行)。
     pub fn commit_message(&self, sha: &str) -> Result<String, Error> {
         diff::commit_message(self, sha)
+    }
+
+    /// 列出所有子仓库。
+    pub fn submodules(&self) -> Result<Vec<Submodule>, Error> {
+        submodule::list_submodules(self)
     }
 
     // 跑一个必须成功的 git 子命令,非零退出 → Err。
