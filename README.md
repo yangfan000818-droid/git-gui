@@ -13,7 +13,7 @@ cargo workspace:
 | crate | 职责 |
 |-------|------|
 | `gitcore` | UI 无关的 git 编排库(spawn git CLI + plumbing 命令,零外部依赖) |
-| `tui` | 终端前端(ratatui 全屏界面 + 冲突解决三栏视图) |
+| `tui` | 终端前端(ratatui 全屏界面 + 冲突解决三栏视图 + Stage/Log/Diff/Submodule) |
 
 ## 已实现
 
@@ -34,13 +34,38 @@ cargo workspace:
 - rerere:记住冲突解法并在下次相同冲突时自动重放
 - 冲突解决后自动 `git add` + 继续整合或放弃回退
 
+**日常提交链路**(stage → commit → push):
+
+- 文件级 status 解析(`git status --porcelain=v1`)
+- 暂存/取消暂存(stage / unstage / stage_all)
+- 提交 + 空暂存区拒绝(commit + CommitOptions)
+- 推送 + 边界处理(NoUpstream / NonFastForward / Success)
+
+**log / diff 查看**:
+
+- 提交历史(log + LogEntry,默认最近 50 条,支持指定分支)
+- 工作区 diff(diff / show_commit / commit_message)
+- DiffOptions:开关 `--cached`、`-- <path>`
+
+**子仓库检测 + 多仓库配置**:
+
+- submodule 自动检测(git submodule status)
+- 配置文件 `.git-gui/repos.toml`(手写简单 toml 解析器,零依赖)
+- Tab 键切换仓库;单仓库模式无左侧边栏,多仓库模式左侧边栏列出所有仓库
+
 **TUI 交互**:
 
 - ratatui 全屏界面:status 面板 + 实时仓库状态(分支/upstream/领先落后/脏状态)
 - 冲突解决三栏视图:`ours │ base │ theirs` 并排显示
 - 多文件冲突导航:顶部概览条 + `n`/`p` 切换,每文件独立保留选择与进度
+- Stage 视图:文件列表(j/k 导航/Space 暂存/a 全暂存/c commit)
+- Log 视图:提交历史(j/k 导航/Enter 详情)
+- Diff 视图:全屏 diff,`d` 键进入
+- Submodule 视图:子仓库列表,`S` 键进入
+- 左侧边栏(多仓库时):状态图标 + Tab 切换
 - 魔法棒可视化:自动解决的行标绿色 ✓,待处理行标黄色,当前选择栏加粗
-- 按键操作:`o`/`t`/`b` 选边 · `j`/`k` 切块 · `w` 写回 · `c` 完成 · `x` 放弃
+
+**Status 面板键位**: `s` Stage · `S` 子仓库 · `l` Log · `d` Diff · `p` Push · `u` Update · `r` 刷新 · `q` 退出
 
 ## 构建与测试
 
@@ -48,9 +73,36 @@ cargo workspace:
 
 ```bash
 cargo build                # 构建
-cargo test --workspace     # 跑全部测试(27 个:gitcore 24 + tui 3)
+cargo test --workspace     # 跑全部测试(34 个:gitcore 31 + tui 3)
 cargo run -p tui           # 启动 TUI(在 git 仓库目录下运行)
 ```
+
+## 多仓库配置
+
+在仓库根目录创建 `.git-gui/repos.toml`:
+
+```toml
+# 主仓库(可选,默认自动添加当前目录)
+[[repos]]
+name = "主仓库"
+path = "."
+
+# 独立仓库
+[[repos]]
+name = "前端"
+path = "../frontend"
+
+# 绝对路径
+[[repos]]
+name = "后端"
+path = "/Users/yfan/work/backend"
+```
+
+- 不创建配置文件 → 只操作当前仓库
+- 配置文件存在 → 按列表显示(左侧边栏),Tab 键切换
+- submodules 自动检测,合并到列表(去重,配置优先)
+- 路径相对于 `.git-gui/` 所在目录,支持绝对路径
+- 配置文件格式:简单的 `[[repos]]` + `name`/`path`,不支持数组/嵌套
 
 ## 路线图
 
@@ -58,6 +110,9 @@ cargo run -p tui           # 启动 TUI(在 git 仓库目录下运行)
 - [x] 冲突三栏 + 魔法棒(整块 + 行级自动解决单边改动)
 - [x] rerere(记住冲突解法,自动重放)
 - [x] 崩溃恢复(检测未完成的 update / 残留 autostash)
-- [ ] commit / push / stage 管理
-- [ ] log / diff 查看
+- [x] stage / commit / push 日常提交链路
+- [x] log / diff 查看
+- [x] submodule 检测 + 多仓库配置
+- [ ] branch 管理(创建/切换/删除)
+- [ ] stash 管理(手动 stash/pop)
 - [ ] 接 GUI(Tauri / iced)
