@@ -41,7 +41,7 @@ pub enum Choice {
 }
 
 impl ConflictHunk {
-    /// 魔法棒:依据三版本判断能否自动解决。
+    /// 魔法棒:依据三版本判断能否自动解决(整块级)。
     pub fn magic(&self) -> Resolution {
         if self.ours == self.base {
             Resolution::AutoTheirs
@@ -50,6 +50,21 @@ impl ConflictHunk {
         } else {
             Resolution::NeedsUser
         }
+    }
+
+    /// 行级魔法棒:在 hunk 内部跑行级 diff3,把只有一边改动的行自动定夺,
+    /// 返回细分后的片段序列——整块可解 → 单个 Clean;部分可解 → Clean/Conflict
+    /// 交替;完全不可解 → 单个 Conflict。
+    pub fn refine(&self) -> Vec<Segment> {
+        crate::diff3::merge3(&self.ours, &self.base, &self.theirs)
+            .into_iter()
+            .map(|m| match m {
+                crate::diff3::Merge::Resolved(t) => Segment::Clean(t),
+                crate::diff3::Merge::Conflict { ours, base, theirs } => {
+                    Segment::Conflict(ConflictHunk { ours, base, theirs })
+                }
+            })
+            .collect()
     }
 }
 
@@ -107,6 +122,19 @@ pub fn parse_conflicts(text: &str) -> Vec<Segment> {
     segments
 }
 
+/// 对片段序列做行级精化:每个冲突块内部跑行级 diff3,把只有一边改动的子区域
+/// 自动定夺,展开成 Clean/Conflict 子序列;Clean 段原样保留。
+pub fn refine_segments(segments: Vec<Segment>) -> Vec<Segment> {
+    let mut out = Vec::with_capacity(segments.len());
+    for seg in segments {
+        match seg {
+            Segment::Conflict(h) => out.extend(h.refine()),
+            clean => out.push(clean),
+        }
+    }
+    out
+}
+
 /// 按每个冲突块的选择重建文件文本;choices 与 Conflict 段一一对应,
 /// 不足处默认取 ours。
 pub fn rebuild(segments: &[Segment], choices: &[Choice]) -> String {
@@ -132,7 +160,7 @@ pub fn rebuild(segments: &[Segment], choices: &[Choice]) -> String {
 /// 读取一个冲突文件并解析成片段。
 pub(crate) fn read_conflict(repo: &Repo, path: &Path) -> Result<Vec<Segment>, Error> {
     let text = std::fs::read_to_string(repo.workdir().join(path))?;
-    Ok(parse_conflicts(&text))
+    Ok(refine_segments(parse_conflicts(&text)))
 }
 
 /// 写回解决结果并 git add(标记冲突已解决)。
