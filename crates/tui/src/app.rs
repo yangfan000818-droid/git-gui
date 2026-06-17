@@ -7,9 +7,7 @@ use crate::conflict_ui::{self, ConflictView};
 use crate::log_ui::{self, LogView};
 use crate::stage_ui::{self, StageView};
 use crate::submodule_ui::{self, SubmoduleView};
-use gitcore::{
-    parse_repos_config, DiffOptions, Repo, RepoStatus, UpdateOptions, UpdateOutcome,
-};
+use gitcore::{parse_repos_config, DiffOptions, Repo, RepoStatus, UpdateOptions, UpdateOutcome};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -157,16 +155,39 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
             if key.kind != KeyEventKind::Press {
                 continue;
             }
-            if let KeyCode::Char(c) = key.code {
-                if dispatch(state, c) {
-                    return Ok(());
+            match key.code {
+                KeyCode::Char(c) => {
+                    if dispatch(state, c) {
+                        return Ok(());
+                    }
                 }
-            }
-            // Tab 切换仓库
-            if key.code == KeyCode::Tab {
-                state.current_index = (state.current_index + 1) % state.repos.len();
-                reload(state);
-                state.message = format!("切换到: {}", state.repos[state.current_index].name);
+                KeyCode::Enter => {
+                    if dispatch(state, '\n') {
+                        return Ok(());
+                    }
+                }
+                KeyCode::Esc => {
+                    if dispatch(state, '\x1b') {
+                        return Ok(());
+                    }
+                }
+                KeyCode::Backspace => {
+                    if dispatch(state, '\x08') {
+                        return Ok(());
+                    }
+                }
+                KeyCode::Delete => {
+                    if dispatch(state, '\x7f') {
+                        return Ok(());
+                    }
+                }
+                // Tab 切换仓库
+                KeyCode::Tab => {
+                    state.current_index = (state.current_index + 1) % state.repos.len();
+                    reload(state);
+                    state.message = format!("切换到: {}", state.repos[state.current_index].name);
+                }
+                _ => {}
             }
         }
     }
