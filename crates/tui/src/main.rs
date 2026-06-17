@@ -3,6 +3,7 @@
 //! 无参数 → ratatui 全屏 TUI;`status` / `update` → CLI 模式(便于脚本化与验证)。
 
 mod app;
+mod branch_ui;
 mod cli;
 mod conflict_ui;
 mod log_ui;

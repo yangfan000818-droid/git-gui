@@ -3,6 +3,7 @@
 //! 所有前端(TUI / 未来 GUI)都依赖本 crate,不直接调用 git。
 //! 设计:spawn git CLI + plumbing 命令拿可解析输出;每个写操作尽量可回退。
 
+mod branch;
 mod commit;
 mod config;
 mod conflict;
@@ -21,6 +22,7 @@ mod update;
 
 use std::path::{Path, PathBuf};
 
+pub use branch::BranchInfo;
 pub use commit::CommitOptions;
 pub use config::{parse_repos_config, RepoConfig};
 pub use conflict::{conflicted_files, three_versions, ThreeVersions};
@@ -145,6 +147,26 @@ impl Repo {
     /// 列出所有子仓库。
     pub fn submodules(&self) -> Result<Vec<Submodule>, Error> {
         submodule::list_submodules(self)
+    }
+
+    /// 列出所有本地分支。
+    pub fn branches(&self) -> Result<Vec<BranchInfo>, Error> {
+        branch::list_branches(self)
+    }
+
+    /// 创建新分支。
+    pub fn create_branch(&self, name: &str) -> Result<(), Error> {
+        branch::create_branch(self, name)
+    }
+
+    /// 切换到指定分支。
+    pub fn switch_branch(&self, name: &str) -> Result<(), Error> {
+        branch::switch_branch(self, name)
+    }
+
+    /// 删除分支(安全模式)。
+    pub fn delete_branch(&self, name: &str) -> Result<(), Error> {
+        branch::delete_branch(self, name)
     }
 
     // 跑一个必须成功的 git 子命令,非零退出 → Err。

@@ -2,6 +2,7 @@
 //!
 //! 交互效果需在真实终端运行;逻辑尽量薄,核心都在 gitcore。
 
+use crate::branch_ui::{self, BranchView};
 use crate::cli::describe;
 use crate::conflict_ui::{self, ConflictView};
 use crate::log_ui::{self, LogView};
@@ -83,6 +84,7 @@ fn load_repos(cwd: &PathBuf) -> Vec<(String, PathBuf)> {
 
 enum Screen {
     Status,
+    Branch(BranchView),
     Conflict(ConflictView),
     Stage(StageView),
     Log(LogView),
@@ -196,6 +198,7 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
 fn draw(f: &mut Frame, state: &AppState) {
     match &state.screen {
         Screen::Status => draw_status(f, state),
+        Screen::Branch(view) => view.render(f),
         Screen::Conflict(view) => view.render(f),
         Screen::Stage(view) => view.render(f),
         Screen::Log(view) => view.render(f),
@@ -213,6 +216,14 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
             'r' => {
                 reload(state);
                 state.message = "已刷新".into();
+            }
+            'b' => {
+                if let Some(repo) = state.current_repo() {
+                    match BranchView::load(repo) {
+                        Ok(v) => state.screen = Screen::Branch(v),
+                        Err(e) => state.message = format!("加载分支失败: {e}"),
+                    }
+                }
             }
             's' => {
                 if let Some(repo) = state.current_repo() {
@@ -330,6 +341,24 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                     Err(e) => {
                         state.message = format!("操作失败: {e}");
                         state.screen = Screen::Log(view);
+                    }
+                }
+            }
+        }
+        Screen::Branch(mut view) => {
+            if let Some(repo) = state.current_repo() {
+                match view.handle_key(repo, c) {
+                    Ok(branch_ui::Action::Back) => {
+                        reload(state);
+                    }
+                    Ok(branch_ui::Action::BranchesChanged) => {
+                        reload(state);
+                        state.screen = Screen::Branch(view);
+                    }
+                    Ok(branch_ui::Action::None) => state.screen = Screen::Branch(view),
+                    Err(e) => {
+                        state.message = format!("操作失败: {e}");
+                        state.screen = Screen::Branch(view);
                     }
                 }
             }
@@ -463,10 +492,9 @@ fn draw_status_single(f: &mut Frame, state: &AppState) {
     );
 
     f.render_widget(
-        Paragraph::new(state.message.clone())
-            .block(Block::bordered().title(
-                " s Stage · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
-            )),
+        Paragraph::new(state.message.clone()).block(Block::bordered().title(
+            " s Stage · b Branch · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
+        )),
         chunks[2],
     );
 }
@@ -541,10 +569,9 @@ fn draw_status_panel(f: &mut Frame, state: &AppState, area: ratatui::layout::Rec
     );
 
     f.render_widget(
-        Paragraph::new(state.message.clone())
-            .block(Block::bordered().title(
-                " s Stage · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
-            )),
+        Paragraph::new(state.message.clone()).block(Block::bordered().title(
+            " s Stage · b Branch · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
+        )),
         chunks[2],
     );
 }
