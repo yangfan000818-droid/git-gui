@@ -562,6 +562,7 @@ fn spawn_update(state: &mut AppState, push_after: bool) {
     let opts = UpdateOptions {
         strategy: state.strategy,
         ignore_whitespace: true,
+        ..Default::default()
     };
     let cancel = CancelToken::default();
     let token = cancel.clone();

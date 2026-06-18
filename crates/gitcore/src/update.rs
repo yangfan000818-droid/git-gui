@@ -15,6 +15,8 @@ pub struct UpdateOptions {
     pub strategy: IntegrationStrategy,
     /// 整合时忽略纯空白差异,减少伪冲突。
     pub ignore_whitespace: bool,
+    /// 同步更新子仓库:fetch 时拉取子仓库远端,整合完成后 checkout 到记录 commit。
+    pub recurse_submodules: bool,
 }
 
 impl Default for UpdateOptions {
@@ -22,6 +24,7 @@ impl Default for UpdateOptions {
         Self {
             strategy: IntegrationStrategy::Merge,
             ignore_whitespace: true,
+            recurse_submodules: true,
         }
     }
 }
@@ -95,7 +98,7 @@ pub(crate) fn execute_update_streaming(
 ) -> Result<UpdateOutcome, Error> {
     preflight(repo)?;
     require_upstream(repo)?;
-    fetch(repo, on_progress, cancel)?;
+    fetch(repo, on_progress, cancel, opts.recurse_submodules)?;
 
     let (behind, ahead) = ahead_behind(repo)?;
     if behind == 0 {
@@ -136,6 +139,11 @@ pub(crate) fn execute_update_streaming(
             files: remaining,
             autostash,
         });
+    }
+
+    // ③ 同步子仓库:主仓库整合成功后,把子仓库 checkout 到记录 commit。
+    if opts.recurse_submodules {
+        update_submodules(repo)?;
     }
 
     // ① 还原脏工作区。
@@ -186,6 +194,9 @@ pub(crate) fn continue_update(
         }
         None => {}
     }
+
+    // 冲突解决后同步子仓库。
+    update_submodules(repo)?;
 
     if let Some(stash) = autostash {
         if let PopResult::Conflict(files) = stash::autostash_pop(repo, &stash)? {
@@ -272,17 +283,37 @@ fn fetch(
     repo: &Repo,
     on_progress: &mut dyn FnMut(Progress),
     cancel: &CancelToken,
+    recurse_submodules: bool,
 ) -> Result<(), Error> {
-    let out = repo.git_streaming(&["fetch", "--prune", "--progress"], on_progress, cancel)?;
+    let args = if recurse_submodules {
+        vec![
+            "fetch",
+            "--prune",
+            "--progress",
+            "--recurse-submodules=on-demand",
+        ]
+    } else {
+        vec!["fetch", "--prune", "--progress"]
+    };
+    let out = repo.git_streaming(&args, on_progress, cancel)?;
     if out.success {
         Ok(())
     } else {
         Err(Error::Git {
-            args: vec!["fetch".into(), "--prune".into(), "--progress".into()],
+            args: args.into_iter().map(String::from).collect(),
             code: out.code,
             stderr: out.stderr,
         })
     }
+}
+
+/// 同步子仓库:checkout 到主仓库记录的 commit,未初始化的先 init。
+fn update_submodules(repo: &Repo) -> Result<(), Error> {
+    if !repo.workdir().join(".gitmodules").exists() {
+        return Ok(());
+    }
+    repo.git(&["submodule", "update", "--init", "--recursive"])?;
+    Ok(())
 }
 
 // rerere 重放后:把已无冲突标记的文件自动 add(视为已解决)。

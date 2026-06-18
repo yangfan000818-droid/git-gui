@@ -424,6 +424,7 @@ fn rebase_conflict_resolve_and_continue() {
     let opts = UpdateOptions {
         strategy: IntegrationStrategy::Rebase,
         ignore_whitespace: true,
+        ..Default::default()
     };
 
     let (files, autostash) = match repo.execute_update(&opts, &CancelToken::default()).unwrap() {
@@ -458,6 +459,7 @@ fn rebase_conflict_can_be_aborted() {
     let opts = UpdateOptions {
         strategy: IntegrationStrategy::Rebase,
         ignore_whitespace: true,
+        ..Default::default()
     };
 
     let autostash = match repo.execute_update(&opts, &CancelToken::default()).unwrap() {
