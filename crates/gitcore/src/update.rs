@@ -82,9 +82,20 @@ pub(crate) fn execute_update(
     opts: &UpdateOptions,
     cancel: &CancelToken,
 ) -> Result<UpdateOutcome, Error> {
+    let mut ignore = |_p: Progress| {};
+    execute_update_streaming(repo, opts, &mut ignore, cancel)
+}
+
+/// 同 [`execute_update`],但 fetch 进度经 `on_progress` 上报(供 UI 进度条)。
+pub(crate) fn execute_update_streaming(
+    repo: &Repo,
+    opts: &UpdateOptions,
+    on_progress: &mut dyn FnMut(Progress),
+    cancel: &CancelToken,
+) -> Result<UpdateOutcome, Error> {
     preflight(repo)?;
     require_upstream(repo)?;
-    fetch(repo, cancel)?;
+    fetch(repo, on_progress, cancel)?;
 
     let (behind, ahead) = ahead_behind(repo)?;
     if behind == 0 {
@@ -255,11 +266,14 @@ fn recover_or_strand(
     Err(cause)
 }
 
-// 可取消的 fetch:取消 → Err(Cancelled);失败 → Err(Git)。execute_update 内部用,
-// 进度不上报(UI 进度走 fetch_streaming);带 --progress 是为给取消轮询留时机点。
-fn fetch(repo: &Repo, cancel: &CancelToken) -> Result<(), Error> {
-    let mut ignore = |_p: Progress| {};
-    let out = repo.git_streaming(&["fetch", "--prune", "--progress"], &mut ignore, cancel)?;
+// 可取消的 fetch:取消 → Err(Cancelled);失败 → Err(Git)。进度经 on_progress 上报,
+// 带 --progress 同时给取消轮询留时机点。
+fn fetch(
+    repo: &Repo,
+    on_progress: &mut dyn FnMut(Progress),
+    cancel: &CancelToken,
+) -> Result<(), Error> {
+    let out = repo.git_streaming(&["fetch", "--prune", "--progress"], on_progress, cancel)?;
     if out.success {
         Ok(())
     } else {

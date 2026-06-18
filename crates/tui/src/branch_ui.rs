@@ -37,7 +37,7 @@ impl BranchView {
             cursor,
             mode: Mode::List,
             input: String::new(),
-            message: "j/k 导航 · Enter 切换 · c 创建 · d 删除 · q 返回".into(),
+            message: "j/k 导航 · Enter 切换 · c 创建 · d 删除 · q/Esc 返回".into(),
         })
     }
 
@@ -51,9 +51,9 @@ impl BranchView {
 
     fn handle_list(&mut self, repo: &Repo, c: char) -> Result<Action, Error> {
         match c {
-            'q' => return Ok(Action::Back),
-            'j' if self.cursor + 1 < self.branches.len() => self.cursor += 1,
-            'k' if self.cursor > 0 => self.cursor -= 1,
+            'q' | '\x1b' => return Ok(Action::Back),
+            'j' | crate::keys::DOWN if self.cursor + 1 < self.branches.len() => self.cursor += 1,
+            'k' | crate::keys::UP if self.cursor > 0 => self.cursor -= 1,
             '\n' => {
                 // Enter: 切换分支
                 if let Some(branch) = self.branches.get(self.cursor) {
@@ -221,7 +221,12 @@ impl BranchView {
             }
         }
         f.render_widget(
-            Paragraph::new(lines).block(Block::bordered().title(" 分支列表 ")),
+            Paragraph::new(lines)
+                .block(Block::bordered().title(" 分支列表 "))
+                .scroll((
+                    crate::scroll::follow(self.cursor, area.height.saturating_sub(2)),
+                    0,
+                )),
             area,
         );
     }

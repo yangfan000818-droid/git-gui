@@ -35,7 +35,7 @@ impl StageView {
             cursor: 0,
             mode: Mode::FileList,
             commit_input: String::new(),
-            message: "Space 暂存/取消 · a 全暂存 · c 提交 · q 返回".into(),
+            message: "Space 暂存/取消 · a 全暂存 · c 提交 · q/Esc 返回".into(),
         })
     }
 
@@ -48,9 +48,9 @@ impl StageView {
 
     fn handle_file_list(&mut self, repo: &Repo, c: char) -> Result<Action, Error> {
         match c {
-            'q' => return Ok(Action::Back),
-            'j' if self.cursor + 1 < self.files.len() => self.cursor += 1,
-            'k' if self.cursor > 0 => self.cursor -= 1,
+            'q' | '\x1b' => return Ok(Action::Back),
+            'j' | crate::keys::DOWN if self.cursor + 1 < self.files.len() => self.cursor += 1,
+            'k' | crate::keys::UP if self.cursor > 0 => self.cursor -= 1,
             ' ' => self.toggle_stage(repo)?,
             'a' => {
                 repo.stage_all()?;
@@ -177,7 +177,12 @@ impl StageView {
             }
         }
         f.render_widget(
-            Paragraph::new(lines).block(Block::bordered().title(" 文件列表 ")),
+            Paragraph::new(lines)
+                .block(Block::bordered().title(" 文件列表 "))
+                .scroll((
+                    crate::scroll::follow(self.cursor, area.height.saturating_sub(2)),
+                    0,
+                )),
             area,
         );
     }

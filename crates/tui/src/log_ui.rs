@@ -15,7 +15,11 @@ pub enum Action {
 
 enum Mode {
     List,
-    Detail { sha: String, content: String },
+    Detail {
+        sha: String,
+        content: String,
+        scroll: u16,
+    },
 }
 
 pub struct LogView {
@@ -32,7 +36,7 @@ impl LogView {
             entries,
             cursor: 0,
             mode: Mode::List,
-            message: "j/k 上下 · Enter 查看详情 · q 返回".into(),
+            message: "j/k 上下 · Enter 查看详情 · q/Esc 返回".into(),
         })
     }
 
@@ -45,9 +49,9 @@ impl LogView {
 
     fn handle_list(&mut self, repo: &Repo, c: char) -> Result<Action, Error> {
         match c {
-            'q' => return Ok(Action::Back),
-            'j' if self.cursor + 1 < self.entries.len() => self.cursor += 1,
-            'k' if self.cursor > 0 => self.cursor -= 1,
+            'q' | '\x1b' => return Ok(Action::Back),
+            'j' | crate::keys::DOWN if self.cursor + 1 < self.entries.len() => self.cursor += 1,
+            'k' | crate::keys::UP if self.cursor > 0 => self.cursor -= 1,
             '\n' | '\r' => {
                 // Enter: 查看详情
                 if let Some(entry) = self.entries.get(self.cursor) {
@@ -56,8 +60,9 @@ impl LogView {
                             self.mode = Mode::Detail {
                                 sha: entry.sha.clone(),
                                 content,
+                                scroll: 0,
                             };
-                            self.message = "q 返回列表".into();
+                            self.message = "j/k 滚动 · q/Esc 返回列表".into();
                         }
                         Err(e) => self.message = format!("加载失败: {e}"),
                     }
@@ -69,9 +74,25 @@ impl LogView {
     }
 
     fn handle_detail(&mut self, c: char) -> Result<Action, Error> {
-        if c == 'q' {
-            self.mode = Mode::List;
-            self.message = "j/k 上下 · Enter 查看详情 · q 返回".into();
+        match c {
+            'q' | '\x1b' => {
+                self.mode = Mode::List;
+                self.message = "j/k 上下 · Enter 查看详情 · q/Esc 返回".into();
+            }
+            'j' | 'k' | crate::keys::DOWN | crate::keys::UP => {
+                if let Mode::Detail {
+                    content, scroll, ..
+                } = &mut self.mode
+                {
+                    let max = content.lines().count().saturating_sub(1) as u16;
+                    *scroll = if c == 'j' || c == crate::keys::DOWN {
+                        (*scroll + 1).min(max)
+                    } else {
+                        scroll.saturating_sub(1)
+                    };
+                }
+            }
+            _ => {}
         }
         Ok(Action::None)
     }
@@ -88,7 +109,11 @@ impl LogView {
 
         match &self.mode {
             Mode::List => self.render_list(f, chunks[1]),
-            Mode::Detail { sha, content } => self.render_detail(f, chunks[1], sha, content),
+            Mode::Detail {
+                sha,
+                content,
+                scroll,
+            } => self.render_detail(f, chunks[1], sha, content, *scroll),
         }
 
         f.render_widget(
@@ -124,17 +149,30 @@ impl LogView {
             }
         }
         f.render_widget(
-            Paragraph::new(lines).block(Block::bordered().title(" 提交列表 ")),
+            Paragraph::new(lines)
+                .block(Block::bordered().title(" 提交列表 "))
+                .scroll((
+                    crate::scroll::follow(self.cursor, area.height.saturating_sub(2)),
+                    0,
+                )),
             area,
         );
     }
 
-    fn render_detail(&self, f: &mut Frame, area: ratatui::layout::Rect, sha: &str, content: &str) {
+    fn render_detail(
+        &self,
+        f: &mut Frame,
+        area: ratatui::layout::Rect,
+        sha: &str,
+        content: &str,
+        scroll: u16,
+    ) {
         let title = format!(" 提交详情: {} ", sha);
         f.render_widget(
             Paragraph::new(content)
                 .block(Block::bordered().title(title))
-                .wrap(Wrap { trim: false }),
+                .wrap(Wrap { trim: false })
+                .scroll((scroll, 0)),
             area,
         );
     }

@@ -95,6 +95,29 @@ impl FileState {
             })
             .sum()
     }
+
+    /// 当前块在某一栏中渲染的行数(上下文 + 冲突版本中最长者),用于滚动钳制。
+    fn hunk_view_height(&self) -> usize {
+        let Some(hi) = self.current_idx() else {
+            return 0;
+        };
+        let (before, after) = self.auto_context(hi);
+        let ctx: usize = before
+            .iter()
+            .chain(after.iter())
+            .map(|seg| seg.lines().count())
+            .sum();
+        let conflict = match &self.segments[hi] {
+            Segment::Conflict(h) => h
+                .ours
+                .lines()
+                .count()
+                .max(h.base.lines().count())
+                .max(h.theirs.lines().count()),
+            _ => 0,
+        };
+        ctx + conflict
+    }
 }
 
 /// 冲突解决视图状态:持有所有冲突文件,聚焦其中一个。
@@ -103,6 +126,7 @@ pub struct ConflictView {
     idx: usize, // 当前文件
     autostash: Option<StashRef>,
     message: String,
+    scroll: u16, // 当前块栏内的纵向滚动偏移
 }
 
 impl ConflictView {
@@ -122,33 +146,47 @@ impl ConflictView {
             idx,
             autostash,
             message: "魔法棒已预填;o/t/b 改选 · j/k 切块 · n/p 切文件 · w 写回".into(),
+            scroll: 0,
         })
     }
 
     pub fn handle_key(&mut self, repo: &Repo, c: char) -> Result<Action, Error> {
         match c {
-            'q' => return Ok(Action::Quit),
+            'q' | '\x1b' => return Ok(Action::Quit),
             'x' => return Ok(Action::Abort(self.autostash.take())),
             'c' => return Ok(Action::Continue(self.autostash.take())),
-            'j' => {
+            'j' | crate::keys::DOWN => {
                 let f = &mut self.files[self.idx];
                 if f.cursor + 1 < f.hunks.len() {
                     f.cursor += 1;
                 }
+                self.scroll = 0;
             }
-            'k' => {
+            'k' | crate::keys::UP => {
                 let f = &mut self.files[self.idx];
                 f.cursor = f.cursor.saturating_sub(1);
+                self.scroll = 0;
             }
+            'J' => {
+                let max = self.files[self.idx].hunk_view_height().saturating_sub(1) as u16;
+                self.scroll = (self.scroll + 1).min(max);
+            }
+            'K' => self.scroll = self.scroll.saturating_sub(1),
             'n' => {
                 if self.idx + 1 < self.files.len() {
                     self.idx += 1;
                 }
+                self.scroll = 0;
             }
-            'p' => self.idx = self.idx.saturating_sub(1),
+            'p' => {
+                self.idx = self.idx.saturating_sub(1);
+                self.scroll = 0;
+            }
             'o' => self.set_choice(Choice::Ours),
             't' => self.set_choice(Choice::Theirs),
             'b' => self.set_choice(Choice::Base),
+            crate::keys::LEFT => self.cycle_choice(-1),
+            crate::keys::RIGHT => self.cycle_choice(1),
             'w' => self.write_and_advance(repo)?,
             _ => {}
         }
@@ -159,6 +197,16 @@ impl ConflictView {
         let f = &mut self.files[self.idx];
         if let Some(slot) = f.choices.get_mut(f.cursor) {
             *slot = choice;
+        }
+    }
+
+    /// 在 ours→base→theirs 视觉顺序上左右移动当前块的选择(到端点即停,不循环)。
+    fn cycle_choice(&mut self, dir: i32) {
+        const ORDER: [Choice; 3] = [Choice::Ours, Choice::Base, Choice::Theirs];
+        let f = &mut self.files[self.idx];
+        if let Some(slot) = f.choices.get_mut(f.cursor) {
+            let cur = ORDER.iter().position(|c| *c == *slot).unwrap_or(0) as i32;
+            *slot = ORDER[(cur + dir).clamp(0, 2) as usize];
         }
     }
 
@@ -209,7 +257,7 @@ impl ConflictView {
             None => "-",
         };
         let help = format!(
-            "当前块选: {pick}   (绿色 ✓ = 魔法棒已自动解,无需处理)\no/t/b 选边 · j/k 切块 · n/p 切文件 · w 写回 · c 完成 · x 放弃 · q 退出\n{}",
+            "当前块选: {pick}   (绿色 ✓ = 魔法棒已自动解,无需处理)\no/t/b/←/→ 选边 · j/k 切块 · J/K 滚动 · n/p 切文件 · w 写回 · c 完成 · x 放弃 · q/Esc 退出\n{}",
             self.message
         );
         f.render_widget(Paragraph::new(help).block(Block::bordered()), rows[3]);
@@ -274,6 +322,7 @@ impl ConflictView {
                 &h.ours,
                 &after,
                 sel == Some(Choice::Ours),
+                self.scroll,
             ),
             cols[0],
         );
@@ -284,6 +333,7 @@ impl ConflictView {
                 &h.base,
                 &after,
                 sel == Some(Choice::Base),
+                self.scroll,
             ),
             cols[1],
         );
@@ -294,6 +344,7 @@ impl ConflictView {
                 &h.theirs,
                 &after,
                 sel == Some(Choice::Theirs),
+                self.scroll,
             ),
             cols[2],
         );
@@ -307,6 +358,7 @@ fn column_panel<'a>(
     conflict: &'a str,
     after: &[&'a str],
     selected: bool,
+    scroll: u16,
 ) -> Paragraph<'a> {
     let mut lines: Vec<Line> = Vec::new();
     for &seg in before {
@@ -325,7 +377,7 @@ fn column_panel<'a>(
     } else {
         Block::bordered().title(format!("  {title}"))
     };
-    Paragraph::new(lines).block(block)
+    Paragraph::new(lines).block(block).scroll((scroll, 0))
 }
 
 /// 自动定夺行:绿色 + ✓ 前缀。
@@ -393,6 +445,7 @@ mod tests {
             idx: 0,
             autostash: None,
             message: String::new(),
+            scroll: 0,
         };
         let (text, cells) = render_text(&view);
 
@@ -432,6 +485,7 @@ mod tests {
             idx: 1,
             autostash: None,
             message: String::new(),
+            scroll: 0,
         };
         let (text, _) = render_text(&view);
 
@@ -463,6 +517,7 @@ mod tests {
             idx: 0,
             autostash: None,
             message: String::new(),
+            scroll: 0,
         };
 
         // a.txt 改选 base

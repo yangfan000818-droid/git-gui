@@ -20,7 +20,7 @@ use ratatui::crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::layout::{Constraint, Layout};
-use ratatui::widgets::{Block, Paragraph, Wrap};
+use ratatui::widgets::{Block, Gauge, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use std::io;
 use std::path::PathBuf;
@@ -93,7 +93,7 @@ enum Screen {
     Stage(StageView),
     Stash(StashView),
     Log(LogView),
-    Diff(String), // diff 内容
+    Diff(String, u16), // diff 内容 + 纵向滚动偏移
     Submodule(SubmoduleView),
 }
 
@@ -107,7 +107,7 @@ struct RepoEntry {
 
 // 后台操作(update / push)的流式消息:进度 + 最终结果。
 enum OpMsg {
-    Progress(String),
+    Progress(Progress),
     Update(Result<UpdateOutcome, gitcore::Error>),
     Push(Result<gitcore::PushOutcome, gitcore::Error>),
 }
@@ -130,6 +130,10 @@ struct AppState {
     push_after_integrate: bool,
     /// 当前整合策略(merge / rebase),按 m 切换。
     strategy: IntegrationStrategy,
+    /// 后台操作的最新进度;有后台操作在跑时渲染为进度条 widget。
+    progress: Option<Progress>,
+    /// status 主屏状态文本的纵向滚动偏移。
+    status_scroll: u16,
 }
 
 impl AppState {
@@ -163,6 +167,8 @@ fn run_app(repo_list: Vec<(String, PathBuf)>) -> io::Result<()> {
         running: None,
         push_after_integrate: false,
         strategy: IntegrationStrategy::Merge,
+        progress: None,
+        status_scroll: 0,
     };
     reload(&mut state);
 
@@ -228,6 +234,26 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
                         return Ok(());
                     }
                 }
+                KeyCode::Up => {
+                    if dispatch(state, crate::keys::UP) {
+                        return Ok(());
+                    }
+                }
+                KeyCode::Down => {
+                    if dispatch(state, crate::keys::DOWN) {
+                        return Ok(());
+                    }
+                }
+                KeyCode::Left => {
+                    if dispatch(state, crate::keys::LEFT) {
+                        return Ok(());
+                    }
+                }
+                KeyCode::Right => {
+                    if dispatch(state, crate::keys::RIGHT) {
+                        return Ok(());
+                    }
+                }
                 // Tab 切换仓库
                 KeyCode::Tab => {
                     state.current_index = (state.current_index + 1) % state.repos.len();
@@ -248,7 +274,7 @@ fn poll_running(state: &mut AppState) {
             Some(op) => op.rx.try_recv(),
         };
         match msg {
-            Ok(OpMsg::Progress(p)) => state.message = format!("{p} (Esc 取消)"),
+            Ok(OpMsg::Progress(p)) => state.progress = Some(p),
             Ok(done) => break done,
             Err(std::sync::mpsc::TryRecvError::Empty) => return, // 还在跑
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -262,6 +288,7 @@ fn poll_running(state: &mut AppState) {
     if let Some(op) = state.running.take() {
         let _ = op.handle.join();
     }
+    state.progress = None;
     match final_msg {
         OpMsg::Update(Ok(outcome)) => after_integration(state, outcome),
         OpMsg::Update(Err(gitcore::Error::Cancelled)) => {
@@ -286,7 +313,7 @@ fn draw(f: &mut Frame, state: &AppState) {
         Screen::Conflict(view) => view.render(f),
         Screen::Stage(view) => view.render(f),
         Screen::Log(view) => view.render(f),
-        Screen::Diff(content) => draw_diff(f, content),
+        Screen::Diff(content, scroll) => draw_diff(f, content, *scroll),
         Screen::Submodule(view) => view.render(f),
     }
 }
@@ -297,6 +324,11 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
     match std::mem::replace(&mut state.screen, Screen::Status) {
         Screen::Status => match c {
             'q' => return true,
+            'j' | crate::keys::DOWN => {
+                let max = status_body_lines(state).saturating_sub(1) as u16;
+                state.status_scroll = (state.status_scroll + 1).min(max);
+            }
+            'k' | crate::keys::UP => state.status_scroll = state.status_scroll.saturating_sub(1),
             'r' => {
                 reload(state);
                 state.message = "已刷新".into();
@@ -355,7 +387,7 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                             if content.trim().is_empty() {
                                 state.message = "工作区无改动".into();
                             } else {
-                                state.screen = Screen::Diff(content);
+                                state.screen = Screen::Diff(content, 0);
                             }
                         }
                         Err(e) => state.message = format!("查看 diff 失败: {e}"),
@@ -450,13 +482,15 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                 }
             }
         }
-        Screen::Diff(_) => {
-            if c == 'q' {
-                reload(state);
-            } else {
-                state.screen = std::mem::replace(&mut state.screen, Screen::Status);
+        Screen::Diff(content, scroll) => match c {
+            'q' | '\x1b' => reload(state),
+            'j' | crate::keys::DOWN => {
+                let max = content.lines().count().saturating_sub(1) as u16;
+                state.screen = Screen::Diff(content, (scroll + 1).min(max));
             }
-        }
+            'k' | crate::keys::UP => state.screen = Screen::Diff(content, scroll.saturating_sub(1)),
+            _ => state.screen = Screen::Diff(content, scroll),
+        },
         Screen::Submodule(mut view) => match view.handle_key(c) {
             submodule_ui::Action::Back => {
                 reload(state);
@@ -518,10 +552,16 @@ fn spawn_update(state: &mut AppState, push_after: bool) {
     let token = cancel.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     let handle = std::thread::spawn(move || {
-        let _ = tx.send(OpMsg::Update(repo.execute_update(&opts, &token)));
+        let progress_tx = tx.clone();
+        let mut on_progress = move |p: Progress| {
+            let _ = progress_tx.send(OpMsg::Progress(p));
+        };
+        let result = repo.execute_update_streaming(&opts, &mut on_progress, &token);
+        let _ = tx.send(OpMsg::Update(result));
     });
     state.running = Some(RunningOp { cancel, rx, handle });
     state.push_after_integrate = push_after;
+    state.progress = None;
     state.message = if push_after {
         "远端领先,正在自动整合…(Esc 取消)".into()
     } else {
@@ -541,16 +581,13 @@ fn spawn_push(state: &mut AppState) {
     let handle = std::thread::spawn(move || {
         let progress_tx = tx.clone();
         let mut on_progress = move |p: Progress| {
-            let text = match p.percent {
-                Some(pct) => format!("{}: {pct}%", p.phase),
-                None => p.raw.clone(),
-            };
-            let _ = progress_tx.send(OpMsg::Progress(text));
+            let _ = progress_tx.send(OpMsg::Progress(p));
         };
         let result = repo.push_streaming(&mut on_progress, &token);
         let _ = tx.send(OpMsg::Push(result));
     });
     state.running = Some(RunningOp { cancel, rx, handle });
+    state.progress = None;
     state.message = "推送中…(Esc 取消)".into();
 }
 
@@ -632,6 +669,7 @@ fn enter_conflict(
 
 fn reload(state: &mut AppState) {
     state.screen = Screen::Status;
+    state.status_scroll = 0;
     let idx = state.current_index;
     if let Some(entry) = state.repos.get_mut(idx) {
         if let Some(ref repo) = entry.repo {
@@ -683,17 +721,13 @@ fn draw_status_single(f: &mut Frame, state: &AppState) {
         None => "加载中…".into(),
     };
     f.render_widget(
-        Paragraph::new(body).block(Block::bordered().title(" 仓库状态 ")),
+        Paragraph::new(body)
+            .block(Block::bordered().title(" 仓库状态 "))
+            .scroll((state.status_scroll, 0)),
         chunks[1],
     );
 
-    f.render_widget(
-        Paragraph::new(state.message.clone()).block(Block::bordered().title(format!(
-            " s Stage · b Branch · h Stash · S 子仓库 · l Log · d Diff · p Push · u 更新 · m 策略[{}] · r 刷新 · q 退出 ",
-            strategy_label(state.strategy)
-        ))),
-        chunks[2],
-    );
+    draw_footer(f, state, chunks[2]);
 }
 
 fn draw_repo_list(f: &mut Frame, state: &AppState, area: ratatui::layout::Rect) {
@@ -761,17 +795,56 @@ fn draw_status_panel(f: &mut Frame, state: &AppState, area: ratatui::layout::Rec
         None => "加载中…".into(),
     };
     f.render_widget(
-        Paragraph::new(body).block(Block::bordered().title(" 仓库状态 ")),
+        Paragraph::new(body)
+            .block(Block::bordered().title(" 仓库状态 "))
+            .scroll((state.status_scroll, 0)),
         chunks[1],
     );
 
+    draw_footer(f, state, chunks[2]);
+}
+
+// 底部栏:有后台操作(push / update)在跑时渲染进度条 widget,否则渲染消息 + 快捷键提示。
+fn draw_footer(f: &mut Frame, state: &AppState, area: ratatui::layout::Rect) {
+    use ratatui::style::{Color, Style};
+    if state.running.is_some() {
+        let (ratio, label) = match &state.progress {
+            Some(p) => {
+                let label = match p.percent {
+                    Some(pct) => format!("{} {pct}%", p.phase),
+                    None => format!("{}…", p.phase),
+                };
+                (p.percent.unwrap_or(0) as f64 / 100.0, label)
+            }
+            None => (0.0, "准备中…".to_string()),
+        };
+        f.render_widget(
+            Gauge::default()
+                .block(Block::bordered().title(" 进行中 · Esc 取消 "))
+                .gauge_style(Style::default().fg(Color::Cyan))
+                .ratio(ratio.clamp(0.0, 1.0))
+                .label(label),
+            area,
+        );
+        return;
+    }
     f.render_widget(
         Paragraph::new(state.message.clone()).block(Block::bordered().title(format!(
             " s Stage · b Branch · h Stash · S 子仓库 · l Log · d Diff · p Push · u 更新 · m 策略[{}] · r 刷新 · q 退出 ",
             strategy_label(state.strategy)
         ))),
-        chunks[2],
+        area,
     );
+}
+
+// 当前仓库状态文本的行数,用于 status 滚动钳制。
+fn status_body_lines(state: &AppState) -> usize {
+    state
+        .repos
+        .get(state.current_index)
+        .and_then(|e| e.status.as_ref())
+        .map(|st| status_text(st).lines().count())
+        .unwrap_or(0)
 }
 
 fn status_text(st: &RepoStatus) -> String {
@@ -808,7 +881,7 @@ fn status_text(st: &RepoStatus) -> String {
     s
 }
 
-fn draw_diff(f: &mut Frame, content: &str) {
+fn draw_diff(f: &mut Frame, content: &str, scroll: u16) {
     let chunks = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(5),
@@ -821,9 +894,13 @@ fn draw_diff(f: &mut Frame, content: &str) {
     f.render_widget(
         Paragraph::new(content)
             .block(Block::bordered().title(" Diff "))
-            .wrap(Wrap { trim: false }),
+            .wrap(Wrap { trim: false })
+            .scroll((scroll, 0)),
         chunks[1],
     );
 
-    f.render_widget(Paragraph::new("q 返回").block(Block::bordered()), chunks[2]);
+    f.render_widget(
+        Paragraph::new("j/k 滚动 · q/Esc 返回").block(Block::bordered()),
+        chunks[2],
+    );
 }

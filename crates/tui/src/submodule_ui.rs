@@ -26,15 +26,15 @@ impl SubmoduleView {
         SubmoduleView {
             submodules,
             cursor: 0,
-            message: "j/k 上下 · Enter 切换 · q 返回".into(),
+            message: "j/k 上下 · Enter 切换 · q/Esc 返回".into(),
         }
     }
 
     pub fn handle_key(&mut self, c: char) -> Action {
         match c {
-            'q' => return Action::Back,
-            'j' if self.cursor + 1 < self.submodules.len() => self.cursor += 1,
-            'k' if self.cursor > 0 => self.cursor -= 1,
+            'q' | '\x1b' => return Action::Back,
+            'j' | crate::keys::DOWN if self.cursor + 1 < self.submodules.len() => self.cursor += 1,
+            'k' | crate::keys::UP if self.cursor > 0 => self.cursor -= 1,
             '\n' | '\r' => {
                 // Enter: 切换到子仓库
                 if let Some(sub) = self.submodules.get(self.cursor) {
@@ -86,7 +86,12 @@ impl SubmoduleView {
         }
 
         f.render_widget(
-            Paragraph::new(lines).block(Block::bordered().title(" 子仓库列表 ")),
+            Paragraph::new(lines)
+                .block(Block::bordered().title(" 子仓库列表 "))
+                .scroll((
+                    crate::scroll::follow(self.cursor, chunks[1].height.saturating_sub(2)),
+                    0,
+                )),
             chunks[1],
         );
 

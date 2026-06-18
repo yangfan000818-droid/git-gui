@@ -36,7 +36,7 @@ impl StashView {
             cursor: 0,
             mode: Mode::List,
             input: String::new(),
-            message: "j/k 导航 · a apply · P pop · d drop · c 创建 · q 返回".into(),
+            message: "j/k 导航 · a apply · P pop · d drop · c 创建 · q/Esc 返回".into(),
         })
     }
 
@@ -62,9 +62,9 @@ impl StashView {
         }
 
         match c {
-            'q' => return Ok(Action::Back),
-            'j' if self.cursor + 1 < self.stashes.len() => self.cursor += 1,
-            'k' if self.cursor > 0 => self.cursor -= 1,
+            'q' | '\x1b' => return Ok(Action::Back),
+            'j' | crate::keys::DOWN if self.cursor + 1 < self.stashes.len() => self.cursor += 1,
+            'k' | crate::keys::UP if self.cursor > 0 => self.cursor -= 1,
             'a' => {
                 // apply
                 if let Some(entry) = self.stashes.get(self.cursor) {
@@ -212,7 +212,12 @@ impl StashView {
             }
         }
         f.render_widget(
-            Paragraph::new(lines).block(Block::bordered().title(" Stash 列表 ")),
+            Paragraph::new(lines)
+                .block(Block::bordered().title(" Stash 列表 "))
+                .scroll((
+                    crate::scroll::follow(self.cursor, area.height.saturating_sub(2)),
+                    0,
+                )),
             area,
         );
     }

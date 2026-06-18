@@ -80,6 +80,16 @@ impl Repo {
         update::execute_update(self, opts, cancel)
     }
 
+    /// 同 [`Repo::execute_update`],但 fetch 阶段进度经 `on_progress` 上报,供 UI 进度条用。
+    pub fn execute_update_streaming(
+        &self,
+        opts: &UpdateOptions,
+        on_progress: &mut dyn FnMut(Progress),
+        cancel: &CancelToken,
+    ) -> Result<UpdateOutcome, Error> {
+        update::execute_update_streaming(self, opts, on_progress, cancel)
+    }
+
     /// 读取一个冲突文件,解析成片段序列(含三版本)。
     pub fn read_conflict(&self, path: &Path) -> Result<Vec<Segment>, Error> {
         resolve::read_conflict(self, path)
