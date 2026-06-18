@@ -101,8 +101,12 @@ impl Repo {
     }
 
     /// 冲突解决后完成整合,并还原 autostash。
-    pub fn continue_update(&self, autostash: Option<StashRef>) -> Result<UpdateOutcome, Error> {
-        update::continue_update(self, autostash)
+    pub fn continue_update(
+        &self,
+        autostash: Option<StashRef>,
+        recurse_submodules: bool,
+    ) -> Result<UpdateOutcome, Error> {
+        update::continue_update(self, autostash, recurse_submodules)
     }
 
     /// 放弃整合,回到 Update 之前的状态(含还原 autostash)。

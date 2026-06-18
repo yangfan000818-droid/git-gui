@@ -524,7 +524,8 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                 match view.handle_key(&repo, c) {
                     Ok(conflict_ui::Action::Quit) => return true,
                     Ok(conflict_ui::Action::Continue(autostash)) => {
-                        match repo.continue_update(autostash) {
+                        // TUI 恒用默认 opts(recurse_submodules=true),冲突解决后照样同步子仓库。
+                        match repo.continue_update(autostash, true) {
                             Ok(outcome) => after_integration(state, outcome),
                             Err(e) => {
                                 state.push_after_integrate = false;
@@ -620,6 +621,12 @@ fn after_integration(state: &mut AppState, outcome: UpdateOutcome) {
             // autostash 贴回有冲突 → 工作区不干净,不自动推。
             state.push_after_integrate = false;
             state.message = "整合成功,但 autostash 贴回有冲突,请手动处理".into();
+            reload(state);
+        }
+        o @ UpdateOutcome::SubmoduleSyncFailed { .. } => {
+            // 主仓库已整合,仅子仓库同步失败:给警告并 reload,但不自动重推。
+            state.push_after_integrate = false;
+            state.message = describe(&o);
             reload(state);
         }
         other => {

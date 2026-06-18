@@ -76,5 +76,8 @@ pub fn describe(outcome: &UpdateOutcome) -> String {
             format!("整合成功,但暂存改动贴回时冲突 {} 个文件。", files.len())
         }
         UpdateOutcome::Resolved => "冲突已解决,整合完成。".into(),
+        UpdateOutcome::SubmoduleSyncFailed { error } => {
+            format!("主仓库已更新,但子仓库同步失败: {error}(请手动 git submodule update --init --recursive)")
+        }
     }
 }

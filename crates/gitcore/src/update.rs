@@ -62,6 +62,8 @@ pub enum UpdateOutcome {
     StashRestoreConflict { files: Vec<PathBuf> },
     /// 冲突解决后整合完成。
     Resolved,
+    /// 主仓库整合成功,但子仓库同步失败(改动已落地,仅子仓库未更新)。
+    SubmoduleSyncFailed { error: String },
 }
 
 /// 预检 + fetch + 计算计划,不改动工作区。
@@ -132,7 +134,7 @@ pub(crate) fn execute_update_streaming(
         let remaining = crate::conflict::conflicted_files(repo)?;
         if remaining.is_empty() {
             // 全部被 rerere 解决 → 无需人工,直接完成整合。
-            return continue_update(repo, autostash);
+            return continue_update(repo, autostash, opts.recurse_submodules);
         }
         // 还有真冲突:autostash 保留,交给上层 / UI 处理。
         return Ok(UpdateOutcome::Conflicted {
@@ -142,15 +144,24 @@ pub(crate) fn execute_update_streaming(
     }
 
     // ③ 同步子仓库:主仓库整合成功后,把子仓库 checkout 到记录 commit。
-    if opts.recurse_submodules {
-        update_submodules(repo)?;
-    }
+    // 失败不阻断:主仓库改动已提交,先还原 autostash,再作为警告返回。
+    let submodule_err = if opts.recurse_submodules {
+        update_submodules(repo).err()
+    } else {
+        None
+    };
 
     // ① 还原脏工作区。
     if let Some(stash) = autostash {
         if let PopResult::Conflict(files) = stash::autostash_pop(repo, &stash)? {
             return Ok(UpdateOutcome::StashRestoreConflict { files });
         }
+    }
+
+    if let Some(e) = submodule_err {
+        return Ok(UpdateOutcome::SubmoduleSyncFailed {
+            error: e.to_string(),
+        });
     }
 
     Ok(if ahead == 0 {
@@ -167,6 +178,7 @@ pub(crate) fn execute_update_streaming(
 pub(crate) fn continue_update(
     repo: &Repo,
     autostash: Option<StashRef>,
+    recurse_submodules: bool,
 ) -> Result<UpdateOutcome, Error> {
     let remaining = crate::conflict::conflicted_files(repo)?;
     if !remaining.is_empty() {
@@ -195,13 +207,22 @@ pub(crate) fn continue_update(
         None => {}
     }
 
-    // 冲突解决后同步子仓库。
-    update_submodules(repo)?;
+    // 冲突解决后同步子仓库(失败不阻断:整合已提交,作为警告返回)。
+    let submodule_err = if recurse_submodules {
+        update_submodules(repo).err()
+    } else {
+        None
+    };
 
     if let Some(stash) = autostash {
         if let PopResult::Conflict(files) = stash::autostash_pop(repo, &stash)? {
             return Ok(UpdateOutcome::StashRestoreConflict { files });
         }
+    }
+    if let Some(e) = submodule_err {
+        return Ok(UpdateOutcome::SubmoduleSyncFailed {
+            error: e.to_string(),
+        });
     }
     Ok(UpdateOutcome::Resolved)
 }

@@ -296,7 +296,7 @@ fn merge_conflict_resolve_and_continue() {
     repo.resolve_file(&files[0], &resolved).unwrap();
 
     assert!(matches!(
-        repo.continue_update(autostash).unwrap(),
+        repo.continue_update(autostash, true).unwrap(),
         UpdateOutcome::Resolved
     ));
     assert_eq!(
@@ -367,7 +367,7 @@ fn resume_finds_pending_conflict_and_restores_autostash() {
     let resolved = gitcore::rebuild(&segs, &[gitcore::Choice::Theirs]);
     repo2.resolve_file(&files[0], &resolved).unwrap();
     assert!(matches!(
-        repo2.continue_update(autostash).unwrap(),
+        repo2.continue_update(autostash, true).unwrap(),
         UpdateOutcome::Resolved
     ));
     assert_eq!(
@@ -395,7 +395,7 @@ fn rerere_replays_previous_resolution() {
     let segs = repo.read_conflict(&files[0]).unwrap();
     let resolved = gitcore::rebuild(&segs, &[gitcore::Choice::Theirs]);
     repo.resolve_file(&files[0], &resolved).unwrap();
-    repo.continue_update(autostash).unwrap();
+    repo.continue_update(autostash, true).unwrap();
 
     // 撤销这次 merge,回到冲突前。
     git(&b, &["reset", "--hard", "HEAD~1"]);
@@ -440,7 +440,7 @@ fn rebase_conflict_resolve_and_continue() {
     repo.resolve_file(&files[0], &resolved).unwrap();
 
     assert!(matches!(
-        repo.continue_update(autostash).unwrap(),
+        repo.continue_update(autostash, true).unwrap(),
         UpdateOutcome::Resolved
     ));
     assert_eq!(
