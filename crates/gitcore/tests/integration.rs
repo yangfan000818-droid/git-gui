@@ -614,6 +614,38 @@ fn unstage_removes_from_index() {
 }
 
 #[test]
+fn discard_reverts_to_head_with_stash_backup() {
+    let dir = init_repo("dc");
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+
+    let repo = Repo::open(&dir).unwrap();
+    // 改一个已跟踪文件 + 加一个未跟踪文件
+    write(&dir, "a.txt", "modified");
+    write(&dir, "new.txt", "untracked");
+    assert_eq!(repo.status().unwrap().files.len(), 2);
+
+    repo.discard(&[Path::new("a.txt"), Path::new("new.txt")])
+        .unwrap();
+
+    // 工作区回到 HEAD:a.txt 恢复原内容,new.txt 被移除
+    assert!(!repo.status().unwrap().dirty, "discard 后工作区应干净");
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "hello");
+    assert!(!dir.join("new.txt").exists(), "未跟踪文件应被移除");
+
+    // 兜底:改动进了 stash,pop 能完整找回
+    assert_eq!(repo.stashes().unwrap().len(), 1, "应有一条兜底 stash");
+    repo.stash_pop("stash@{0}").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "modified"
+    );
+    assert!(dir.join("new.txt").exists(), "pop 后未跟踪文件应找回");
+
+    cleanup(&[&dir]);
+}
+
+#[test]
 fn commit_empty_staging_fails() {
     let dir = init_repo("ce");
     write(&dir, "a.txt", "hello");

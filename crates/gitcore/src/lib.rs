@@ -129,6 +129,11 @@ impl Repo {
         stage::unstage_files(self, paths)
     }
 
+    /// 回滚指定文件的改动(stash 兜底,可在 Stash 视图 pop 找回)。
+    pub fn discard(&self, paths: &[&Path]) -> Result<(), Error> {
+        stage::discard_files(self, paths)
+    }
+
     /// 暂存所有改动和未跟踪文件。
     pub fn stage_all(&self) -> Result<(), Error> {
         stage::stage_all(self)
