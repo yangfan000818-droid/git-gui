@@ -26,6 +26,12 @@ cargo workspace:
 - preflight 防止在已有 merge/rebase 时重入
 - 崩溃恢复:检测未完成的整合(中断/崩溃后扫回 autostash + 冲突文件列表)
 
+**执行层 进度 / 取消**(长操作不冻结界面):
+
+- fetch / push 流式执行,进度从 git stderr 解析(`Receiving objects: 45%` 等)经回调实时上报
+- 协作式取消(`CancelToken`):置位即 kill 子进程并返回 `Cancelled`,改动有兜底不残留
+- `execute_update` 可取消:fetch 阶段中止发生在 autostash 之前,工作区不受影响
+
 **冲突解决**(零依赖 diff3 + 行级魔法棒):
 
 - 零依赖行级 diff3 算法(Myers LCS + 三版本合并逻辑)
@@ -39,13 +45,18 @@ cargo workspace:
 - 文件级 status 解析(`git status --porcelain=v1`)
 - 暂存/取消暂存(stage / unstage / stage_all)
 - 提交 + 空暂存区拒绝(commit + CommitOptions)
-- 推送 + 边界处理(NoUpstream / NonFastForward / Success)
+- 推送 + 边界处理(NoUpstream / NonFastForward / Success);非快进自动整合后重推
 
 **log / diff 查看**:
 
 - 提交历史(log + LogEntry,默认最近 50 条,支持指定分支)
 - 工作区 diff(diff / show_commit / commit_message)
 - DiffOptions:开关 `--cached`、`-- <path>`
+
+**branch / stash 管理**:
+
+- 分支:列出 / 创建 / 切换 / 删除(`b` 键进入)
+- stash:列出 / 创建 / apply / pop / drop(`h` 键进入)
 
 **子仓库检测 + 多仓库配置**:
 
@@ -56,6 +67,10 @@ cargo workspace:
 **TUI 交互**:
 
 - ratatui 全屏界面:status 面板 + 实时仓库状态(分支/upstream/领先落后/脏状态)
+- update / push 后台异步执行,执行中 `Esc` 取消、状态栏显示进度(界面不冻结)
+- push 被拒自动整合再推(WebStorm 式):无冲突全自动,有冲突进解决视图、解决后自动推
+- `m` 键切换 merge / rebase 整合策略,状态栏常驻显示当前策略
+- Branch 视图(`b`):分支列表 + 创建/切换/删除;Stash 视图(`h`):列表 + 创建/应用/弹出/丢弃
 - 冲突解决三栏视图:`ours │ base │ theirs` 并排显示
 - 多文件冲突导航:顶部概览条 + `n`/`p` 切换,每文件独立保留选择与进度
 - Stage 视图:文件列表(j/k 导航/Space 暂存/a 全暂存/c commit)
@@ -65,7 +80,7 @@ cargo workspace:
 - 左侧边栏(多仓库时):状态图标 + Tab 切换
 - 魔法棒可视化:自动解决的行标绿色 ✓,待处理行标黄色,当前选择栏加粗
 
-**Status 面板键位**: `s` Stage · `S` 子仓库 · `l` Log · `d` Diff · `p` Push · `u` Update · `r` 刷新 · `q` 退出
+**Status 面板键位**: `s` Stage · `b` Branch · `h` Stash · `S` 子仓库 · `l` Log · `d` Diff · `p` Push · `u` Update · `m` 策略 · `R` 恢复 · `r` 刷新 · `q` 退出
 
 ## 构建与测试
 
@@ -73,7 +88,7 @@ cargo workspace:
 
 ```bash
 cargo build                # 构建
-cargo test --workspace     # 跑全部测试(34 个:gitcore 31 + tui 3)
+cargo test --workspace     # 跑全部测试(44 个:gitcore 41 + tui 3)
 cargo run -p tui           # 启动 TUI(在 git 仓库目录下运行)
 ```
 
@@ -113,6 +128,8 @@ path = "/Users/yfan/work/backend"
 - [x] stage / commit / push 日常提交链路
 - [x] log / diff 查看
 - [x] submodule 检测 + 多仓库配置
-- [ ] branch 管理(创建/切换/删除)
-- [ ] stash 管理(手动 stash/pop)
+- [x] branch 管理(创建/切换/删除)
+- [x] stash 管理(手动 stash/pop)
+- [x] 执行层进度 / 取消(fetch/push 流式 + 协作式取消)
+- [x] push 自动整合再推 + merge/rebase 策略选择
 - [ ] 接 GUI(Tauri / iced)
