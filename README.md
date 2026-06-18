@@ -43,7 +43,8 @@ cargo workspace:
 **日常提交链路**(stage → commit → push):
 
 - 文件级 status 解析(`git status --porcelain=v1`)
-- 暂存/取消暂存(stage / unstage / stage_all)
+- 暂存/取消暂存(stage / unstage / stage_all);按目录批量暂存/取消
+- 回滚改动(discard,stash 兜底可 pop 找回,含未跟踪文件)
 - 提交 + 空暂存区拒绝(commit + CommitOptions)
 - 推送 + 边界处理(NoUpstream / NonFastForward / Success);非快进自动整合后重推
 
@@ -74,7 +75,7 @@ cargo workspace:
 - 冲突解决三栏视图:`ours │ base │ theirs` 并排显示
 - 多文件冲突导航:顶部概览条 + `n`/`p` 切换,每文件独立保留选择与进度
 - 冲突块内行级滚动(`J`/`K`),`←`/`→` 在 ours/base/theirs 间切换选择
-- Stage 视图:文件列表(j/k/↑/↓ 导航/Space 暂存/a 全暂存/c commit)
+- Stage 视图:可折叠目录树(j/k 导航/l/h 展开折叠/Space 暂存或取消(文件或整目录)/a 全暂存/d 回滚/c 提交)
 - Log 视图:提交历史(j/k/↑/↓ 导航/Enter 详情,详情内 j/k 滚动)
 - Diff 视图:全屏 diff(j/k 滚动),`d` 键进入
 - Submodule 视图:子仓库列表,`S` 键进入
@@ -91,7 +92,7 @@ cargo workspace:
 
 ```bash
 cargo build                # 构建
-cargo test --workspace     # 跑全部测试(44 个:gitcore 41 + tui 3)
+cargo test --workspace     # 跑全部测试(48 个:gitcore 42 + tui 6)
 cargo run -p tui           # 启动 TUI(在 git 仓库目录下运行)
 ```
 
