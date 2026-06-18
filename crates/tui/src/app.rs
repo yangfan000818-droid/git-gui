@@ -118,6 +118,8 @@ struct AppState {
     message: String,
     /// 有后台 update 在跑时为 Some;其间只接受 Esc 取消。
     running: Option<RunningUpdate>,
+    /// push 被拒触发的自动整合:整合干净完成后自动重推。
+    push_after_integrate: bool,
 }
 
 impl AppState {
@@ -149,6 +151,7 @@ fn run_app(repo_list: Vec<(String, PathBuf)>) -> io::Result<()> {
         screen: Screen::Status,
         message: "就绪".into(),
         running: None,
+        push_after_integrate: false,
     };
     reload(&mut state);
 
@@ -245,18 +248,16 @@ fn poll_running(state: &mut AppState) {
         let _ = running.handle.join();
     }
     match result {
-        Ok(UpdateOutcome::Conflicted { files, autostash }) => {
-            enter_conflict(state, files, autostash)
-        }
-        Ok(outcome) => {
-            state.message = describe(&outcome);
-            reload(state);
-        }
+        Ok(outcome) => after_integration(state, outcome),
         Err(gitcore::Error::Cancelled) => {
+            state.push_after_integrate = false;
             state.message = "更新已取消".into();
             reload(state);
         }
-        Err(e) => state.message = format!("更新失败: {e}"),
+        Err(e) => {
+            state.push_after_integrate = false;
+            state.message = format!("更新失败: {e}");
+        }
     }
 }
 
@@ -345,7 +346,8 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                 }
             }
             'p' => {
-                if let Some(repo) = state.current_repo() {
+                let repo = state.current_repo().cloned();
+                if let Some(repo) = repo {
                     match repo.push() {
                         Ok(gitcore::PushOutcome::Success) => {
                             state.message = "推送成功".into();
@@ -356,26 +358,14 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                                 "无 upstream,请先执行 git push -u origin <branch>".into();
                         }
                         Ok(gitcore::PushOutcome::NonFastForward) => {
-                            state.message = "非快进推送被拒,请先 pull".into();
+                            // 远端领先:自动整合(异步,Esc 可取消),整合干净后自动重推。
+                            start_update(state, true);
                         }
                         Err(e) => state.message = format!("推送失败: {e}"),
                     }
                 }
             }
-            'u' => {
-                // 异步执行:后台线程跑 update,主循环轮询结果,其间 Esc 可取消(fetch 阶段)。
-                let repo = state.current_repo().cloned();
-                if let Some(repo) = repo {
-                    let cancel = CancelToken::default();
-                    let token = cancel.clone();
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    let handle = std::thread::spawn(move || {
-                        let _ = tx.send(repo.execute_update(&UpdateOptions::default(), &token));
-                    });
-                    state.running = Some(RunningUpdate { cancel, rx, handle });
-                    state.message = "更新中…(Esc 取消)".into();
-                }
-            }
+            'u' => start_update(state, false),
             'R' => {
                 if let Some(repo) = state.current_repo() {
                     match repo.resume_conflicts() {
@@ -475,26 +465,22 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
             submodule_ui::Action::None => state.screen = Screen::Submodule(view),
         },
         Screen::Conflict(mut view) => {
-            if let Some(repo) = state.current_repo() {
-                match view.handle_key(repo, c) {
+            let repo = state.current_repo().cloned();
+            if let Some(repo) = repo {
+                match view.handle_key(&repo, c) {
                     Ok(conflict_ui::Action::Quit) => return true,
                     Ok(conflict_ui::Action::Continue(autostash)) => {
                         match repo.continue_update(autostash) {
-                            Ok(UpdateOutcome::Conflicted { files, autostash }) => {
-                                enter_conflict(state, files, autostash);
-                                state.message = "还有未解决的冲突".into();
-                            }
-                            Ok(outcome) => {
-                                state.message = describe(&outcome);
-                                reload(state);
-                            }
+                            Ok(outcome) => after_integration(state, outcome),
                             Err(e) => {
+                                state.push_after_integrate = false;
                                 state.message = format!("完成失败: {e}");
                                 reload(state);
                             }
                         }
                     }
                     Ok(conflict_ui::Action::Abort(autostash)) => {
+                        state.push_after_integrate = false;
                         state.message = match repo.abort_update(autostash) {
                             Ok(()) => "已放弃整合".into(),
                             Err(e) => format!("放弃失败: {e}"),
@@ -511,6 +497,72 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
         }
     }
     false
+}
+
+// 启动后台 update;push_after=true 表示由 push 被拒触发,整合干净完成后自动重推。
+fn start_update(state: &mut AppState, push_after: bool) {
+    let repo = match state.current_repo() {
+        Some(r) => r.clone(),
+        None => return,
+    };
+    let cancel = CancelToken::default();
+    let token = cancel.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        let _ = tx.send(repo.execute_update(&UpdateOptions::default(), &token));
+    });
+    state.running = Some(RunningUpdate { cancel, rx, handle });
+    state.push_after_integrate = push_after;
+    state.message = if push_after {
+        "远端领先,正在自动整合…(Esc 取消)".into()
+    } else {
+        "更新中…(Esc 取消)".into()
+    };
+}
+
+// 落地一次 update / continue 的结果;若由 push 触发且整合干净完成,则自动重推。
+fn after_integration(state: &mut AppState, outcome: UpdateOutcome) {
+    match outcome {
+        UpdateOutcome::Conflicted { files, autostash } => {
+            // 冲突:进解决视图,push_after 标记留到解决后(continue_update 完成时再推)。
+            enter_conflict(state, files, autostash);
+        }
+        UpdateOutcome::StashRestoreConflict { .. } => {
+            // autostash 贴回有冲突 → 工作区不干净,不自动推。
+            state.push_after_integrate = false;
+            state.message = "整合成功,但 autostash 贴回有冲突,请手动处理".into();
+            reload(state);
+        }
+        other => {
+            state.message = describe(&other);
+            reload(state);
+            if state.push_after_integrate {
+                state.push_after_integrate = false;
+                try_push(state);
+            }
+        }
+    }
+}
+
+// 执行一次 push,落地结果(成功则刷新)。
+fn try_push(state: &mut AppState) {
+    let repo = match state.current_repo() {
+        Some(r) => r.clone(),
+        None => return,
+    };
+    match repo.push() {
+        Ok(gitcore::PushOutcome::Success) => {
+            state.message = "整合后推送成功".into();
+            reload(state);
+        }
+        Ok(gitcore::PushOutcome::NonFastForward) => {
+            state.message = "整合后远端又更新了,请再试一次".into();
+        }
+        Ok(gitcore::PushOutcome::NoUpstream) => {
+            state.message = "无 upstream".into();
+        }
+        Err(e) => state.message = format!("推送失败: {e}"),
+    }
 }
 
 fn enter_conflict(
