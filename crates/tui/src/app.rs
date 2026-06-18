@@ -132,6 +132,8 @@ struct AppState {
     strategy: IntegrationStrategy,
     /// 后台操作的最新进度;有后台操作在跑时渲染为进度条 widget。
     progress: Option<Progress>,
+    /// 最终结果延迟一帧处理:收到 Ok(done) 时不立刻消费,先让进度条渲染一帧。
+    pending_done: Option<OpMsg>,
     /// status 主屏状态文本的纵向滚动偏移。
     status_scroll: u16,
 }
@@ -168,6 +170,7 @@ fn run_app(repo_list: Vec<(String, PathBuf)>) -> io::Result<()> {
         push_after_integrate: false,
         strategy: IntegrationStrategy::Merge,
         progress: None,
+        pending_done: None,
         status_scroll: 0,
     };
     reload(&mut state);
@@ -266,17 +269,25 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
     }
 }
 
-// 后台操作:drain 进度更新 message;拿到最终结果(update / push)则落地。
+// 后台操作:逐条 drain 进度 → 收到最终结果时延迟一帧落地,确保进度条先渲染。
 fn poll_running(state: &mut AppState) {
-    let final_msg = loop {
+    // 上一帧留的最终结果:这回落地(已跨过至少一次 draw)。
+    if let Some(final_msg) = state.pending_done.take() {
+        finish_op(state, final_msg);
+        return;
+    }
+    loop {
         let msg = match &state.running {
             None => return,
             Some(op) => op.rx.try_recv(),
         };
         match msg {
             Ok(OpMsg::Progress(p)) => state.progress = Some(p),
-            Ok(done) => break done,
-            Err(std::sync::mpsc::TryRecvError::Empty) => return, // 还在跑
+            Ok(done) => {
+                state.pending_done = Some(done);
+                return; // 延迟到下一帧,让进度条先渲染
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                 state.running = None;
                 state.push_after_integrate = false;
@@ -284,7 +295,11 @@ fn poll_running(state: &mut AppState) {
                 return;
             }
         }
-    };
+    }
+}
+
+// 落地后台操作的最终结果(join 线程 + 清理状态)。
+fn finish_op(state: &mut AppState, final_msg: OpMsg) {
     if let Some(op) = state.running.take() {
         let _ = op.handle.join();
     }
@@ -562,6 +577,7 @@ fn spawn_update(state: &mut AppState, push_after: bool) {
     state.running = Some(RunningOp { cancel, rx, handle });
     state.push_after_integrate = push_after;
     state.progress = None;
+    state.pending_done = None;
     state.message = if push_after {
         "远端领先,正在自动整合…(Esc 取消)".into()
     } else {
@@ -588,6 +604,7 @@ fn spawn_push(state: &mut AppState) {
     });
     state.running = Some(RunningOp { cancel, rx, handle });
     state.progress = None;
+    state.pending_done = None;
     state.message = "推送中…(Esc 取消)".into();
 }
 
