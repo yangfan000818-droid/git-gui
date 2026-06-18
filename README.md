@@ -67,20 +67,23 @@ cargo workspace:
 **TUI 交互**:
 
 - ratatui 全屏界面:status 面板 + 实时仓库状态(分支/upstream/领先落后/脏状态)
-- update / push 后台异步执行,执行中 `Esc` 取消、状态栏显示进度(界面不冻结)
+- update / push 后台异步执行,底部栏渲染进度条(百分比 + 阶段名),`Esc` 取消,界面不冻结
 - push 被拒自动整合再推(WebStorm 式):无冲突全自动,有冲突进解决视图、解决后自动推
 - `m` 键切换 merge / rebase 整合策略,状态栏常驻显示当前策略
 - Branch 视图(`b`):分支列表 + 创建/切换/删除;Stash 视图(`h`):列表 + 创建/应用/弹出/丢弃
 - 冲突解决三栏视图:`ours │ base │ theirs` 并排显示
 - 多文件冲突导航:顶部概览条 + `n`/`p` 切换,每文件独立保留选择与进度
-- Stage 视图:文件列表(j/k 导航/Space 暂存/a 全暂存/c commit)
-- Log 视图:提交历史(j/k 导航/Enter 详情)
-- Diff 视图:全屏 diff,`d` 键进入
+- 冲突块内行级滚动(`J`/`K`),`←`/`→` 在 ours/base/theirs 间切换选择
+- Stage 视图:文件列表(j/k/↑/↓ 导航/Space 暂存/a 全暂存/c commit)
+- Log 视图:提交历史(j/k/↑/↓ 导航/Enter 详情,详情内 j/k 滚动)
+- Diff 视图:全屏 diff(j/k 滚动),`d` 键进入
 - Submodule 视图:子仓库列表,`S` 键进入
 - 左侧边栏(多仓库时):状态图标 + Tab 切换
+- 所有列表视图跟随光标自动滚动(列表超出可视区时)
+- Status 面板文本过长时 j/k/↑/↓ 滚动
 - 魔法棒可视化:自动解决的行标绿色 ✓,待处理行标黄色,当前选择栏加粗
 
-**Status 面板键位**: `s` Stage · `b` Branch · `h` Stash · `S` 子仓库 · `l` Log · `d` Diff · `p` Push · `u` Update · `m` 策略 · `R` 恢复 · `r` 刷新 · `q` 退出
+**键位总览**: `j/k/↑/↓` 导航/滚动 · `Space` 暂存 · `a` 全暂存 · `c` 提交/创建 · `d` Diff/删除 · `s` Stage · `b` Branch · `h` Stash · `S` 子仓库 · `l` Log · `p` Push · `u` Update · `m` 策略 · `R` 恢复 · `r` 刷新 · `q` 退出 · `q/Esc` 返回(各子视图)/取消
 
 ## 构建与测试
 
