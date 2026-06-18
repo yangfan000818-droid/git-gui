@@ -5,12 +5,13 @@
 use crate::branch_ui::{self, BranchView};
 use crate::cli::describe;
 use crate::conflict_ui::{self, ConflictView};
+use crate::diff_ui::{self, DiffView};
 use crate::log_ui::{self, LogView};
 use crate::stage_ui::{self, StageView};
 use crate::stash_ui::{self, StashView};
 use crate::submodule_ui::{self, SubmoduleView};
 use gitcore::{
-    parse_repos_config, CancelToken, DiffOptions, IntegrationStrategy, Progress, Repo, RepoStatus,
+    parse_repos_config, CancelToken, IntegrationStrategy, Progress, Repo, RepoStatus,
     UpdateOptions, UpdateOutcome,
 };
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -20,7 +21,7 @@ use ratatui::crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::layout::{Constraint, Layout};
-use ratatui::widgets::{Block, Gauge, Paragraph, Wrap};
+use ratatui::widgets::{Block, Gauge, Paragraph};
 use ratatui::{Frame, Terminal};
 use std::io;
 use std::path::PathBuf;
@@ -93,7 +94,7 @@ enum Screen {
     Stage(StageView),
     Stash(StashView),
     Log(LogView),
-    Diff(String, u16), // diff 内容 + 纵向滚动偏移
+    Diff(DiffView),
     Submodule(SubmoduleView),
 }
 
@@ -328,7 +329,7 @@ fn draw(f: &mut Frame, state: &AppState) {
         Screen::Conflict(view) => view.render(f),
         Screen::Stage(view) => view.render(f),
         Screen::Log(view) => view.render(f),
-        Screen::Diff(content, scroll) => draw_diff(f, content, *scroll),
+        Screen::Diff(view) => view.render(f),
         Screen::Submodule(view) => view.render(f),
     }
 }
@@ -397,14 +398,8 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
             }
             'd' => {
                 if let Some(repo) = state.current_repo() {
-                    match repo.diff(&DiffOptions::default()) {
-                        Ok(content) => {
-                            if content.trim().is_empty() {
-                                state.message = "工作区无改动".into();
-                            } else {
-                                state.screen = Screen::Diff(content, 0);
-                            }
-                        }
+                    match DiffView::load(repo) {
+                        Ok(v) => state.screen = Screen::Diff(v),
                         Err(e) => state.message = format!("查看 diff 失败: {e}"),
                     }
                 }
@@ -497,15 +492,18 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                 }
             }
         }
-        Screen::Diff(content, scroll) => match c {
-            'q' | '\x1b' => reload(state),
-            'j' | crate::keys::DOWN => {
-                let max = content.lines().count().saturating_sub(1) as u16;
-                state.screen = Screen::Diff(content, (scroll + 1).min(max));
+        Screen::Diff(mut view) => {
+            if let Some(repo) = state.current_repo() {
+                match view.handle_key(repo, c) {
+                    Ok(diff_ui::Action::Back) => reload(state),
+                    Ok(diff_ui::Action::None) => state.screen = Screen::Diff(view),
+                    Err(e) => {
+                        state.message = format!("操作失败: {e}");
+                        state.screen = Screen::Diff(view);
+                    }
+                }
             }
-            'k' | crate::keys::UP => state.screen = Screen::Diff(content, scroll.saturating_sub(1)),
-            _ => state.screen = Screen::Diff(content, scroll),
-        },
+        }
         Screen::Submodule(mut view) => match view.handle_key(c) {
             submodule_ui::Action::Back => {
                 reload(state);
@@ -904,28 +902,4 @@ fn status_text(st: &RepoStatus) -> String {
         }
     }
     s
-}
-
-fn draw_diff(f: &mut Frame, content: &str, scroll: u16) {
-    let chunks = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(5),
-        Constraint::Length(3),
-    ])
-    .split(f.area());
-
-    f.render_widget(Paragraph::new(" Diff 视图 · 工作区改动"), chunks[0]);
-
-    f.render_widget(
-        Paragraph::new(content)
-            .block(Block::bordered().title(" Diff "))
-            .wrap(Wrap { trim: false })
-            .scroll((scroll, 0)),
-        chunks[1],
-    );
-
-    f.render_widget(
-        Paragraph::new("j/k 滚动 · q/Esc 返回").block(Block::bordered()),
-        chunks[2],
-    );
 }
