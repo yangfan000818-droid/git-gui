@@ -10,7 +10,8 @@ use crate::stage_ui::{self, StageView};
 use crate::stash_ui::{self, StashView};
 use crate::submodule_ui::{self, SubmoduleView};
 use gitcore::{
-    parse_repos_config, CancelToken, DiffOptions, Repo, RepoStatus, UpdateOptions, UpdateOutcome,
+    parse_repos_config, CancelToken, DiffOptions, IntegrationStrategy, Progress, Repo, RepoStatus,
+    UpdateOptions, UpdateOutcome,
 };
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::{
@@ -104,10 +105,17 @@ struct RepoEntry {
     status: Option<RepoStatus>,
 }
 
-// 后台执行中的 update:主循环轮询 rx 取结果,Esc 置位 cancel 请求取消。
-struct RunningUpdate {
+// 后台操作(update / push)的流式消息:进度 + 最终结果。
+enum OpMsg {
+    Progress(String),
+    Update(Result<UpdateOutcome, gitcore::Error>),
+    Push(Result<gitcore::PushOutcome, gitcore::Error>),
+}
+
+// 后台执行中的操作:主循环轮询 rx 取进度/结果,Esc 置位 cancel 请求取消。
+struct RunningOp {
     cancel: CancelToken,
-    rx: std::sync::mpsc::Receiver<Result<UpdateOutcome, gitcore::Error>>,
+    rx: std::sync::mpsc::Receiver<OpMsg>,
     handle: std::thread::JoinHandle<()>,
 }
 
@@ -116,10 +124,12 @@ struct AppState {
     current_index: usize,
     screen: Screen,
     message: String,
-    /// 有后台 update 在跑时为 Some;其间只接受 Esc 取消。
-    running: Option<RunningUpdate>,
+    /// 有后台操作(update / push)在跑时为 Some;其间只接受 Esc 取消。
+    running: Option<RunningOp>,
     /// push 被拒触发的自动整合:整合干净完成后自动重推。
     push_after_integrate: bool,
+    /// 当前整合策略(merge / rebase),按 m 切换。
+    strategy: IntegrationStrategy,
 }
 
 impl AppState {
@@ -152,6 +162,7 @@ fn run_app(repo_list: Vec<(String, PathBuf)>) -> io::Result<()> {
         message: "就绪".into(),
         running: None,
         push_after_integrate: false,
+        strategy: IntegrationStrategy::Merge,
     };
     reload(&mut state);
 
@@ -229,35 +240,41 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
     }
 }
 
-// 后台 update 完成则取结果并落地(进冲突视图 / 刷新 / 报错 / 取消提示)。
+// 后台操作:drain 进度更新 message;拿到最终结果(update / push)则落地。
 fn poll_running(state: &mut AppState) {
-    let outcome = match &state.running {
-        None => return,
-        Some(r) => r.rx.try_recv(),
-    };
-    let result = match outcome {
-        Ok(res) => res,
-        Err(std::sync::mpsc::TryRecvError::Empty) => return, // 还在跑
-        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-            state.running = None;
-            state.message = "更新线程意外退出".into();
-            return;
+    let final_msg = loop {
+        let msg = match &state.running {
+            None => return,
+            Some(op) => op.rx.try_recv(),
+        };
+        match msg {
+            Ok(OpMsg::Progress(p)) => state.message = format!("{p} (Esc 取消)"),
+            Ok(done) => break done,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return, // 还在跑
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                state.running = None;
+                state.push_after_integrate = false;
+                state.message = "后台操作意外退出".into();
+                return;
+            }
         }
     };
-    if let Some(running) = state.running.take() {
-        let _ = running.handle.join();
+    if let Some(op) = state.running.take() {
+        let _ = op.handle.join();
     }
-    match result {
-        Ok(outcome) => after_integration(state, outcome),
-        Err(gitcore::Error::Cancelled) => {
+    match final_msg {
+        OpMsg::Update(Ok(outcome)) => after_integration(state, outcome),
+        OpMsg::Update(Err(gitcore::Error::Cancelled)) => {
             state.push_after_integrate = false;
             state.message = "更新已取消".into();
             reload(state);
         }
-        Err(e) => {
+        OpMsg::Update(Err(e)) => {
             state.push_after_integrate = false;
             state.message = format!("更新失败: {e}");
         }
+        OpMsg::Push(result) => after_push(state, result),
+        OpMsg::Progress(_) => {}
     }
 }
 
@@ -345,27 +362,15 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
                     }
                 }
             }
-            'p' => {
-                let repo = state.current_repo().cloned();
-                if let Some(repo) = repo {
-                    match repo.push() {
-                        Ok(gitcore::PushOutcome::Success) => {
-                            state.message = "推送成功".into();
-                            reload(state);
-                        }
-                        Ok(gitcore::PushOutcome::NoUpstream) => {
-                            state.message =
-                                "无 upstream,请先执行 git push -u origin <branch>".into();
-                        }
-                        Ok(gitcore::PushOutcome::NonFastForward) => {
-                            // 远端领先:自动整合(异步,Esc 可取消),整合干净后自动重推。
-                            start_update(state, true);
-                        }
-                        Err(e) => state.message = format!("推送失败: {e}"),
-                    }
-                }
+            'p' => spawn_push(state),
+            'u' => spawn_update(state, false),
+            'm' => {
+                state.strategy = match state.strategy {
+                    IntegrationStrategy::Merge => IntegrationStrategy::Rebase,
+                    IntegrationStrategy::Rebase => IntegrationStrategy::Merge,
+                };
+                state.message = format!("整合策略已切换为 {}", strategy_label(state.strategy));
             }
-            'u' => start_update(state, false),
             'R' => {
                 if let Some(repo) = state.current_repo() {
                     match repo.resume_conflicts() {
@@ -500,7 +505,32 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
 }
 
 // 启动后台 update;push_after=true 表示由 push 被拒触发,整合干净完成后自动重推。
-fn start_update(state: &mut AppState, push_after: bool) {
+fn spawn_update(state: &mut AppState, push_after: bool) {
+    let repo = match state.current_repo() {
+        Some(r) => r.clone(),
+        None => return,
+    };
+    let opts = UpdateOptions {
+        strategy: state.strategy,
+        ignore_whitespace: true,
+    };
+    let cancel = CancelToken::default();
+    let token = cancel.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        let _ = tx.send(OpMsg::Update(repo.execute_update(&opts, &token)));
+    });
+    state.running = Some(RunningOp { cancel, rx, handle });
+    state.push_after_integrate = push_after;
+    state.message = if push_after {
+        "远端领先,正在自动整合…(Esc 取消)".into()
+    } else {
+        "更新中…(Esc 取消)".into()
+    };
+}
+
+// 启动后台 push(流式进度,可取消);结果在 after_push 落地。
+fn spawn_push(state: &mut AppState) {
     let repo = match state.current_repo() {
         Some(r) => r.clone(),
         None => return,
@@ -509,15 +539,19 @@ fn start_update(state: &mut AppState, push_after: bool) {
     let token = cancel.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     let handle = std::thread::spawn(move || {
-        let _ = tx.send(repo.execute_update(&UpdateOptions::default(), &token));
+        let progress_tx = tx.clone();
+        let mut on_progress = move |p: Progress| {
+            let text = match p.percent {
+                Some(pct) => format!("{}: {pct}%", p.phase),
+                None => p.raw.clone(),
+            };
+            let _ = progress_tx.send(OpMsg::Progress(text));
+        };
+        let result = repo.push_streaming(&mut on_progress, &token);
+        let _ = tx.send(OpMsg::Push(result));
     });
-    state.running = Some(RunningUpdate { cancel, rx, handle });
-    state.push_after_integrate = push_after;
-    state.message = if push_after {
-        "远端领先,正在自动整合…(Esc 取消)".into()
-    } else {
-        "更新中…(Esc 取消)".into()
-    };
+    state.running = Some(RunningOp { cancel, rx, handle });
+    state.message = "推送中…(Esc 取消)".into();
 }
 
 // 落地一次 update / continue 的结果;若由 push 触发且整合干净完成,则自动重推。
@@ -537,31 +571,49 @@ fn after_integration(state: &mut AppState, outcome: UpdateOutcome) {
             state.message = describe(&other);
             reload(state);
             if state.push_after_integrate {
-                state.push_after_integrate = false;
-                try_push(state);
+                // 保留标记:push 完成后 after_push 据此定 message,届时再清。
+                spawn_push(state);
             }
         }
     }
 }
 
-// 执行一次 push,落地结果(成功则刷新)。
-fn try_push(state: &mut AppState) {
-    let repo = match state.current_repo() {
-        Some(r) => r.clone(),
-        None => return,
-    };
-    match repo.push() {
+// 落地 push 结果;远端领先则自动整合(push_after),整合干净后会再次 spawn_push。
+fn after_push(state: &mut AppState, result: Result<gitcore::PushOutcome, gitcore::Error>) {
+    match result {
         Ok(gitcore::PushOutcome::Success) => {
-            state.message = "整合后推送成功".into();
+            state.message = if state.push_after_integrate {
+                "整合后推送成功".into()
+            } else {
+                "推送成功".into()
+            };
+            state.push_after_integrate = false;
             reload(state);
         }
-        Ok(gitcore::PushOutcome::NonFastForward) => {
-            state.message = "整合后远端又更新了,请再试一次".into();
-        }
         Ok(gitcore::PushOutcome::NoUpstream) => {
-            state.message = "无 upstream".into();
+            state.push_after_integrate = false;
+            state.message = "无 upstream,请先执行 git push -u origin <branch>".into();
         }
-        Err(e) => state.message = format!("推送失败: {e}"),
+        Ok(gitcore::PushOutcome::NonFastForward) => {
+            // 远端领先:自动整合,完成后再推。
+            spawn_update(state, true);
+        }
+        Err(gitcore::Error::Cancelled) => {
+            state.push_after_integrate = false;
+            state.message = "推送已取消".into();
+            reload(state);
+        }
+        Err(e) => {
+            state.push_after_integrate = false;
+            state.message = format!("推送失败: {e}");
+        }
+    }
+}
+
+fn strategy_label(s: IntegrationStrategy) -> &'static str {
+    match s {
+        IntegrationStrategy::Merge => "merge",
+        IntegrationStrategy::Rebase => "rebase",
     }
 }
 
@@ -636,9 +688,10 @@ fn draw_status_single(f: &mut Frame, state: &AppState) {
     );
 
     f.render_widget(
-        Paragraph::new(state.message.clone()).block(Block::bordered().title(
-            " s Stage · b Branch · h Stash · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
-        )),
+        Paragraph::new(state.message.clone()).block(Block::bordered().title(format!(
+            " s Stage · b Branch · h Stash · S 子仓库 · l Log · d Diff · p Push · u 更新 · m 策略[{}] · r 刷新 · q 退出 ",
+            strategy_label(state.strategy)
+        ))),
         chunks[2],
     );
 }
@@ -713,9 +766,10 @@ fn draw_status_panel(f: &mut Frame, state: &AppState, area: ratatui::layout::Rec
     );
 
     f.render_widget(
-        Paragraph::new(state.message.clone()).block(Block::bordered().title(
-            " s Stage · b Branch · h Stash · S 子仓库 · l Log · d Diff · p Push · u 更新 · r 刷新 · q 退出 ",
-        )),
+        Paragraph::new(state.message.clone()).block(Block::bordered().title(format!(
+            " s Stage · b Branch · h Stash · S 子仓库 · l Log · d Diff · p Push · u 更新 · m 策略[{}] · r 刷新 · q 退出 ",
+            strategy_label(state.strategy)
+        ))),
         chunks[2],
     );
 }
