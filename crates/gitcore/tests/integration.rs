@@ -646,6 +646,56 @@ fn discard_reverts_to_head_with_stash_backup() {
 }
 
 #[test]
+fn stage_hunk_stages_only_selected_change() {
+    let dir = init_repo("sh");
+    write(&dir, "f.txt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n");
+    commit_all(&dir, "init");
+    // 改首尾两行 → 中间有足够间隔,应解析成两个分离 hunk
+    write(&dir, "f.txt", "1-mod\n2\n3\n4\n5\n6\n7\n8\n9\n10-mod\n");
+
+    let repo = Repo::open(&dir).unwrap();
+    let files = repo.unstaged_diff().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].hunks.len(), 2, "首尾两处改动应是 2 个 hunk");
+
+    // 只暂存第一个 hunk
+    repo.stage_hunk(&files[0], &files[0].hunks[0]).unwrap();
+
+    let staged = repo.staged_diff().unwrap();
+    assert_eq!(staged.len(), 1);
+    assert_eq!(staged[0].hunks.len(), 1, "暂存区只含第一处改动");
+    let unstaged = repo.unstaged_diff().unwrap();
+    assert_eq!(unstaged[0].hunks.len(), 1, "还剩第二处改动未暂存");
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn unstage_hunk_removes_from_index() {
+    let dir = init_repo("uh");
+    write(&dir, "f.txt", "1\n2\n3\n");
+    commit_all(&dir, "init");
+    write(&dir, "f.txt", "1-mod\n2\n3\n");
+
+    let repo = Repo::open(&dir).unwrap();
+    repo.stage(&[Path::new("f.txt")]).unwrap();
+    assert_eq!(repo.staged_diff().unwrap()[0].hunks.len(), 1);
+
+    // 取消暂存这个 hunk
+    let staged = repo.staged_diff().unwrap();
+    repo.unstage_hunk(&staged[0], &staged[0].hunks[0]).unwrap();
+
+    assert!(repo.staged_diff().unwrap().is_empty(), "取消后暂存区应空");
+    assert_eq!(
+        repo.unstaged_diff().unwrap()[0].hunks.len(),
+        1,
+        "改动回到未暂存"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
 fn commit_empty_staging_fails() {
     let dir = init_repo("ce");
     write(&dir, "a.txt", "hello");

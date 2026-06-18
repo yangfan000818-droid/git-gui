@@ -1,5 +1,5 @@
 use crate::error::Error;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,6 +39,32 @@ pub(crate) fn run_checked(workdir: &Path, args: &[&str]) -> Result<Output, Error
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     })
+}
+
+/// 跑 git 并把 `input` 写入其 stdin;非零退出 → Err。供 `git apply` 等需喂 patch 的命令使用。
+pub(crate) fn run_with_stdin(workdir: &Path, args: &[&str], input: &str) -> Result<String, Error> {
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(workdir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    // 块作用域内写完即 drop stdin,git 才会收到 EOF。
+    {
+        let mut stdin = child.stdin.take().expect("stdin piped");
+        stdin.write_all(input.as_bytes())?;
+    }
+    let output = child.wait_with_output()?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    } else {
+        Err(Error::Git {
+            args: args.iter().map(|s| s.to_string()).collect(),
+            code: output.status.code(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
+    }
 }
 
 /// 取消令牌:UI 持一份并在用户请求时 `cancel()`,执行层在读循环里轮询 `is_cancelled()`。

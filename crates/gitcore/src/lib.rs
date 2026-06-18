@@ -11,6 +11,7 @@ mod diff;
 mod diff3;
 mod error;
 mod git;
+mod hunk;
 mod log;
 mod push;
 mod resolve;
@@ -29,6 +30,7 @@ pub use conflict::{conflicted_files, three_versions, ThreeVersions};
 pub use diff::DiffOptions;
 pub use error::Error;
 pub use git::{CancelToken, Progress};
+pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
 pub use log::{LogEntry, LogOptions};
 pub use push::PushOutcome;
 pub use resolve::{
@@ -187,6 +189,43 @@ impl Repo {
         diff::diff(self, opts)
     }
 
+    /// 解析未暂存改动(工作区 vs 暂存区)为结构化 diff(文件 → hunk → 行)。
+    pub fn unstaged_diff(&self) -> Result<Vec<FileDiff>, Error> {
+        let text = self.git(&[
+            "-c",
+            "diff.noprefix=false",
+            "-c",
+            "diff.mnemonicprefix=false",
+            "diff",
+            "--no-color",
+        ])?;
+        Ok(hunk::parse(&text))
+    }
+
+    /// 解析已暂存改动(暂存区 vs HEAD)为结构化 diff。
+    pub fn staged_diff(&self) -> Result<Vec<FileDiff>, Error> {
+        let text = self.git(&[
+            "-c",
+            "diff.noprefix=false",
+            "-c",
+            "diff.mnemonicprefix=false",
+            "diff",
+            "--cached",
+            "--no-color",
+        ])?;
+        Ok(hunk::parse(&text))
+    }
+
+    /// 暂存某文件的某个 hunk(`file`/`hunk` 取自 [`Repo::unstaged_diff`])。
+    pub fn stage_hunk(&self, file: &FileDiff, hunk: &Hunk) -> Result<(), Error> {
+        hunk::stage_hunk(self, file, hunk)
+    }
+
+    /// 取消暂存某文件的某个 hunk(`file`/`hunk` 取自 [`Repo::staged_diff`])。
+    pub fn unstage_hunk(&self, file: &FileDiff, hunk: &Hunk) -> Result<(), Error> {
+        hunk::unstage_hunk(self, file, hunk)
+    }
+
     /// 查看指定提交的完整内容(message + diff)。
     pub fn show_commit(&self, sha: &str) -> Result<String, Error> {
         diff::show_commit(self, sha)
@@ -255,6 +294,11 @@ impl Repo {
     // 跑一个 git 子命令,返回原始结果,不把非零当错误(用于可能冲突的整合)。
     pub(crate) fn git_checked(&self, args: &[&str]) -> Result<git::Output, Error> {
         git::run_checked(&self.workdir, args)
+    }
+
+    // 跑一个 git 子命令并把 patch 等内容写入其 stdin(供 git apply 用)。
+    pub(crate) fn git_with_stdin(&self, args: &[&str], input: &str) -> Result<String, Error> {
+        git::run_with_stdin(&self.workdir, args, input)
     }
 
     // 流式跑一个 git 子命令(进度回调 + 可取消),供 fetch / push 等长操作复用。

@@ -6,6 +6,7 @@ mod app;
 mod branch_ui;
 mod cli;
 mod conflict_ui;
+mod diff_ui;
 mod keys;
 mod log_ui;
 mod scroll;
