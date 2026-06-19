@@ -204,7 +204,21 @@ impl Repo {
             "diff",
             "--no-color",
         ])?;
-        Ok(hunk::parse(&text))
+        let mut files = hunk::parse(&text);
+        // git diff 不含未跟踪文件,单独列出并补成"全新增"的 FileDiff。
+        let untracked = self.git(&[
+            "-c",
+            "core.quotepath=false",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+        ])?;
+        for path in untracked.lines() {
+            if let Some(fd) = hunk::untracked_file(self, path) {
+                files.push(fd);
+            }
+        }
+        Ok(files)
     }
 
     /// 解析已暂存改动(暂存区 vs HEAD)为结构化 diff。

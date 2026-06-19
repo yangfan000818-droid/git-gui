@@ -738,6 +738,44 @@ fn stage_lines_stages_only_selected_lines() {
 }
 
 #[test]
+fn unstaged_diff_includes_untracked_files() {
+    let dir = init_repo("ut");
+    write(&dir, "a.txt", "x\n");
+    commit_all(&dir, "init");
+    // 改已跟踪 + 新增未跟踪
+    write(&dir, "a.txt", "x\ny\n");
+    write(&dir, "new.txt", "hello\nworld\n");
+
+    let repo = Repo::open(&dir).unwrap();
+    let files = repo.unstaged_diff().unwrap();
+    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert!(paths.contains(&"a.txt"), "含已跟踪改动");
+    assert!(paths.contains(&"new.txt"), "含未跟踪文件");
+
+    // new.txt 内容全部为新增行
+    let nf = files.iter().find(|f| f.path == "new.txt").unwrap();
+    let added: Vec<&str> = nf.hunks[0]
+        .lines
+        .iter()
+        .filter(|l| matches!(l.kind, gitcore::LineKind::Added))
+        .map(|l| l.content.as_str())
+        .collect();
+    assert_eq!(added, vec!["hello", "world"]);
+
+    // 暂存未跟踪文件的 hunk → 进入暂存区(等同 git add)
+    repo.stage_hunk(nf, &nf.hunks[0]).unwrap();
+    assert!(
+        repo.staged_diff()
+            .unwrap()
+            .iter()
+            .any(|f| f.path == "new.txt"),
+        "stage_hunk 后 new.txt 应已暂存"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
 fn commit_files_parses_changed_files() {
     let dir = init_repo("cf");
     write(&dir, "a.txt", "1\n");

@@ -269,6 +269,65 @@ pub(crate) fn commit_files(repo: &Repo, sha: &str) -> Result<Vec<FileDiff>, Erro
     Ok(parse(&text))
 }
 
+/// 把一个未跟踪文件构造成"全新增"的 FileDiff(`git diff` 不含未跟踪,需单独补)。
+/// 生成的 patch 是标准 new-file 格式,`git apply --cached` 可直接当 `git add` 用。
+pub(crate) fn untracked_file(repo: &Repo, path: &str) -> Option<FileDiff> {
+    let content = std::fs::read(repo.workdir().join(path)).ok()?;
+    let header_raw = format!(
+        "diff --git a/{path} b/{path}\nnew file mode 100644\n--- /dev/null\n+++ b/{path}\n"
+    );
+
+    // 二进制(含 NUL 字节)或空文件:无按行 hunk。
+    if content.contains(&0) {
+        return Some(FileDiff {
+            path: path.to_string(),
+            binary: true,
+            hunks: Vec::new(),
+            header_raw,
+        });
+    }
+    let text = String::from_utf8_lossy(&content);
+    if text.is_empty() {
+        return Some(FileDiff {
+            path: path.to_string(),
+            binary: false,
+            hunks: Vec::new(),
+            header_raw,
+        });
+    }
+
+    let ends_with_newline = text.ends_with('\n');
+    let lines: Vec<&str> = text.lines().collect();
+    let n = lines.len();
+    let mut raw = format!("@@ -0,0 +1,{n} @@\n");
+    let mut diff_lines = Vec::with_capacity(n);
+    for line in &lines {
+        raw.push('+');
+        raw.push_str(line);
+        raw.push('\n');
+        diff_lines.push(DiffLine {
+            kind: LineKind::Added,
+            content: line.to_string(),
+        });
+    }
+    if !ends_with_newline {
+        raw.push_str("\\ No newline at end of file\n");
+    }
+
+    Some(FileDiff {
+        path: path.to_string(),
+        binary: false,
+        hunks: vec![Hunk {
+            old_start: 0,
+            new_start: 1,
+            heading: String::new(),
+            lines: diff_lines,
+            raw,
+        }],
+        header_raw,
+    })
+}
+
 /// 暂存某文件某 hunk 中"选中的行"(`selected` 为 `hunk.lines` 的下标,仅 +/- 行有意义)。
 pub(crate) fn stage_lines(
     repo: &Repo,
