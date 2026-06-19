@@ -31,7 +31,7 @@ pub use diff::DiffOptions;
 pub use error::Error;
 pub use git::{CancelToken, Progress};
 pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
-pub use log::{LogEntry, LogOptions};
+pub use log::{GraphRow, LogEntry, LogOptions};
 pub use push::PushOutcome;
 pub use resolve::{
     parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment,
@@ -182,6 +182,11 @@ impl Repo {
     /// 获取提交历史。
     pub fn log(&self, opts: &LogOptions) -> Result<Vec<LogEntry>, Error> {
         log::log(self, opts)
+    }
+
+    /// 获取带分支拓扑图的提交历史(每行 = 图形前缀 + 可选 commit)。
+    pub fn log_graph(&self, opts: &LogOptions) -> Result<Vec<GraphRow>, Error> {
+        log::log_graph(self, opts)
     }
 
     /// 获取 diff 输出。

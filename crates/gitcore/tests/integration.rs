@@ -738,6 +738,36 @@ fn stage_lines_stages_only_selected_lines() {
 }
 
 #[test]
+fn log_graph_marks_commit_rows_and_merges() {
+    let dir = init_repo("lg");
+    write(&dir, "a.txt", "1");
+    commit_all(&dir, "c1");
+    write(&dir, "a.txt", "2");
+    commit_all(&dir, "c2");
+    // 造一个分支并 --no-ff 合并,产生拓扑图连接行
+    git(&dir, &["checkout", "-q", "-b", "feat"]);
+    write(&dir, "b.txt", "x");
+    commit_all(&dir, "feat1");
+    git(&dir, &["checkout", "-q", "main"]);
+    write(&dir, "c.txt", "y");
+    commit_all(&dir, "main1");
+    git(&dir, &["merge", "--no-ff", "feat", "-m", "merge feat"]);
+
+    let repo = Repo::open(&dir).unwrap();
+    let rows = repo.log_graph(&gitcore::LogOptions::default()).unwrap();
+
+    // 5 个提交:c1 c2 feat1 main1 merge
+    let commit_rows: Vec<_> = rows.iter().filter(|r| r.entry.is_some()).collect();
+    assert_eq!(commit_rows.len(), 5, "应有 5 个 commit 行");
+    // 合并历史应产生至少一行纯连接行(无 commit)
+    assert!(rows.iter().any(|r| r.entry.is_none()), "应有图形连接行");
+    // commit 行带图形标记
+    assert!(commit_rows[0].graph.contains('*'), "commit 行图形含 *");
+
+    cleanup(&[&dir]);
+}
+
+#[test]
 fn commit_empty_staging_fails() {
     let dir = init_repo("ce");
     write(&dir, "a.txt", "hello");
