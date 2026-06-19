@@ -253,6 +253,82 @@ fn apply_cached(repo: &Repo, patch: &str, reverse: bool) -> Result<(), Error> {
     Ok(())
 }
 
+/// 暂存某文件某 hunk 中"选中的行"(`selected` 为 `hunk.lines` 的下标,仅 +/- 行有意义)。
+pub(crate) fn stage_lines(
+    repo: &Repo,
+    file: &FileDiff,
+    hunk: &Hunk,
+    selected: &[usize],
+) -> Result<(), Error> {
+    if selected.is_empty() {
+        return Ok(());
+    }
+    apply_cached(repo, &partial_patch(file, hunk, selected), false)
+}
+
+/// 取消暂存某文件某 hunk 中"选中的行"(`file`/`hunk` 取自 staged_diff)。
+pub(crate) fn unstage_lines(
+    repo: &Repo,
+    file: &FileDiff,
+    hunk: &Hunk,
+    selected: &[usize],
+) -> Result<(), Error> {
+    if selected.is_empty() {
+        return Ok(());
+    }
+    apply_cached(repo, &partial_patch(file, hunk, selected), true)
+}
+
+/// 构造只含选中行的 patch:
+/// 未选中的新增行丢弃(不进 index),未选中的删除行转为上下文(该行仍在 index),据此重算行数。
+fn partial_patch(file: &FileDiff, hunk: &Hunk, selected: &[usize]) -> String {
+    let sel: std::collections::HashSet<usize> = selected.iter().copied().collect();
+    let mut body = String::new();
+    let mut old_count = 0u32;
+    let mut new_count = 0u32;
+    for (i, line) in hunk.lines.iter().enumerate() {
+        match line.kind {
+            LineKind::Context => {
+                push_line(&mut body, ' ', &line.content);
+                old_count += 1;
+                new_count += 1;
+            }
+            LineKind::Added => {
+                if sel.contains(&i) {
+                    push_line(&mut body, '+', &line.content);
+                    new_count += 1;
+                }
+                // 未选中的新增:丢弃。
+            }
+            LineKind::Removed => {
+                if sel.contains(&i) {
+                    push_line(&mut body, '-', &line.content);
+                    old_count += 1;
+                } else {
+                    // 未选中的删除:该行仍在 index,作为上下文保留。
+                    push_line(&mut body, ' ', &line.content);
+                    old_count += 1;
+                    new_count += 1;
+                }
+            }
+        }
+    }
+    let header = format!(
+        "@@ -{},{} +{},{} @@\n",
+        hunk.old_start, old_count, hunk.new_start, new_count
+    );
+    let mut patch = file.header_raw.clone();
+    patch.push_str(&header);
+    patch.push_str(&body);
+    patch
+}
+
+fn push_line(buf: &mut String, marker: char, content: &str) {
+    buf.push(marker);
+    buf.push_str(content);
+    buf.push('\n');
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
