@@ -780,6 +780,10 @@ fn log_graph_marks_commit_rows_and_merges() {
     // 5 个提交:c1 c2 feat1 main1 merge
     let commit_rows: Vec<_> = rows.iter().filter(|r| r.entry.is_some()).collect();
     assert_eq!(commit_rows.len(), 5, "应有 5 个 commit 行");
+    // full_sha 为完整 40 位,短 sha 是其前缀(供复制哈希用)
+    let e = commit_rows[0].entry.as_ref().unwrap();
+    assert_eq!(e.full_sha.len(), 40, "full_sha 应为 40 位");
+    assert!(e.full_sha.starts_with(&e.sha), "短 sha 应是 full_sha 前缀");
     // 合并历史应产生至少一行纯连接行(无 commit)
     assert!(rows.iter().any(|r| r.entry.is_none()), "应有图形连接行");
     // commit 行带图形标记

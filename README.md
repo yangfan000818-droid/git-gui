@@ -50,7 +50,7 @@ cargo workspace:
 
 **log(分支图) / diff 查看 + hunk 级暂存**:
 
-- 提交历史(log + LogEntry,默认最近 50 条,支持指定分支)
+- 提交历史(log + LogEntry,默认 50 条、可滚动加载更多;LogEntry 带完整 SHA 供复制)
 - 分支拓扑图(log_graph + GraphRow):`git log --graph` 生成图形列,解析为每行图形前缀 + 可选 commit
 - 工作区 diff(diff / show_commit / commit_message);DiffOptions 开关 `--cached`、`-- <path>`
 - 结构化 diff 解析(unstaged_diff / staged_diff / commit_files → 文件 → hunk → 行),供 UI 着色展示
@@ -79,7 +79,7 @@ cargo workspace:
 - 多文件冲突导航:顶部概览条 + `n`/`p` 切换,每文件独立保留选择与进度
 - 冲突块内行级滚动(`J`/`K`),`←`/`→` 在 ours/base/theirs 间切换选择
 - Stage 视图:可折叠目录树(j/k 导航/l/h 展开折叠/Space 暂存或取消(文件或整目录)/a 全暂存/d 回滚/c 提交)
-- Log 视图:提交历史 + 分支拓扑图(蓝色图形列);Enter 进**双栏详情**(左侧提交信息+**文件目录树**,右侧按文件看 diff)
+- Log 视图:提交历史 + 分支拓扑图(蓝色图形列);**滚到底自动加载更多**;`y` 复制完整哈希;Enter 进**双栏详情**(左侧提交信息+**文件目录树**,右侧按文件看 diff)
 - Diff 视图:**双栏**(左侧**文件目录树** + 右侧单文件 hunk diff);左栏 j/k 选、l/h 展开折叠或进 diff、Space 暂存整文件/整目录,右栏 Space 选行/暂存整 hunk、s 暂存选中行,t 切未暂存/已暂存,`d` 键进入
 - Submodule 视图:子仓库列表,`S` 键进入
 - 左侧边栏(多仓库时):状态图标 + Tab 切换
