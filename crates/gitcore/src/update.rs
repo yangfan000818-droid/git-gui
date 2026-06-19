@@ -72,9 +72,20 @@ pub enum UpdateOutcome {
 
 /// 预检 + fetch + 计算计划,不改动工作区。
 pub(crate) fn plan_update(repo: &Repo, _opts: &UpdateOptions) -> Result<UpdatePlan, Error> {
+    let mut ignore = |_p: Progress| {};
+    plan_update_streaming(repo, _opts, &mut ignore, &CancelToken::default())
+}
+
+/// 同 [`plan_update`],但 fetch 阶段支持取消(cancel 置位后中止)和进度回调。
+pub(crate) fn plan_update_streaming(
+    repo: &Repo,
+    opts: &UpdateOptions,
+    on_progress: &mut dyn FnMut(Progress),
+    cancel: &CancelToken,
+) -> Result<UpdatePlan, Error> {
     preflight(repo)?;
     let upstream = require_upstream(repo)?;
-    repo.git(&["fetch", "--prune"])?;
+    fetch(repo, on_progress, cancel, opts.recurse_submodules)?;
     let (behind, ahead) = ahead_behind(repo)?;
     Ok(UpdatePlan {
         upstream,

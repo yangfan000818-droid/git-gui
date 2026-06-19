@@ -119,11 +119,31 @@ fn repo_commit(path: String, message: String) -> Result<String, String> {
 
 // ── Update 视图命令 ──
 
-/// 预检 + fetch + 计算计划,不改动工作区。
+/// 预检 + fetch + 计算计划,不改动工作区。fetch 阶段可取消。
 #[tauri::command]
-fn plan_update(path: String, options: UpdateOptions) -> Result<UpdatePlan, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.plan_update(&options).map_err(|e| e.to_string())
+async fn plan_update(
+    app: AppHandle,
+    path: String,
+    op_id: String,
+    options: UpdateOptions,
+    state: State<'_, CancelRegistry>,
+) -> Result<UpdatePlan, String> {
+    let cancel = CancelToken::default();
+    state.insert(op_id.clone(), cancel.clone());
+
+    let res = tauri::async_runtime::spawn_blocking(move || -> Result<UpdatePlan, String> {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let mut on_progress = |p: Progress| {
+            let _ = app.emit("update-progress", p);
+        };
+        repo.plan_update_streaming(&options, &mut on_progress, &cancel)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    state.remove(&op_id);
+    res
 }
 
 /// 执行完整 Update 流程(autostash → 整合 → restore)。

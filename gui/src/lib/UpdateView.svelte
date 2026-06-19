@@ -120,19 +120,43 @@
   }
 
   // ── Step 1: 计划 ──
+  let planning = $state(false); // 重入防护
+
   async function doPlan() {
+    if (planning) return;
+    planning = true;
     phase = "planning";
     error = "";
     plan = null;
+    opId = crypto.randomUUID();
+
+    // 注册进度事件(planning 阶段也可收到 fetch 进度)
+    try {
+      unlisten = await listen<Progress>("update-progress", (event) => {
+        progress = event.payload;
+      });
+    } catch {
+      // 监听失败不阻塞
+    }
+
     try {
       plan = await invoke<UpdatePlan>("plan_update", {
         path,
+        opId,
         options: buildOptions(),
       });
       phase = "plan_shown";
     } catch (e) {
-      error = String(e);
-      phase = "idle";
+      if (cancelled) {
+        phase = "idle";
+      } else {
+        error = String(e);
+        phase = "idle";
+      }
+      cancelled = false;
+    } finally {
+      planning = false;
+      cleanup();
     }
   }
 
@@ -232,9 +256,15 @@
     progress = null;
     conflictFiles = [];
     autostash = null;
+    planning = false;
+    cancelled = false;
   }
 
   function cancelPlan() {
+    cancelled = true;
+    if (opId) {
+      invoke("cancel_op", { opId });
+    }
     reset();
   }
 
@@ -327,9 +357,28 @@
     </div>
   {/if}
 
-  <!-- ── planning: 加载中 ── -->
+  <!-- ── planning: 联网检查(fetch)进度 + 取消 ── -->
   {#if phase === "planning"}
-    <p class="update-status">联网检查中…</p>
+    <div class="planning">
+      <div class="progress-bar-wrap">
+        <div
+          class="progress-bar-fill"
+          style="width: {progress?.percent ?? 0}%"
+          role="progressbar"
+          aria-valuenow={progress?.percent ?? 0}
+          aria-valuemin="0"
+          aria-valuemax="100"
+        ></div>
+        <span class="progress-text">
+          {progress?.phase ?? "联网检查中…"}
+          {#if progress?.percent != null}
+            ({progress?.percent}%){/if}
+        </span>
+      </div>
+      <button class="btn-danger" style="margin-top:8px" onclick={cancelPlan}>
+        取消
+      </button>
+    </div>
   {/if}
 
   <!-- ── plan_shown: 展示计划 ── -->
@@ -562,7 +611,8 @@
     gap: 8px;
   }
 
-  /* ── 进度条 ── */
+  /* ── 进度条(planning / executing 共用) ── */
+  .planning,
   .executing {
     max-width: 480px;
   }

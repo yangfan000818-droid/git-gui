@@ -74,6 +74,16 @@ impl Repo {
         update::plan_update(self, opts)
     }
 
+    /// 同 [`Repo::plan_update`],但 fetch 阶段支持取消(cancel 置位后中止)和进度回调。
+    pub fn plan_update_streaming(
+        &self,
+        opts: &UpdateOptions,
+        on_progress: &mut dyn FnMut(Progress),
+        cancel: &CancelToken,
+    ) -> Result<UpdatePlan, Error> {
+        update::plan_update_streaming(self, opts, on_progress, cancel)
+    }
+
     /// 执行完整 Update 流程(autostash → 整合 → restore)。`cancel` 置位可在 fetch
     /// 阶段中止并返回 `Error::Cancelled`(此时尚未 autostash,工作区不受影响)。
     pub fn execute_update(
