@@ -8,6 +8,7 @@ use std::path::Path;
 
 /// 文件的一个片段:无冲突文本,或一个冲突块。
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Segment {
     /// 冲突块外的原文。
     Clean(String),
@@ -18,6 +19,7 @@ pub enum Segment {
 
 /// 一个冲突块的三个版本。
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ConflictHunk {
     pub ours: String,
     pub base: String,
@@ -37,6 +39,7 @@ pub enum Resolution {
 
 /// 重建时对一个冲突块的选择。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize))]
 pub enum Choice {
     Ours,
     Theirs,

@@ -1,8 +1,14 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { onMount } from "svelte";
+  import ConflictView from "$lib/ConflictView.svelte";
 
   // ── 类型 ──
+  interface PendingConflicts {
+    files: string[];
+    autostash: StashRef | null;
+  }
   interface UpdateOptions {
     strategy: "Merge" | "Rebase";
     ignore_whitespace: boolean;
@@ -93,6 +99,7 @@
     | "conflict_resolution";
   let phase = $state<Phase>("idle");
   let error = $state("");
+  let cancelled = $state(false);
   let plan = $state<UpdatePlan | null>(null);
   let outcome = $state<UpdateOutcome | null>(null);
   let opId = $state("");
@@ -101,8 +108,6 @@
   // ── 冲突解决状态 ──
   let conflictFiles = $state<string[]>([]);
   let autostash = $state<StashRef | null>(null);
-  let fileContents = $state<Record<string, string>>({});
-  let fileResolving = $state<Set<string>>(new Set());
 
   let unlisten: UnlistenFn | null = null;
 
@@ -158,8 +163,14 @@
       phase = "outcome";
       dispatchOutcome(result);
     } catch (e) {
-      error = String(e);
-      phase = "idle";
+      if (cancelled) {
+        // 取消是主动行为，不显示为红色 error
+        phase = "idle";
+      } else {
+        error = String(e);
+        phase = "idle";
+      }
+      cancelled = false;
     } finally {
       cleanup();
     }
@@ -173,43 +184,9 @@
       conflictFiles = d.files;
       autostash = d.autostash;
       phase = "conflict_resolution";
-      // 加载各冲突文件内容
-      loadConflictContents(d.files);
     }
     // AlreadyUpToDate / FastForwarded / Integrated / Resolved / StashRestoreConflict / SubmoduleSyncFailed
     // 由 UI 直接展示,用户手动刷新
-  }
-
-  async function loadConflictContents(files: string[]) {
-    const contents: Record<string, string> = {};
-    for (const f of files) {
-      try {
-        contents[f] = await invoke<string>("read_repo_file", {
-          path,
-          filePath: f,
-        });
-      } catch (e) {
-        contents[f] = `[读取失败: ${e}]`;
-      }
-    }
-    fileContents = contents;
-  }
-
-  // ── 冲突解决 ──
-  async function resolveFile(filePath: string, text: string) {
-    fileResolving = new Set(fileResolving);
-    fileResolving.add(filePath);
-    fileResolving = new Set(fileResolving);
-    error = "";
-    try {
-      await invoke("resolve_conflict_file", { path, filePath, text });
-    } catch (e) {
-      error = String(e);
-    } finally {
-      fileResolving = new Set(fileResolving);
-      fileResolving.delete(filePath);
-      fileResolving = new Set(fileResolving);
-    }
   }
 
   async function doContinue() {
@@ -255,15 +232,31 @@
     progress = null;
     conflictFiles = [];
     autostash = null;
-    fileContents = {};
-    fileResolving = new Set();
   }
 
   function cancelPlan() {
     reset();
   }
 
+  // 检测中断的整合，有则直接进冲突视图
+  onMount(async () => {
+    try {
+      const pending = await invoke<PendingConflicts | null>(
+        "resume_conflicts",
+        { path },
+      );
+      if (pending && pending.files.length > 0) {
+        conflictFiles = pending.files;
+        autostash = pending.autostash;
+        phase = "conflict_resolution";
+      }
+    } catch {
+      // 仓库无未完成整合，正常忽略
+    }
+  });
+
   function cancelOp() {
+    cancelled = true;
     if (opId) {
       invoke("cancel_op", { opId });
     }
@@ -434,37 +427,15 @@
     </div>
   {/if}
 
-  <!-- ── conflict_resolution: 冲突解决 ── -->
+  <!-- ── conflict_resolution: 冲突解决（三栏视图） ── -->
   {#if phase === "conflict_resolution"}
-    <div class="conflict-view">
-      <h3>解决冲突 ({conflictFiles.length} 个文件)</h3>
-      <p class="hint">
-        编辑下方文件移除冲突标记（&lt;&lt;&lt;&lt;&lt;&lt;&lt; / ======= /
-        &gt;&gt;&gt;&gt;&gt;&gt;&gt;），然后点击"标记已解决"。
-      </p>
-      {#each conflictFiles as f}
-        <div class="conflict-file">
-          <h4 class="conflict-fpath">{f}</h4>
-          <textarea
-            class="conflict-textarea"
-            rows={Math.max(10, (fileContents[f] ?? "").split("\n").length)}
-            value={fileContents[f] ?? ""}
-            oninput={(e) => (fileContents[f] = e.currentTarget.value)}
-            disabled={fileResolving.has(f)}></textarea>
-          <button
-            class="btn-primary btn-sm"
-            disabled={fileResolving.has(f)}
-            onclick={() => resolveFile(f, fileContents[f] ?? "")}
-          >
-            {fileResolving.has(f) ? "解决中…" : "标记已解决: " + f}
-          </button>
-        </div>
-      {/each}
-      <div class="conflict-actions">
-        <button class="btn-primary" onclick={doContinue}> 继续整合 </button>
-        <button class="btn-danger" onclick={doAbort}> 放弃整合 (abort) </button>
-      </div>
-    </div>
+    <ConflictView
+      {path}
+      {conflictFiles}
+      {autostash}
+      onContinue={doContinue}
+      onAbort={doAbort}
+    />
   {/if}
 </div>
 
@@ -557,11 +528,6 @@
   .btn-danger:hover {
     background: #a33;
   }
-  .btn-sm {
-    padding: 4px 12px;
-    font-size: 12px;
-  }
-
   /* ── 计划卡片 ── */
   .plan-card {
     background: #252525;
@@ -660,47 +626,5 @@
     padding-left: 20px;
   }
 
-  /* ── 冲突解决 ── */
-  .conflict-view {
-    max-width: 640px;
-  }
-  .conflict-view h3 {
-    margin: 0 0 4px;
-  }
-  .conflict-file {
-    margin-bottom: 14px;
-    padding: 10px;
-    background: #212121;
-    border: 1px solid #383838;
-    border-radius: 6px;
-  }
-  .conflict-fpath {
-    margin: 0 0 6px;
-    font-size: 13px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #f3b4b4;
-  }
-  .conflict-textarea {
-    width: 100%;
-    box-sizing: border-box;
-    background: #1a1a1a;
-    border: 1px solid #444;
-    border-radius: 4px;
-    color: #e4e4e4;
-    padding: 8px 10px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    resize: vertical;
-    margin-bottom: 6px;
-    line-height: 1.5;
-    tab-size: 4;
-  }
-  .conflict-textarea:disabled {
-    opacity: 0.5;
-  }
-  .conflict-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 12px;
-  }
+  /* ── 冲突解决（由 ConflictView 组件自行管理样式） ── */
 </style>

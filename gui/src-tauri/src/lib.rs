@@ -3,8 +3,8 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use gitcore::{
-    CancelToken, CommitOptions, FileDiff, Hunk, PendingConflicts, Progress, Repo, RepoStatus,
-    StashRef, UpdateOptions, UpdateOutcome, UpdatePlan,
+    CancelToken, Choice, CommitOptions, FileDiff, Hunk, PendingConflicts, Progress, Repo,
+    RepoStatus, Segment, StashRef, UpdateOptions, UpdateOutcome, UpdatePlan,
 };
 use tauri::{AppHandle, Emitter, State};
 
@@ -178,6 +178,26 @@ fn resolve_conflict_file(path: String, file_path: String, text: String) -> Resul
         .map_err(|e| e.to_string())
 }
 
+/// 读取冲突文件的片段序列(已 refine),供三栏视图渲染。
+#[tauri::command]
+fn read_conflict_segments(path: String, file_path: String) -> Result<Vec<Segment>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.read_conflict(Path::new(&file_path))
+        .map_err(|e| e.to_string())
+}
+
+/// 按用户选择重建冲突文件文本并写回 + git add。
+#[tauri::command]
+fn resolve_conflict(path: String, file_path: String, choices: Vec<Choice>) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    let segments = repo
+        .read_conflict(Path::new(&file_path))
+        .map_err(|e| e.to_string())?;
+    let text = gitcore::rebuild(&segments, &choices);
+    repo.resolve_file(Path::new(&file_path), &text)
+        .map_err(|e| e.to_string())
+}
+
 /// 冲突解决后完成整合,并还原 autostash。
 #[tauri::command]
 fn continue_update_cmd(
@@ -228,6 +248,8 @@ pub fn run() {
             cancel_op,
             read_repo_file,
             resolve_conflict_file,
+            read_conflict_segments,
+            resolve_conflict,
             continue_update_cmd,
             abort_update_cmd,
             resume_conflicts,
