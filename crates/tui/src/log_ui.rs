@@ -1,4 +1,8 @@
-//! Log 视图:带分支拓扑图的提交历史列表 + 双栏详情(左侧提交信息/文件,右侧内容/diff)。
+//! Log 视图:带分支拓扑图的提交历史列表 + 双栏详情。
+//! 详情左栏 = 「提交信息」+ 改动文件目录树,右栏 = 当前项内容(提交信息全文 或 该文件 diff)。
+
+use std::collections::HashSet;
+use std::path::PathBuf;
 
 use gitcore::{Error, FileDiff, GraphRow, LineKind, LogOptions, Repo};
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -6,6 +10,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
+
+use crate::filetree::{self, RowKind as TreeKind};
 
 pub enum Action {
     None,
@@ -32,15 +38,74 @@ struct DetailRow {
     kind: RowKind,
 }
 
-/// 详情态:某个 commit 的提交信息 + 按文件 diff(双栏浏览)。
+/// 详情态:左栏 cursor 0=提交信息,1.. = tree[cursor-1];右栏随当前项变化。
 struct Detail {
     sha: String,
     message_text: String,
     files: Vec<FileDiff>,
-    sel: usize, // 0=提交信息;1.. = files[sel-1]
+    collapsed: HashSet<PathBuf>,
+    tree: Vec<filetree::TreeRow>,
+    cursor: usize,
     focus: Focus,
-    rows: Vec<DetailRow>, // 右栏当前项的行
+    rows: Vec<DetailRow>,
     row_cursor: usize,
+}
+
+impl Detail {
+    fn on_dir(&self) -> bool {
+        self.cursor > 0
+            && matches!(
+                self.tree.get(self.cursor - 1).map(|r| &r.kind),
+                Some(TreeKind::Dir { .. })
+            )
+    }
+
+    fn sel_file_index(&self) -> Option<usize> {
+        if self.cursor == 0 {
+            return None;
+        }
+        match self.tree.get(self.cursor - 1)?.kind {
+            TreeKind::File { index } => Some(index),
+            TreeKind::Dir { .. } => None,
+        }
+    }
+
+    fn dir_path(&self) -> Option<PathBuf> {
+        if self.cursor == 0 {
+            return None;
+        }
+        match self.tree.get(self.cursor - 1) {
+            Some(r) if matches!(r.kind, TreeKind::Dir { .. }) => Some(r.path.clone()),
+            _ => None,
+        }
+    }
+
+    fn rebuild_tree(&mut self) {
+        let paths: Vec<String> = self.files.iter().map(|f| f.path.clone()).collect();
+        self.tree = filetree::build_rows(&paths, &self.collapsed);
+        if self.cursor > self.tree.len() {
+            self.cursor = self.tree.len();
+        }
+    }
+
+    fn rebuild_rows(&mut self) {
+        self.rows = if self.cursor == 0 {
+            self.message_text
+                .lines()
+                .map(|l| DetailRow {
+                    text: l.to_string(),
+                    kind: RowKind::Plain,
+                })
+                .collect()
+        } else if let Some(idx) = self.sel_file_index() {
+            file_diff_rows(&self.files[idx])
+        } else {
+            Vec::new()
+        };
+        if self.row_cursor >= self.rows.len() {
+            self.row_cursor = self.rows.len().saturating_sub(1);
+        }
+    }
 }
 
 enum Mode {
@@ -50,7 +115,7 @@ enum Mode {
 
 pub struct LogView {
     rows: Vec<GraphRow>,
-    cursor: usize, // List 模式:始终指向 commit 行
+    cursor: usize,
     mode: Mode,
     message: String,
 }
@@ -85,17 +150,23 @@ impl LogView {
                     let message_text = repo.commit_message(&sha).unwrap_or_default();
                     match repo.commit_files(&sha) {
                         Ok(files) => {
-                            let rows = build_detail_rows(0, &message_text, &files);
-                            self.mode = Mode::Detail(Detail {
+                            let collapsed = HashSet::new();
+                            let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+                            let tree = filetree::build_rows(&paths, &collapsed);
+                            let mut detail = Detail {
                                 sha,
                                 message_text,
                                 files,
-                                sel: 0,
+                                collapsed,
+                                tree,
+                                cursor: 0,
                                 focus: Focus::Files,
-                                rows,
+                                rows: Vec::new(),
                                 row_cursor: 0,
-                            });
-                            self.message = "j/k 选项 · l/Enter 看内容 · h/q 返回列表".into();
+                            };
+                            detail.rebuild_rows();
+                            self.mode = Mode::Detail(detail);
+                            self.message = "j/k 选 · l 看内容/展开 · h 折叠 · q 返回列表".into();
                         }
                         Err(e) => self.message = format!("加载失败: {e}"),
                     }
@@ -127,22 +198,37 @@ impl LogView {
             _ => return Ok(Action::None),
         };
         match focus {
-            Focus::Files => match c {
-                'q' | '\x1b' | 'h' | crate::keys::LEFT => {
-                    self.mode = Mode::List;
-                    self.message = "j/k 上下 · Enter 查看详情 · q/Esc 返回".into();
-                }
-                'j' | crate::keys::DOWN => self.detail_select(1),
-                'k' | crate::keys::UP => self.detail_select(-1),
-                'l' | crate::keys::RIGHT | '\n' | '\r' => {
-                    if let Mode::Detail(d) = &mut self.mode {
-                        if !d.rows.is_empty() {
-                            d.focus = Focus::Content;
+            Focus::Files => {
+                let on_dir = matches!(&self.mode, Mode::Detail(d) if d.on_dir());
+                match c {
+                    'q' | '\x1b' => {
+                        self.mode = Mode::List;
+                        self.message = "j/k 上下 · Enter 查看详情 · q/Esc 返回".into();
+                    }
+                    'j' | crate::keys::DOWN => self.detail_move(1),
+                    'k' | crate::keys::UP => self.detail_move(-1),
+                    'l' | crate::keys::RIGHT => {
+                        if on_dir {
+                            self.detail_set_expand(true);
+                        } else {
+                            self.detail_enter_content();
                         }
                     }
+                    'h' | crate::keys::LEFT => {
+                        if on_dir {
+                            self.detail_set_expand(false);
+                        }
+                    }
+                    '\n' | '\r' => {
+                        if on_dir {
+                            self.detail_toggle_expand();
+                        } else {
+                            self.detail_enter_content();
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             Focus::Content => {
                 if let Mode::Detail(d) = &mut self.mode {
                     match c {
@@ -159,15 +245,53 @@ impl LogView {
         Ok(Action::None)
     }
 
-    fn detail_select(&mut self, dir: isize) {
+    fn detail_move(&mut self, dir: isize) {
         if let Mode::Detail(d) = &mut self.mode {
-            let n = d.files.len() + 1; // +1:提交信息项
-            let next = (d.sel as isize + dir).clamp(0, n as isize - 1) as usize;
-            if next != d.sel {
-                d.sel = next;
+            let max = d.tree.len() as isize; // cursor 范围 0..=tree.len()
+            let next = (d.cursor as isize + dir).clamp(0, max) as usize;
+            if next != d.cursor {
+                d.cursor = next;
                 d.row_cursor = 0;
-                d.rows = build_detail_rows(d.sel, &d.message_text, &d.files);
+                d.rebuild_rows();
             }
+        }
+    }
+
+    fn detail_enter_content(&mut self) {
+        if let Mode::Detail(d) = &mut self.mode {
+            if !d.rows.is_empty() {
+                d.focus = Focus::Content;
+            }
+        }
+    }
+
+    fn detail_set_expand(&mut self, want: bool) {
+        if let Mode::Detail(d) = &mut self.mode {
+            let Some(path) = d.dir_path() else {
+                return;
+            };
+            if want {
+                d.collapsed.remove(&path);
+            } else {
+                d.collapsed.insert(path);
+            }
+            d.rebuild_tree();
+            d.rebuild_rows();
+        }
+    }
+
+    fn detail_toggle_expand(&mut self) {
+        if let Mode::Detail(d) = &mut self.mode {
+            let Some(path) = d.dir_path() else {
+                return;
+            };
+            if d.collapsed.contains(&path) {
+                d.collapsed.remove(&path);
+            } else {
+                d.collapsed.insert(path);
+            }
+            d.rebuild_tree();
+            d.rebuild_rows();
         }
     }
 
@@ -233,29 +357,51 @@ impl LogView {
 
     fn render_detail(&self, f: &mut Frame, area: Rect, d: &Detail) {
         let panes =
-            Layout::horizontal([Constraint::Percentage(28), Constraint::Min(10)]).split(area);
+            Layout::horizontal([Constraint::Percentage(32), Constraint::Min(10)]).split(area);
 
-        // 左栏:提交信息 + 文件列表
+        // 左栏:提交信息 + 文件目录树
         let fb = if d.focus == Focus::Files {
             Style::default().fg(Color::Cyan)
         } else {
             Style::default()
         };
-        let mut items = vec![detail_item("提交信息", d.sel == 0, Color::White)];
-        for (i, file) in d.files.iter().enumerate() {
-            items.push(detail_item(&file.path, d.sel == i + 1, Color::Cyan));
+        let mut items = Vec::new();
+        let mut info_style = Style::default().fg(Color::White);
+        if d.cursor == 0 {
+            info_style = info_style.add_modifier(Modifier::REVERSED);
+        }
+        items.push(Line::from(Span::styled("提交信息", info_style)));
+        for (i, row) in d.tree.iter().enumerate() {
+            let indent = "  ".repeat(row.depth);
+            let (prefix, color, label) = match row.kind {
+                TreeKind::Dir { expanded } => (
+                    if expanded { "▾ " } else { "▸ " },
+                    Color::Cyan,
+                    format!("{}/", row.name),
+                ),
+                TreeKind::File { .. } => ("  ", Color::Reset, row.name.clone()),
+            };
+            let mut style = Style::default().fg(color);
+            if d.cursor == i + 1 {
+                style = style.add_modifier(Modifier::REVERSED);
+            }
+            items.push(Line::from(vec![
+                Span::styled(indent, style),
+                Span::styled(prefix, style),
+                Span::styled(label, style),
+            ]));
         }
         f.render_widget(
             Paragraph::new(items)
                 .block(Block::bordered().border_style(fb).title(" 文件 "))
                 .scroll((
-                    crate::scroll::follow(d.sel, area.height.saturating_sub(2)),
+                    crate::scroll::follow(d.cursor, area.height.saturating_sub(2)),
                     0,
                 )),
             panes[0],
         );
 
-        // 右栏:当前项内容(提交信息文本 或 文件 diff)
+        // 右栏:当前项内容
         let cb = if d.focus == Focus::Content {
             Style::default().fg(Color::Cyan)
         } else {
@@ -288,36 +434,15 @@ impl LogView {
     }
 }
 
-fn detail_item(text: &str, selected: bool, color: Color) -> Line<'static> {
-    let mut style = Style::default().fg(color);
-    if selected {
-        style = style.add_modifier(Modifier::REVERSED);
-    }
-    Line::from(Span::styled(text.to_string(), style))
-}
-
-/// 构造右栏行:`sel==0` 为提交信息文本,否则为 `files[sel-1]` 的 diff。
-fn build_detail_rows(sel: usize, message_text: &str, files: &[FileDiff]) -> Vec<DetailRow> {
-    if sel == 0 {
-        return message_text
-            .lines()
-            .map(|l| DetailRow {
-                text: l.to_string(),
-                kind: RowKind::Plain,
-            })
-            .collect();
-    }
-    let Some(file) = files.get(sel - 1) else {
-        return Vec::new();
-    };
-    let mut rows = Vec::new();
+/// 把一个文件的 diff 渲染成右栏行(着色)。
+fn file_diff_rows(file: &FileDiff) -> Vec<DetailRow> {
     if file.binary {
-        rows.push(DetailRow {
+        return vec![DetailRow {
             text: "(二进制文件)".into(),
             kind: RowKind::Plain,
-        });
-        return rows;
+        }];
     }
+    let mut rows = Vec::new();
     for hunk in &file.hunks {
         let heading = if hunk.heading.is_empty() {
             String::new()
