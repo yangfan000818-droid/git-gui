@@ -53,7 +53,7 @@ cargo workspace:
 - 提交历史(log + LogEntry,默认最近 50 条,支持指定分支)
 - 分支拓扑图(log_graph + GraphRow):`git log --graph` 生成图形列,解析为每行图形前缀 + 可选 commit
 - 工作区 diff(diff / show_commit / commit_message);DiffOptions 开关 `--cached`、`-- <path>`
-- 结构化 diff 解析(unstaged_diff / staged_diff → 文件 → hunk → 行),供 UI 着色展示
+- 结构化 diff 解析(unstaged_diff / staged_diff / commit_files → 文件 → hunk → 行),供 UI 着色展示
 - 逐 hunk 暂存/取消(stage_hunk / unstage_hunk):截取"文件头 + 该 hunk"喂 `git apply --cached`,基准为 index 故行号精确
 - 逐行暂存/取消(stage_lines / unstage_lines):只保留选中行,未选新增行丢弃、未选删除行转上下文,重算行数后 apply
 
@@ -79,8 +79,8 @@ cargo workspace:
 - 多文件冲突导航:顶部概览条 + `n`/`p` 切换,每文件独立保留选择与进度
 - 冲突块内行级滚动(`J`/`K`),`←`/`→` 在 ours/base/theirs 间切换选择
 - Stage 视图:可折叠目录树(j/k 导航/l/h 展开折叠/Space 暂存或取消(文件或整目录)/a 全暂存/d 回滚/c 提交)
-- Log 视图:提交历史 + 分支拓扑图(蓝色图形列,j/k 在 commit 间导航并跳过连接行/Enter 详情,详情内 j/k 滚动)
-- Diff 视图:结构化 hunk 视图(j/k 移动 · t 切未暂存/已暂存 · Space 选行或暂存整 hunk/文件 · s 暂存选中行),`d` 键进入
+- Log 视图:提交历史 + 分支拓扑图(蓝色图形列);Enter 进**双栏详情**(左侧提交信息+文件列表,右侧按文件看 diff)
+- Diff 视图:**双栏**(左侧文件列表 + 右侧单文件 hunk diff);左栏 j/k 选文件、Space 暂存整文件,右栏 Space 选行/暂存整 hunk、s 暂存选中行,l/h 切焦点、t 切未暂存/已暂存,`d` 键进入
 - Submodule 视图:子仓库列表,`S` 键进入
 - 左侧边栏(多仓库时):状态图标 + Tab 切换
 - 所有列表视图跟随光标自动滚动(列表超出可视区时)
@@ -95,7 +95,7 @@ cargo workspace:
 
 ```bash
 cargo build                # 构建
-cargo test --workspace     # 跑全部测试(56 个:gitcore 50 + tui 6)
+cargo test --workspace     # 跑全部测试(57 个:gitcore 51 + tui 6)
 cargo run -p tui           # 启动 TUI(在 git 仓库目录下运行)
 ```
 
