@@ -41,6 +41,7 @@ struct DetailRow {
 /// 详情态:左栏 cursor 0=提交信息,1.. = tree[cursor-1];右栏随当前项变化。
 struct Detail {
     sha: String,
+    full_sha: String,
     message_text: String,
     files: Vec<FileDiff>,
     collapsed: HashSet<PathBuf>,
@@ -110,26 +111,51 @@ impl Detail {
 
 enum Mode {
     List,
-    Detail(Detail),
+    Detail(Box<Detail>),
 }
 
 pub struct LogView {
     rows: Vec<GraphRow>,
     cursor: usize,
+    max_count: usize, // 当前加载上限;滚到底递增重拉(保证 graph 整体一致)
+    has_more: bool,
     mode: Mode,
     message: String,
 }
 
 impl LogView {
     pub fn load(repo: &Repo) -> Result<Self, Error> {
-        let rows = repo.log_graph(&LogOptions::default())?;
+        let max_count = 100;
+        let rows = repo.log_graph(&LogOptions {
+            max_count,
+            branch: None,
+        })?;
+        let has_more = count_commits(&rows) >= max_count;
         let cursor = rows.iter().position(|r| r.entry.is_some()).unwrap_or(0);
         Ok(LogView {
             rows,
             cursor,
+            max_count,
+            has_more,
             mode: Mode::List,
-            message: "j/k 上下 · Enter 查看详情 · q/Esc 返回".into(),
+            message: "j/k 上下 · Enter 详情 · y 复制哈希 · q 返回".into(),
         })
+    }
+
+    /// 滚到接近底部时调用:加大上限重拉(graph 整体重算,前面的行不变,光标保持)。
+    fn load_more(&mut self, repo: &Repo) -> Result<(), Error> {
+        if !self.has_more {
+            return Ok(());
+        }
+        self.max_count += 100;
+        let rows = repo.log_graph(&LogOptions {
+            max_count: self.max_count,
+            branch: None,
+        })?;
+        self.has_more = count_commits(&rows) >= self.max_count;
+        self.rows = rows;
+        self.message = format!("已加载 {} 条提交", count_commits(&self.rows));
+        Ok(())
     }
 
     pub fn handle_key(&mut self, repo: &Repo, c: char) -> Result<Action, Error> {
@@ -142,11 +168,18 @@ impl LogView {
     fn handle_list(&mut self, repo: &Repo, c: char) -> Result<Action, Error> {
         match c {
             'q' | '\x1b' => return Ok(Action::Back),
-            'j' | crate::keys::DOWN => self.move_cursor(1),
+            'j' | crate::keys::DOWN => {
+                self.move_cursor(1);
+                if self.has_more && self.cursor + 5 >= self.rows.len() {
+                    self.load_more(repo)?;
+                }
+            }
             'k' | crate::keys::UP => self.move_cursor(-1),
+            'y' => self.copy_current_sha(),
             '\n' | '\r' => {
                 if let Some(entry) = self.rows.get(self.cursor).and_then(|r| r.entry.as_ref()) {
                     let sha = entry.sha.clone();
+                    let full_sha = entry.full_sha.clone();
                     let message_text = repo.commit_message(&sha).unwrap_or_default();
                     match repo.commit_files(&sha) {
                         Ok(files) => {
@@ -155,6 +188,7 @@ impl LogView {
                             let tree = filetree::build_rows(&paths, &collapsed);
                             let mut detail = Detail {
                                 sha,
+                                full_sha,
                                 message_text,
                                 files,
                                 collapsed,
@@ -165,8 +199,9 @@ impl LogView {
                                 row_cursor: 0,
                             };
                             detail.rebuild_rows();
-                            self.mode = Mode::Detail(detail);
-                            self.message = "j/k 选 · l 看内容/展开 · h 折叠 · q 返回列表".into();
+                            self.mode = Mode::Detail(Box::new(detail));
+                            self.message =
+                                "j/k 选 · l 看内容/展开 · h 折叠 · y 复制哈希 · q 返回".into();
                         }
                         Err(e) => self.message = format!("加载失败: {e}"),
                     }
@@ -192,7 +227,26 @@ impl LogView {
         }
     }
 
+    fn copy_current_sha(&mut self) {
+        if let Some(entry) = self.rows.get(self.cursor).and_then(|r| r.entry.as_ref()) {
+            let full = entry.full_sha.clone();
+            self.message = copy_sha_message(&full);
+        }
+    }
+
+    fn copy_detail_sha(&mut self) {
+        let full = match &self.mode {
+            Mode::Detail(d) => d.full_sha.clone(),
+            _ => return,
+        };
+        self.message = copy_sha_message(&full);
+    }
+
     fn handle_detail(&mut self, c: char) -> Result<Action, Error> {
+        if c == 'y' {
+            self.copy_detail_sha();
+            return Ok(Action::None);
+        }
         let focus = match &self.mode {
             Mode::Detail(d) => d.focus,
             _ => return Ok(Action::None),
@@ -465,6 +519,19 @@ impl LogView {
                 .scroll((d.row_cursor as u16, 0)),
             panes[1],
         );
+    }
+}
+
+fn count_commits(rows: &[GraphRow]) -> usize {
+    rows.iter().filter(|r| r.entry.is_some()).count()
+}
+
+/// 复制 sha 到剪贴板,返回给用户的提示消息。
+fn copy_sha_message(full: &str) -> String {
+    if crate::clipboard::copy(full) {
+        format!("已复制哈希 {}", &full[..full.len().min(12)])
+    } else {
+        "复制失败:未找到剪贴板命令(pbcopy/wl-copy/xclip)".to_string()
     }
 }
 

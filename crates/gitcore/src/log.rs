@@ -5,6 +5,8 @@ use crate::{Error, Repo};
 pub struct LogEntry {
     /// 短 SHA(8 位)。
     pub sha: String,
+    /// 完整 SHA(40 位),供复制。
+    pub full_sha: String,
     /// 提交消息第一行。
     pub message: String,
     /// 作者。
@@ -36,7 +38,7 @@ pub(crate) fn log(repo: &Repo, opts: &LogOptions) -> Result<Vec<LogEntry>, Error
     let max_count_str = format!("-{}", opts.max_count);
     let mut args = vec![
         "log",
-        "--pretty=format:%h%x00%s%x00%an%x00%ar",
+        "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ar",
         &max_count_str,
     ];
 
@@ -51,14 +53,15 @@ pub(crate) fn log(repo: &Repo, opts: &LogOptions) -> Result<Vec<LogEntry>, Error
         .lines()
         .filter_map(|line| {
             let parts: Vec<&str> = line.split('\0').collect();
-            if parts.len() != 4 {
+            if parts.len() != 5 {
                 return None;
             }
             Some(LogEntry {
-                sha: parts[0].to_string(),
-                message: parts[1].to_string(),
-                author: parts[2].to_string(),
-                date: parts[3].to_string(),
+                full_sha: parts[0].to_string(),
+                sha: parts[1].to_string(),
+                message: parts[2].to_string(),
+                author: parts[3].to_string(),
+                date: parts[4].to_string(),
             })
         })
         .collect();
@@ -81,7 +84,7 @@ pub(crate) fn log_graph(repo: &Repo, opts: &LogOptions) -> Result<Vec<GraphRow>,
         "log",
         "--graph",
         "--color=never",
-        "--pretty=format:%x00%h%x00%s%x00%an%x00%ar",
+        "--pretty=format:%x00%H%x00%h%x00%s%x00%an%x00%ar",
         &max_count_str,
     ];
 
@@ -98,12 +101,13 @@ pub(crate) fn log_graph(repo: &Repo, opts: &LogOptions) -> Result<Vec<GraphRow>,
             // commit 行:NUL 前是图形前缀,NUL 后是 h\0s\0an\0ar。
             Some((graph, rest)) => {
                 let parts: Vec<&str> = rest.split('\0').collect();
-                let entry = if parts.len() == 4 {
+                let entry = if parts.len() == 5 {
                     Some(LogEntry {
-                        sha: parts[0].to_string(),
-                        message: parts[1].to_string(),
-                        author: parts[2].to_string(),
-                        date: parts[3].to_string(),
+                        full_sha: parts[0].to_string(),
+                        sha: parts[1].to_string(),
+                        message: parts[2].to_string(),
+                        author: parts[3].to_string(),
+                        date: parts[4].to_string(),
                     })
                 } else {
                     None
