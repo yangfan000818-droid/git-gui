@@ -54,6 +54,7 @@ cargo workspace:
 - 工作区 diff(diff / show_commit / commit_message);DiffOptions 开关 `--cached`、`-- <path>`
 - 结构化 diff 解析(unstaged_diff / staged_diff → 文件 → hunk → 行),供 UI 着色展示
 - 逐 hunk 暂存/取消(stage_hunk / unstage_hunk):截取"文件头 + 该 hunk"喂 `git apply --cached`,基准为 index 故行号精确
+- 逐行暂存/取消(stage_lines / unstage_lines):只保留选中行,未选新增行丢弃、未选删除行转上下文,重算行数后 apply
 
 **branch / stash 管理**:
 
@@ -78,7 +79,7 @@ cargo workspace:
 - 冲突块内行级滚动(`J`/`K`),`←`/`→` 在 ours/base/theirs 间切换选择
 - Stage 视图:可折叠目录树(j/k 导航/l/h 展开折叠/Space 暂存或取消(文件或整目录)/a 全暂存/d 回滚/c 提交)
 - Log 视图:提交历史(j/k/↑/↓ 导航/Enter 详情,详情内 j/k 滚动)
-- Diff 视图:结构化 hunk 视图(j/k 移动 · t 切未暂存/已暂存 · Space 暂存/取消光标所在 hunk 或整文件),`d` 键进入
+- Diff 视图:结构化 hunk 视图(j/k 移动 · t 切未暂存/已暂存 · Space 选行或暂存整 hunk/文件 · s 暂存选中行),`d` 键进入
 - Submodule 视图:子仓库列表,`S` 键进入
 - 左侧边栏(多仓库时):状态图标 + Tab 切换
 - 所有列表视图跟随光标自动滚动(列表超出可视区时)
@@ -93,7 +94,7 @@ cargo workspace:
 
 ```bash
 cargo build                # 构建
-cargo test --workspace     # 跑全部测试(54 个:gitcore 48 + tui 6)
+cargo test --workspace     # 跑全部测试(55 个:gitcore 49 + tui 6)
 cargo run -p tui           # 启动 TUI(在 git 仓库目录下运行)
 ```
 
@@ -131,7 +132,7 @@ path = "/Users/yfan/work/backend"
 - [x] rerere(记住冲突解法,自动重放)
 - [x] 崩溃恢复(检测未完成的 update / 残留 autostash)
 - [x] stage / commit / push 日常提交链路
-- [x] log / diff 查看 + hunk 级暂存(结构化 diff + 逐 hunk stage/unstage)
+- [x] log / diff 查看 + hunk/行级暂存(结构化 diff + 逐 hunk + 逐行 stage/unstage)
 - [x] submodule 检测 + 多仓库配置
 - [x] branch 管理(创建/切换/删除)
 - [x] stash 管理(手动 stash/pop)

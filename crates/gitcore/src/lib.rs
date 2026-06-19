@@ -226,6 +226,26 @@ impl Repo {
         hunk::unstage_hunk(self, file, hunk)
     }
 
+    /// 暂存某 hunk 中选中的行(`selected` 为 `hunk.lines` 下标;取自 [`Repo::unstaged_diff`])。
+    pub fn stage_lines(
+        &self,
+        file: &FileDiff,
+        hunk: &Hunk,
+        selected: &[usize],
+    ) -> Result<(), Error> {
+        hunk::stage_lines(self, file, hunk, selected)
+    }
+
+    /// 取消暂存某 hunk 中选中的行(`selected` 为 `hunk.lines` 下标;取自 [`Repo::staged_diff`])。
+    pub fn unstage_lines(
+        &self,
+        file: &FileDiff,
+        hunk: &Hunk,
+        selected: &[usize],
+    ) -> Result<(), Error> {
+        hunk::unstage_lines(self, file, hunk, selected)
+    }
+
     /// 查看指定提交的完整内容(message + diff)。
     pub fn show_commit(&self, sha: &str) -> Result<String, Error> {
         diff::show_commit(self, sha)

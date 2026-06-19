@@ -696,6 +696,48 @@ fn unstage_hunk_removes_from_index() {
 }
 
 #[test]
+fn stage_lines_stages_only_selected_lines() {
+    let dir = init_repo("sl");
+    write(&dir, "f.txt", "a\n");
+    commit_all(&dir, "init");
+    // 同一个 hunk 内新增 b、c 两行
+    write(&dir, "f.txt", "a\nb\nc\n");
+
+    let repo = Repo::open(&dir).unwrap();
+    let files = repo.unstaged_diff().unwrap();
+    let hunk = &files[0].hunks[0];
+    let added: Vec<usize> = hunk
+        .lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| matches!(l.kind, gitcore::LineKind::Added))
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(added.len(), 2, "新增 b、c 两行");
+
+    // 只暂存第一行新增(b)
+    repo.stage_lines(&files[0], hunk, &[added[0]]).unwrap();
+
+    let staged_added: Vec<String> = repo.staged_diff().unwrap()[0].hunks[0]
+        .lines
+        .iter()
+        .filter(|l| matches!(l.kind, gitcore::LineKind::Added))
+        .map(|l| l.content.clone())
+        .collect();
+    assert_eq!(staged_added, vec!["b"], "暂存区只含选中的 b");
+
+    let unstaged_added: Vec<String> = repo.unstaged_diff().unwrap()[0].hunks[0]
+        .lines
+        .iter()
+        .filter(|l| matches!(l.kind, gitcore::LineKind::Added))
+        .map(|l| l.content.clone())
+        .collect();
+    assert_eq!(unstaged_added, vec!["c"], "工作区还剩未选的 c");
+
+    cleanup(&[&dir]);
+}
+
+#[test]
 fn commit_empty_staging_fails() {
     let dir = init_repo("ce");
     write(&dir, "a.txt", "hello");
