@@ -274,16 +274,14 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
                 _ => {}
             }
         } else if let Event::Mouse(m) = ev {
-            // 滚轮:映射为 j/k(上下),复用各视图既有滚动逻辑;后台运行时忽略。
-            let wheel = match m.kind {
-                MouseEventKind::ScrollDown => Some(crate::keys::DOWN),
-                MouseEventKind::ScrollUp => Some(crate::keys::UP),
-                _ => None,
+            // 滚轮:diff/log 内容区纯滚动,其余视图等同 j/k;后台运行时忽略。
+            let delta = match m.kind {
+                MouseEventKind::ScrollDown => 1,
+                MouseEventKind::ScrollUp => -1,
+                _ => 0,
             };
-            if let Some(k) = wheel {
-                if state.running.is_none() && dispatch(state, k) {
-                    return Ok(());
-                }
+            if delta != 0 && state.running.is_none() {
+                scroll_wheel(state, delta);
             }
         }
     }
@@ -350,6 +348,29 @@ fn draw(f: &mut Frame, state: &AppState) {
         Screen::Log(view) => view.render(f),
         Screen::Diff(view) => view.render(f),
         Screen::Submodule(view) => view.render(f),
+    }
+}
+
+// 滚轮分发:Diff/Log 视图按焦点处理(内容区纯滚动、列表/树移选中);其余视图等同 j/k。
+fn scroll_wheel(state: &mut AppState, delta: i32) {
+    let handled = match &mut state.screen {
+        Screen::Diff(view) => {
+            view.scroll_wheel(delta);
+            true
+        }
+        Screen::Log(view) => {
+            view.scroll_wheel(delta);
+            true
+        }
+        _ => false,
+    };
+    if !handled {
+        let k = if delta > 0 {
+            crate::keys::DOWN
+        } else {
+            crate::keys::UP
+        };
+        let _ = dispatch(state, k);
     }
 }
 

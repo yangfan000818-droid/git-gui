@@ -310,6 +310,28 @@ impl LogView {
         }
     }
 
+    /// 滚轮:详情右栏(Content)纯滚动;列表 / 详情左栏移选中。
+    pub fn scroll_wheel(&mut self, delta: i32) {
+        if let Mode::Detail(d) = &mut self.mode {
+            if d.focus == Focus::Content {
+                if delta > 0 {
+                    let max = d.rows.len().saturating_sub(1);
+                    if d.row_cursor < max {
+                        d.row_cursor += 1;
+                    }
+                } else {
+                    d.row_cursor = d.row_cursor.saturating_sub(1);
+                }
+                return;
+            }
+        }
+        let dir = if delta > 0 { 1 } else { -1 };
+        match &self.mode {
+            Mode::List => self.move_cursor(dir),
+            Mode::Detail(_) => self.detail_move(dir),
+        }
+    }
+
     pub fn render(&self, f: &mut Frame) {
         let chunks = Layout::vertical([
             Constraint::Length(1),

@@ -3,6 +3,7 @@
 //! 左栏(文件树):j/k 移动 · l/h 展开折叠目录或进/出 diff · Space 暂存整文件/整目录 · t 切暂存区 · q 返回。
 //! 右栏(diff):j/k 移动 · Space 选行或暂存整 hunk · s 暂存选中行 · h/q 回文件树。
 
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -52,6 +53,8 @@ pub struct DiffView {
     // 右栏:当前文件的行投影
     rows: Vec<Row>,
     row_cursor: usize,
+    right_scroll: u16,  // 右栏独立滚动偏移(滚轮纯滚动用,与选行光标分离)
+    right_h: Cell<u16>, // 右栏视口高度(render 时缓存,供 j/k 保证光标可见)
     // 行选择(限当前文件的单个 hunk)
     active_hunk: Option<usize>,
     selected: HashSet<usize>,
@@ -69,6 +72,8 @@ impl DiffView {
             focus: Focus::Files,
             rows: Vec::new(),
             row_cursor: 0,
+            right_scroll: 0,
+            right_h: Cell::new(0),
             active_hunk: None,
             selected: HashSet::new(),
             message: String::new(),
@@ -145,6 +150,7 @@ impl DiffView {
         if self.row_cursor >= self.rows.len() {
             self.row_cursor = self.rows.len().saturating_sub(1);
         }
+        self.right_scroll = 0;
     }
 
     fn set_default_message(&mut self) {
@@ -228,6 +234,35 @@ impl DiffView {
         }
     }
 
+    /// 键盘移动光标后,调整右栏滚动偏移使光标落在视口内。
+    fn ensure_row_visible(&mut self) {
+        let h = self.right_h.get();
+        if h == 0 {
+            return;
+        }
+        let c = self.row_cursor as u16;
+        if c < self.right_scroll {
+            self.right_scroll = c;
+        } else if c >= self.right_scroll + h {
+            self.right_scroll = c - h + 1;
+        }
+    }
+
+    /// 滚轮:焦点在 diff 时纯滚动右栏(不动选行光标);焦点在文件树时移选中。
+    pub fn scroll_wheel(&mut self, delta: i32) {
+        match self.focus {
+            Focus::Diff => {
+                if delta > 0 {
+                    let max = self.rows.len().saturating_sub(1) as u16;
+                    self.right_scroll = (self.right_scroll + 1).min(max);
+                } else {
+                    self.right_scroll = self.right_scroll.saturating_sub(1);
+                }
+            }
+            Focus::Files => self.move_tree(if delta > 0 { 1 } else { -1 }),
+        }
+    }
+
     fn handle_diff(&mut self, repo: &Repo, c: char) -> Result<Action, Error> {
         match c {
             'q' | '\x1b' | 'h' | crate::keys::LEFT => {
@@ -235,9 +270,13 @@ impl DiffView {
                 self.set_default_message();
             }
             'j' | crate::keys::DOWN if self.row_cursor + 1 < self.rows.len() => {
-                self.row_cursor += 1
+                self.row_cursor += 1;
+                self.ensure_row_visible();
             }
-            'k' | crate::keys::UP if self.row_cursor > 0 => self.row_cursor -= 1,
+            'k' | crate::keys::UP if self.row_cursor > 0 => {
+                self.row_cursor -= 1;
+                self.ensure_row_visible();
+            }
             ' ' => self.space_in_diff(repo)?,
             's' => self.commit_selected(repo)?,
             't' => self.toggle_staged(repo)?,
@@ -500,6 +539,7 @@ impl DiffView {
     }
 
     fn render_diff(&self, f: &mut Frame, area: Rect) {
+        self.right_h.set(area.height.saturating_sub(2));
         let focused = self.focus == Focus::Diff;
         let border = if focused {
             Style::default().fg(Color::Cyan)
@@ -556,10 +596,7 @@ impl DiffView {
         f.render_widget(
             Paragraph::new(lines)
                 .block(Block::bordered().border_style(border).title(title))
-                .scroll((
-                    crate::scroll::follow(self.row_cursor, area.height.saturating_sub(2)),
-                    0,
-                )),
+                .scroll((self.right_scroll, 0)),
             area,
         );
     }
