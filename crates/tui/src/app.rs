@@ -16,7 +16,9 @@ use gitcore::{
 };
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -148,7 +150,7 @@ impl AppState {
 fn run_app(repo_list: Vec<(String, PathBuf)>) -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
     let mut repos = Vec::new();
@@ -180,7 +182,11 @@ fn run_app(repo_list: Vec<(String, PathBuf)>) -> io::Result<()> {
 
     // 无论成败都还原终端,避免把用户终端搞坏。
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     res
 }
@@ -198,7 +204,8 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
         if !event::poll(timeout)? {
             continue;
         }
-        if let Event::Key(key) = event::read()? {
+        let ev = event::read()?;
+        if let Event::Key(key) = ev {
             if key.kind != KeyEventKind::Press {
                 continue;
             }
@@ -265,6 +272,18 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
                     state.message = format!("切换到: {}", state.repos[state.current_index].name);
                 }
                 _ => {}
+            }
+        } else if let Event::Mouse(m) = ev {
+            // 滚轮:映射为 j/k(上下),复用各视图既有滚动逻辑;后台运行时忽略。
+            let wheel = match m.kind {
+                MouseEventKind::ScrollDown => Some(crate::keys::DOWN),
+                MouseEventKind::ScrollUp => Some(crate::keys::UP),
+                _ => None,
+            };
+            if let Some(k) = wheel {
+                if state.running.is_none() && dispatch(state, k) {
+                    return Ok(());
+                }
             }
         }
     }
