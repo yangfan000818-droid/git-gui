@@ -776,6 +776,34 @@ fn unstaged_diff_includes_untracked_files() {
 }
 
 #[test]
+fn unstaged_diff_excludes_ignored_files() {
+    let dir = init_repo("ig");
+    write(&dir, "a.txt", "x\n");
+    write(&dir, ".gitignore", "ignored.txt\n");
+    commit_all(&dir, "init");
+    write(&dir, "ignored.txt", "secret\n"); // 被 .gitignore 忽略
+    write(&dir, "visible.txt", "new\n"); // 正常未跟踪
+
+    let repo = Repo::open(&dir).unwrap();
+    let paths: Vec<String> = repo
+        .unstaged_diff()
+        .unwrap()
+        .iter()
+        .map(|f| f.path.clone())
+        .collect();
+    assert!(
+        paths.iter().any(|p| p == "visible.txt"),
+        "正常未跟踪文件应显示"
+    );
+    assert!(
+        !paths.iter().any(|p| p == "ignored.txt"),
+        "gitignore 忽略的文件不应显示"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
 fn commit_files_parses_changed_files() {
     let dir = init_repo("cf");
     write(&dir, "a.txt", "1\n");
