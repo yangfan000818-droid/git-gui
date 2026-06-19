@@ -1,6 +1,6 @@
-//! Log 视图:提交历史列表 + 详情查看。
+//! Log 视图:带分支拓扑图的提交历史列表 + 详情查看。
 
-use gitcore::{Error, LogEntry, LogOptions, Repo};
+use gitcore::{Error, GraphRow, LogOptions, Repo};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -23,18 +23,19 @@ enum Mode {
 }
 
 pub struct LogView {
-    entries: Vec<LogEntry>,
-    cursor: usize,
+    rows: Vec<GraphRow>,
+    cursor: usize, // 始终指向 entry.is_some() 的 commit 行
     mode: Mode,
     message: String,
 }
 
 impl LogView {
     pub fn load(repo: &Repo) -> Result<Self, Error> {
-        let entries = repo.log(&LogOptions::default())?;
+        let rows = repo.log_graph(&LogOptions::default())?;
+        let cursor = rows.iter().position(|r| r.entry.is_some()).unwrap_or(0);
         Ok(LogView {
-            entries,
-            cursor: 0,
+            rows,
+            cursor,
             mode: Mode::List,
             message: "j/k 上下 · Enter 查看详情 · q/Esc 返回".into(),
         })
@@ -50,15 +51,16 @@ impl LogView {
     fn handle_list(&mut self, repo: &Repo, c: char) -> Result<Action, Error> {
         match c {
             'q' | '\x1b' => return Ok(Action::Back),
-            'j' | crate::keys::DOWN if self.cursor + 1 < self.entries.len() => self.cursor += 1,
-            'k' | crate::keys::UP if self.cursor > 0 => self.cursor -= 1,
+            'j' | crate::keys::DOWN => self.move_cursor(1),
+            'k' | crate::keys::UP => self.move_cursor(-1),
             '\n' | '\r' => {
-                // Enter: 查看详情
-                if let Some(entry) = self.entries.get(self.cursor) {
-                    match repo.show_commit(&entry.sha) {
+                // Enter: 查看当前 commit 行的详情
+                if let Some(entry) = self.rows.get(self.cursor).and_then(|r| r.entry.as_ref()) {
+                    let sha = entry.sha.clone();
+                    match repo.show_commit(&sha) {
                         Ok(content) => {
                             self.mode = Mode::Detail {
-                                sha: entry.sha.clone(),
+                                sha,
                                 content,
                                 scroll: 0,
                             };
@@ -71,6 +73,21 @@ impl LogView {
             _ => {}
         }
         Ok(Action::None)
+    }
+
+    /// 在 commit 行之间移动光标,跳过纯图形连接行;到边界则保持不动。
+    fn move_cursor(&mut self, dir: isize) {
+        let mut i = self.cursor as isize;
+        loop {
+            i += dir;
+            if i < 0 || i >= self.rows.len() as isize {
+                return;
+            }
+            if self.rows[i as usize].entry.is_some() {
+                self.cursor = i as usize;
+                return;
+            }
+        }
     }
 
     fn handle_detail(&mut self, c: char) -> Result<Action, Error> {
@@ -105,7 +122,7 @@ impl LogView {
         ])
         .split(f.area());
 
-        f.render_widget(Paragraph::new(" Log 视图 · 提交历史"), chunks[0]);
+        f.render_widget(Paragraph::new(" Log 视图 · 提交历史(含分支图)"), chunks[0]);
 
         match &self.mode {
             Mode::List => self.render_list(f, chunks[1]),
@@ -124,28 +141,31 @@ impl LogView {
 
     fn render_list(&self, f: &mut Frame, area: ratatui::layout::Rect) {
         let mut lines = Vec::new();
-        if self.entries.is_empty() {
+        if self.rows.is_empty() {
             lines.push(Line::from("(无提交历史)"));
         } else {
-            for (i, entry) in self.entries.iter().enumerate() {
-                let sha_span = Span::styled(&entry.sha, Style::default().fg(Color::Yellow));
-                let msg_span = Span::raw(format!(" {}", entry.message));
-                let author_span = Span::styled(
-                    format!(" - {} ({})", entry.author, entry.date),
-                    Style::default().fg(Color::Gray),
-                );
-
-                let mut style = Style::default();
-                if i == self.cursor {
-                    style = style.add_modifier(Modifier::REVERSED);
+            for (i, row) in self.rows.iter().enumerate() {
+                // 图形列固定蓝色(不随光标反色,保持拓扑线清晰)。
+                let mut spans = vec![Span::styled(
+                    row.graph.clone(),
+                    Style::default().fg(Color::Blue),
+                )];
+                if let Some(e) = &row.entry {
+                    let mut data = vec![
+                        Span::styled(e.sha.clone(), Style::default().fg(Color::Yellow)),
+                        Span::raw(format!(" {}", e.message)),
+                        Span::styled(
+                            format!(" - {} ({})", e.author, e.date),
+                            Style::default().fg(Color::Gray),
+                        ),
+                    ];
+                    if i == self.cursor {
+                        let rev = Style::default().add_modifier(Modifier::REVERSED);
+                        data = data.into_iter().map(|s| s.style(rev)).collect();
+                    }
+                    spans.extend(data);
                 }
-
-                let mut line_spans = vec![sha_span, msg_span, author_span];
-                if i == self.cursor {
-                    line_spans = line_spans.into_iter().map(|s| s.style(style)).collect();
-                }
-
-                lines.push(Line::from(line_spans));
+                lines.push(Line::from(spans));
             }
         }
         f.render_widget(

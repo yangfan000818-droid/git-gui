@@ -64,3 +64,61 @@ pub(crate) fn log(repo: &Repo, opts: &LogOptions) -> Result<Vec<LogEntry>, Error
         .collect();
     Ok(entries)
 }
+
+/// 带分支拓扑图的一行 log:`graph` 是该行的图形前缀(如 `* `、`|\`、`| * `),
+/// `entry` 仅 commit 行有(纯连接行为 None)。
+#[derive(Debug, Clone)]
+pub struct GraphRow {
+    pub graph: String,
+    pub entry: Option<LogEntry>,
+}
+
+/// 获取带分支拓扑图的提交历史。图形列交给 `git log --graph` 生成,
+/// 每个 commit 行用 NUL 分隔图形前缀与提交数据;无数据的行即纯连接行。
+pub(crate) fn log_graph(repo: &Repo, opts: &LogOptions) -> Result<Vec<GraphRow>, Error> {
+    let max_count_str = format!("-{}", opts.max_count);
+    let mut args = vec![
+        "log",
+        "--graph",
+        "--color=never",
+        "--pretty=format:%x00%h%x00%s%x00%an%x00%ar",
+        &max_count_str,
+    ];
+
+    let branch_str;
+    if let Some(ref b) = opts.branch {
+        branch_str = b.clone();
+        args.push(&branch_str);
+    }
+
+    let output = repo.git(&args)?;
+    let rows = output
+        .lines()
+        .map(|line| match line.split_once('\0') {
+            // commit 行:NUL 前是图形前缀,NUL 后是 h\0s\0an\0ar。
+            Some((graph, rest)) => {
+                let parts: Vec<&str> = rest.split('\0').collect();
+                let entry = if parts.len() == 4 {
+                    Some(LogEntry {
+                        sha: parts[0].to_string(),
+                        message: parts[1].to_string(),
+                        author: parts[2].to_string(),
+                        date: parts[3].to_string(),
+                    })
+                } else {
+                    None
+                };
+                GraphRow {
+                    graph: graph.to_string(),
+                    entry,
+                }
+            }
+            // 纯连接行(无 format 展开)。
+            None => GraphRow {
+                graph: line.to_string(),
+                entry: None,
+            },
+        })
+        .collect();
+    Ok(rows)
+}
