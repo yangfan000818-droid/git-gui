@@ -3,4 +3,9 @@ name = "gitcore"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# 默认零依赖;GUI(Tauri)开启此 feature 让数据结构可跨 IPC 序列化。
+serde = ["dep:serde"]
+
 [dependencies]
+serde = { version = "1", features = ["derive"], optional = true }

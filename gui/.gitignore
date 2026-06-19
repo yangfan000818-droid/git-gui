@@ -1,0 +1,13 @@
+.DS_Store
+node_modules
+/build
+/.svelte-kit
+/package
+.env
+.env.*
+!.env.example
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# 临时:私有源不可用时绕过用的本地源配置,不入库(私有源恢复后删本地文件)
+.npmrc
