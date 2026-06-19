@@ -19,6 +19,7 @@ mod stage;
 mod stash;
 mod status;
 mod submodule;
+mod topology;
 mod update;
 
 use std::path::{Path, PathBuf};
@@ -39,6 +40,7 @@ pub use resolve::{
 pub use stash::{PopResult, StashEntry, StashRef};
 pub use status::{FileState, FileStatus, RepoStatus};
 pub use submodule::{Submodule, SubmoduleStatus};
+pub use topology::{GraphCommit, GraphEdge};
 pub use update::{IntegrationStrategy, PendingConflicts, UpdateOptions, UpdateOutcome, UpdatePlan};
 
 /// 一个 git 工作区的句柄;所有操作相对它执行。
@@ -187,6 +189,11 @@ impl Repo {
     /// 获取带分支拓扑图的提交历史(每行 = 图形前缀 + 可选 commit)。
     pub fn log_graph(&self, opts: &LogOptions) -> Result<Vec<GraphRow>, Error> {
         log::log_graph(self, opts)
+    }
+
+    /// 获取结构化拓扑图:每个 commit 的 lane 分配 + lane 间连线,供前端 SVG 绘图。
+    pub fn log_topology(&self, opts: &LogOptions) -> Result<Vec<GraphCommit>, Error> {
+        topology::log_topology(self, opts)
     }
 
     /// 获取 diff 输出。
