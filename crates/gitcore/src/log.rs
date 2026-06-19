@@ -2,6 +2,7 @@ use crate::{Error, Repo};
 
 /// 一条提交记录。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct LogEntry {
     /// 短 SHA(8 位)。
     pub sha: String,
@@ -71,6 +72,7 @@ pub(crate) fn log(repo: &Repo, opts: &LogOptions) -> Result<Vec<LogEntry>, Error
 /// 带分支拓扑图的一行 log:`graph` 是该行的图形前缀(如 `* `、`|\`、`| * `),
 /// `entry` 仅 commit 行有(纯连接行为 None)。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GraphRow {
     pub graph: String,
     pub entry: Option<LogEntry>,

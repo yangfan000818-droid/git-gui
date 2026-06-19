@@ -224,6 +224,31 @@ fn resume_conflicts(path: String) -> Result<Option<PendingConflicts>, String> {
     repo.resume_conflicts().map_err(|e| e.to_string())
 }
 
+// ── History 视图命令 ──
+
+#[tauri::command]
+fn repo_log_graph(
+    path: String,
+    max_count: usize,
+    branch: Option<String>,
+) -> Result<Vec<gitcore::GraphRow>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    let opts = gitcore::LogOptions { max_count, branch };
+    repo.log_graph(&opts).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn repo_commit_files(path: String, sha: String) -> Result<Vec<FileDiff>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.commit_files(&sha).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn repo_commit_message(path: String, sha: String) -> Result<String, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.commit_message(&sha).map_err(|e| e.to_string())
+}
+
 // ── 启动 ──
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -253,6 +278,9 @@ pub fn run() {
             continue_update_cmd,
             abort_update_cmd,
             resume_conflicts,
+            repo_log_graph,
+            repo_commit_files,
+            repo_commit_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

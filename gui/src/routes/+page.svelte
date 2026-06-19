@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import UpdateView from "$lib/UpdateView.svelte";
+  import HistoryView from "$lib/HistoryView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -46,7 +47,7 @@
   let activeList = $state<"unstaged" | "staged">("unstaged");
   let loading = $state(false);
   let error = $state("");
-  let tab = $state<"changes" | "update">("changes");
+  let tab = $state<"changes" | "update" | "history">("changes");
 
   // ── 数据加载 ──
   async function load() {
@@ -363,6 +364,13 @@
     >
       Update
     </button>
+    <button
+      class="tab-btn"
+      class:tab-active={tab === "history"}
+      onclick={() => (tab = "history")}
+    >
+      History
+    </button>
   </nav>
 
   {#if tab === "changes"}
@@ -617,6 +625,8 @@
     {/if}
   {:else if tab === "update"}
     <UpdateView {path} onRefresh={refresh} />
+  {:else if tab === "history"}
+    <HistoryView {path} />
   {/if}
 </main>
 
