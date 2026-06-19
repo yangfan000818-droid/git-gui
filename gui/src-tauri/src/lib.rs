@@ -258,6 +258,17 @@ fn repo_log_graph(
 }
 
 #[tauri::command]
+fn repo_log_topology(
+    path: String,
+    max_count: usize,
+    branch: Option<String>,
+) -> Result<Vec<gitcore::GraphCommit>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    let opts = gitcore::LogOptions { max_count, branch };
+    repo.log_topology(&opts).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn repo_commit_files(path: String, sha: String) -> Result<Vec<FileDiff>, String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
     repo.commit_files(&sha).map_err(|e| e.to_string())
@@ -299,6 +310,7 @@ pub fn run() {
             abort_update_cmd,
             resume_conflicts,
             repo_log_graph,
+            repo_log_topology,
             repo_commit_files,
             repo_commit_message,
         ])

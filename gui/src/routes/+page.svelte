@@ -785,6 +785,7 @@
     gap: 6px;
     padding: 4px 14px;
     cursor: pointer;
+    min-height: 26px;
   }
   .file-item:hover {
     background: #2a2a2a;

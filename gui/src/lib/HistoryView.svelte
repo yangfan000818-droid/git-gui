@@ -9,9 +9,15 @@
     author: string;
     date: string;
   }
-  interface GraphRow {
-    graph: string;
-    entry: LogEntry | null;
+  interface GraphEdge {
+    from_lane: number;
+    to_lane: number;
+  }
+  interface GraphCommit {
+    entry: LogEntry;
+    parents: string[];
+    lane: number;
+    edges: GraphEdge[];
   }
   type LineKind = "Context" | "Added" | "Removed";
   interface DiffLine {
@@ -36,7 +42,7 @@
   let { path }: { path: string } = $props();
 
   // ── 状态 ──
-  let rows = $state<GraphRow[]>([]);
+  let commits = $state<GraphCommit[]>([]);
   let loading = $state(false);
   let error = $state("");
   let maxCount = $state(50);
@@ -52,7 +58,7 @@
     loading = true;
     error = "";
     try {
-      rows = await invoke<GraphRow[]>("repo_log_graph", {
+      commits = await invoke<GraphCommit[]>("repo_log_topology", {
         path,
         maxCount,
         branch: null,
@@ -109,8 +115,60 @@
     }
   }
 
-  // ── 计算 graph 列最大宽度 ──
-  let graphWidth = $derived(Math.max(2, ...rows.map((r) => r.graph.length)));
+  // ── SVG 图常量 ──
+  const ROW_H = 24;
+  const LANE_W = 16;
+  const NODE_R = 5;
+
+  const LANE_COLORS = [
+    "#e2c47a", // gold
+    "#7ac4e2", // light blue
+    "#7ae2a4", // green
+    "#e27ac4", // pink
+    "#c4e27a", // lime
+    "#7a9fe2", // blue
+    "#e29f7a", // orange
+    "#b47ae2", // purple
+    "#e27a7a", // red
+    "#7ae2e2", // cyan
+  ];
+
+  function laneColor(lane: number): string {
+    return LANE_COLORS[lane % LANE_COLORS.length];
+  }
+
+  function laneX(lane: number): number {
+    return lane * LANE_W + LANE_W / 2;
+  }
+
+  // ── 派生:最大 lane 号 + SVG 尺寸 ──
+  let maxLane = $derived(
+    commits.reduce((m, c) => {
+      m = Math.max(m, c.lane);
+      for (const e of c.edges) {
+        m = Math.max(m, e.from_lane, e.to_lane);
+      }
+      return m;
+    }, 0),
+  );
+  let svgWidth = $derived((maxLane + 1) * LANE_W);
+  let svgHeight = $derived(commits.length * ROW_H);
+
+  // ── Edge → SVG path d ──
+  function edgePath(edge: GraphEdge, rowIndex: number): string {
+    const x1 = laneX(edge.from_lane);
+    const x2 = laneX(edge.to_lane);
+    const y1 = rowIndex * ROW_H + ROW_H / 2;
+    const y2 = (rowIndex + 1) * ROW_H + ROW_H / 2;
+
+    if (edge.from_lane === edge.to_lane) {
+      return `M ${x1} ${y1} L ${x1} ${y2}`;
+    }
+    // 平滑贝塞尔 S 曲线:水平差越大,控制点偏移越多
+    const dx = Math.abs(x2 - x1);
+    const dy = Math.min(ROW_H * 0.65, Math.max(dx * 0.5, ROW_H * 0.35));
+    return `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
+  }
 
   // ── diff 渲染辅助 ──
   function hunkLines(h: Hunk): {
@@ -156,48 +214,76 @@
   {/if}
 
   <div class="split">
-    <!-- ── 左侧:提交列表 ── -->
+    <!-- ── 左侧:提交列表 + SVG 图 ── -->
     <aside class="commit-list">
       <div class="list-header">
-        <span class="list-title"
-          >提交历史 ({rows.filter((r) => r.entry).length})</span
-        >
+        <span class="list-title">提交历史 ({commits.length})</span>
         <button class="btn-load-more" disabled={loading} onclick={loadMore}
           >加载更多</button
         >
       </div>
 
-      {#if rows.length === 0 && !loading}
+      {#if commits.length === 0 && !loading}
         <p class="muted">无提交记录</p>
       {:else}
-        <div class="log-rows">
-          {#each rows as row}
-            {@const entry = row.entry}
-            {#if entry}
+        <div class="log-scroll">
+          <!-- SVG 拓扑图 -->
+          <svg
+            class="graph-svg"
+            width={svgWidth}
+            height={svgHeight}
+            viewBox="0 0 {svgWidth} {svgHeight}"
+            aria-hidden="true"
+          >
+            <!-- edges:先画连线,再画 node 覆盖 -->
+            {#each commits as commit, i}
+              {#each commit.edges as edge}
+                {@const fromColor = laneColor(edge.from_lane)}
+                <path
+                  d={edgePath(edge, i)}
+                  stroke={fromColor}
+                  stroke-width="1.5"
+                  fill="none"
+                  stroke-linecap="round"
+                />
+              {/each}
+            {/each}
+            <!-- nodes -->
+            {#each commits as commit, i}
+              {@const cx = laneX(commit.lane)}
+              {@const cy = i * ROW_H + ROW_H / 2}
+              {@const color = laneColor(commit.lane)}
+              <circle
+                {cx}
+                {cy}
+                r={NODE_R}
+                fill={color}
+                stroke={color}
+                stroke-width="1"
+              />
+            {/each}
+          </svg>
+
+          <!-- 提交信息列(与 SVG 行对齐) -->
+          <div class="info-rows">
+            {#each commits as commit, i}
+              {@const entry = commit.entry}
               <div
-                class="log-row log-commit"
+                class="log-row"
                 class:selected={selectedCommit?.full_sha === entry.full_sha}
                 role="button"
                 tabindex="0"
+                style="height:{ROW_H}px"
                 onclick={() => selectCommit(entry)}
                 onkeydown={(e) => onActivate(e, () => selectCommit(entry))}
               >
-                <span class="log-graph" style="width:{graphWidth}ch"
-                  >{row.graph}</span
-                >
                 <span class="log-sha">{entry.sha}</span>
                 <span class="log-author">{entry.author}</span>
                 <span class="log-date">{entry.date}</span>
                 <span class="log-msg">{entry.message}</span>
               </div>
-            {:else}
-              <div class="log-row log-connector">
-                <span class="log-graph" style="width:{graphWidth}ch"
-                  >{row.graph}</span
-                >
-              </div>
-            {/if}
-          {/each}
+            {/each}
+          </div>
         </div>
       {/if}
 
@@ -354,39 +440,40 @@
     opacity: 0.4;
     cursor: default;
   }
-  .log-rows {
+
+  /* ── SVG + 信息行(同滚容器) ── */
+  .log-scroll {
+    display: flex;
+    flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
   }
+
+  .graph-svg {
+    flex-shrink: 0;
+    display: block;
+  }
+
+  .info-rows {
+    flex: 1;
+  }
+
   .log-row {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 6px;
-    padding: 3px 12px;
+    padding: 0 8px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
-    line-height: 1.5;
+    line-height: 1;
     white-space: nowrap;
   }
-  .log-commit {
-    cursor: pointer;
-    color: #ccc;
-  }
-  .log-commit:hover {
+  .log-row:hover {
     background: #2a2a2a;
+    cursor: pointer;
   }
-  .log-commit.selected {
+  .log-row.selected {
     background: #0e639c55;
-  }
-  .log-connector {
-    color: #555;
-  }
-  .log-graph {
-    flex-shrink: 0;
-    white-space: pre;
-    color: #888;
-  }
-  .log-row.log-connector .log-graph {
-    color: #555;
   }
   .log-sha {
     color: #e2c47a;
