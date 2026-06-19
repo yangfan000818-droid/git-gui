@@ -86,6 +86,7 @@ impl CancelToken {
 
 /// 长操作的一次进度事件(从 git stderr 解析而来)。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Progress {
     /// 阶段名,如 "Receiving objects"、"Resolving deltas"。
     pub phase: String,

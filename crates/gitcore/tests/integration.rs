@@ -1,7 +1,9 @@
 //! gitcore 集成测试:在临时 git 仓库上验证真实行为。
 //! 每个测试自建临时 repo、用完即删。
 
-use gitcore::{CancelToken, IntegrationStrategy, Repo, UpdateOptions, UpdateOutcome};
+use gitcore::{
+    CancelToken, IntegrationStrategy, PendingConflicts, Repo, UpdateOptions, UpdateOutcome,
+};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -355,7 +357,7 @@ fn resume_finds_pending_conflict_and_restores_autostash() {
 
     // 模拟中断:丢弃上面返回的 autostash,重新打开仓库后扫描恢复。
     let repo2 = Repo::open(&b).unwrap();
-    let (files, autostash) = repo2
+    let PendingConflicts { files, autostash } = repo2
         .resume_conflicts()
         .unwrap()
         .expect("应检测到未完成的整合");

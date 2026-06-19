@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 /// 子仓库信息。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Submodule {
     /// 名称（如 "vendor/dep"）。
     pub name: String,
@@ -14,6 +15,7 @@ pub struct Submodule {
 
 /// 子仓库状态。
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SubmoduleStatus {
     /// 干净，无改动。
     Clean,

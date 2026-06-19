@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 /// 整合策略:合并或变基。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IntegrationStrategy {
     Merge,
     Rebase,
@@ -11,6 +12,7 @@ pub enum IntegrationStrategy {
 
 /// Update 的可调选项。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize))]
 pub struct UpdateOptions {
     pub strategy: IntegrationStrategy,
     /// 整合时忽略纯空白差异,减少伪冲突。
@@ -31,6 +33,7 @@ impl Default for UpdateOptions {
 
 /// fetch 之后、整合之前的计划:会发生什么,但还没动手。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UpdatePlan {
     pub upstream: String,
     pub behind: u32,
@@ -43,6 +46,7 @@ pub struct UpdatePlan {
 
 /// Update 状态机的终态。
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum UpdateOutcome {
     /// 已是最新,什么都没做。
     AlreadyUpToDate,
@@ -246,7 +250,12 @@ pub(crate) fn abort_update(repo: &Repo, autostash: Option<StashRef>) -> Result<(
 }
 
 /// 未完成整合的恢复信息:待解决冲突文件 + 扫回的 autostash。
-pub type PendingConflicts = (Vec<PathBuf>, Option<StashRef>);
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct PendingConflicts {
+    pub files: Vec<PathBuf>,
+    pub autostash: Option<StashRef>,
+}
 
 /// 检测未完成的整合(中断/崩溃后):有进行中的 merge/rebase + 冲突文件时,
 /// 返回冲突文件 + 扫回的 autostash;否则 None。
@@ -258,7 +267,10 @@ pub(crate) fn resume(repo: &Repo) -> Result<Option<PendingConflicts>, Error> {
     if files.is_empty() {
         return Ok(None);
     }
-    Ok(Some((files, stash::find_autostash(repo)?)))
+    Ok(Some(PendingConflicts {
+        files,
+        autostash: stash::find_autostash(repo)?,
+    }))
 }
 
 // ---- 内部步骤 ----

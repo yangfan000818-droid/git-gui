@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 /// 指向一个 autostash 条目。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StashRef {
     /// 创建时写入的标签,用于定位与崩溃恢复。
     pub label: String,

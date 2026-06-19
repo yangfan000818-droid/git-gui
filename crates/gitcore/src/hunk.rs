@@ -8,6 +8,7 @@ use crate::{Error, Repo};
 
 /// 一行 diff 的类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum LineKind {
     Context,
     Added,
@@ -16,6 +17,7 @@ pub enum LineKind {
 
 /// diff 中的一行(已去掉前导 ` `/`+`/`-` 标记)。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiffLine {
     pub kind: LineKind,
     pub content: String,
@@ -23,6 +25,7 @@ pub struct DiffLine {
 
 /// 一个改动块。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Hunk {
     /// `@@` 行里旧文件起始行号。
     pub old_start: u32,
@@ -37,6 +40,7 @@ pub struct Hunk {
 
 /// 一个文件的全部改动。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FileDiff {
     /// 展示用路径(新路径;删除时为旧路径)。
     pub path: String,

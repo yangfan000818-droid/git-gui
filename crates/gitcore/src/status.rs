@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 /// 工作区某一刻的状态快照。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct RepoStatus {
     /// 当前分支;detached HEAD 为 None。
     pub branch: Option<String>,
@@ -24,6 +25,7 @@ pub struct RepoStatus {
 
 /// 单个文件的状态。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FileStatus {
     pub path: PathBuf,
     pub state: FileState,
@@ -31,6 +33,7 @@ pub struct FileStatus {
 
 /// 文件在工作区和暂存区的状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum FileState {
     /// 已暂存(待提交)。
     Staged,
