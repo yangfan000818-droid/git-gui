@@ -230,15 +230,22 @@ impl LogView {
                 }
             }
             Focus::Content => {
+                let mut back = false;
                 if let Mode::Detail(d) = &mut self.mode {
                     match c {
-                        'q' | '\x1b' | 'h' | crate::keys::LEFT => d.focus = Focus::Files,
+                        'q' | '\x1b' | 'h' | crate::keys::LEFT => {
+                            d.focus = Focus::Files;
+                            back = true;
+                        }
                         'j' | crate::keys::DOWN if d.row_cursor + 1 < d.rows.len() => {
                             d.row_cursor += 1
                         }
                         'k' | crate::keys::UP if d.row_cursor > 0 => d.row_cursor -= 1,
                         _ => {}
                     }
+                }
+                if back {
+                    self.message = "j/k 选 · l 看内容/展开 · h 折叠 · q 返回列表".into();
                 }
             }
         }
@@ -258,10 +265,18 @@ impl LogView {
     }
 
     fn detail_enter_content(&mut self) {
-        if let Mode::Detail(d) = &mut self.mode {
-            if !d.rows.is_empty() {
+        let entered = if let Mode::Detail(d) = &mut self.mode {
+            if d.rows.is_empty() {
+                false
+            } else {
                 d.focus = Focus::Content;
+                true
             }
+        } else {
+            false
+        };
+        if entered {
+            self.message = "j/k 滚动内容 · h/q 回左栏".into();
         }
     }
 
@@ -425,10 +440,7 @@ impl LogView {
         f.render_widget(
             Paragraph::new(lines)
                 .block(Block::bordered().border_style(cb).title(title))
-                .scroll((
-                    crate::scroll::follow(d.row_cursor, area.height.saturating_sub(2)),
-                    0,
-                )),
+                .scroll((d.row_cursor as u16, 0)),
             panes[1],
         );
     }
