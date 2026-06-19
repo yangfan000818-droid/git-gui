@@ -738,6 +738,27 @@ fn stage_lines_stages_only_selected_lines() {
 }
 
 #[test]
+fn commit_files_parses_changed_files() {
+    let dir = init_repo("cf");
+    write(&dir, "a.txt", "1\n");
+    write(&dir, "b.txt", "2\n");
+    commit_all(&dir, "two files");
+
+    let repo = Repo::open(&dir).unwrap();
+    let sha = repo.log(&gitcore::LogOptions::default()).unwrap()[0]
+        .sha
+        .clone();
+    let files = repo.commit_files(&sha).unwrap();
+
+    assert_eq!(files.len(), 2, "该 commit 改了两个文件");
+    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert!(paths.contains(&"a.txt"));
+    assert!(paths.contains(&"b.txt"));
+
+    cleanup(&[&dir]);
+}
+
+#[test]
 fn log_graph_marks_commit_rows_and_merges() {
     let dir = init_repo("lg");
     write(&dir, "a.txt", "1");

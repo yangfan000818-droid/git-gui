@@ -16,7 +16,9 @@ use gitcore::{
 };
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -148,7 +150,7 @@ impl AppState {
 fn run_app(repo_list: Vec<(String, PathBuf)>) -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
     let mut repos = Vec::new();
@@ -180,7 +182,11 @@ fn run_app(repo_list: Vec<(String, PathBuf)>) -> io::Result<()> {
 
     // 无论成败都还原终端,避免把用户终端搞坏。
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     res
 }
@@ -198,7 +204,8 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
         if !event::poll(timeout)? {
             continue;
         }
-        if let Event::Key(key) = event::read()? {
+        let ev = event::read()?;
+        if let Event::Key(key) = ev {
             if key.kind != KeyEventKind::Press {
                 continue;
             }
@@ -266,6 +273,16 @@ fn event_loop<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
                 }
                 _ => {}
             }
+        } else if let Event::Mouse(m) = ev {
+            // 滚轮:diff/log 内容区纯滚动,其余视图等同 j/k;后台运行时忽略。
+            let delta = match m.kind {
+                MouseEventKind::ScrollDown => 1,
+                MouseEventKind::ScrollUp => -1,
+                _ => 0,
+            };
+            if delta != 0 && state.running.is_none() {
+                scroll_wheel(state, delta);
+            }
         }
     }
 }
@@ -331,6 +348,29 @@ fn draw(f: &mut Frame, state: &AppState) {
         Screen::Log(view) => view.render(f),
         Screen::Diff(view) => view.render(f),
         Screen::Submodule(view) => view.render(f),
+    }
+}
+
+// 滚轮分发:Diff/Log 视图按焦点处理(内容区纯滚动、列表/树移选中);其余视图等同 j/k。
+fn scroll_wheel(state: &mut AppState, delta: i32) {
+    let handled = match &mut state.screen {
+        Screen::Diff(view) => {
+            view.scroll_wheel(delta);
+            true
+        }
+        Screen::Log(view) => {
+            view.scroll_wheel(delta);
+            true
+        }
+        _ => false,
+    };
+    if !handled {
+        let k = if delta > 0 {
+            crate::keys::DOWN
+        } else {
+            crate::keys::UP
+        };
+        let _ = dispatch(state, k);
     }
 }
 

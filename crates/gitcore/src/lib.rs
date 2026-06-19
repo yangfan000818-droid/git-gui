@@ -256,6 +256,11 @@ impl Repo {
         diff::show_commit(self, sha)
     }
 
+    /// 解析某个 commit 的改动为结构化 diff(按文件 → hunk → 行)。
+    pub fn commit_files(&self, sha: &str) -> Result<Vec<FileDiff>, Error> {
+        hunk::commit_files(self, sha)
+    }
+
     /// 获取指定提交的完整消息(多行)。
     pub fn commit_message(&self, sha: &str) -> Result<String, Error> {
         diff::commit_message(self, sha)

@@ -253,6 +253,22 @@ fn apply_cached(repo: &Repo, patch: &str, reverse: bool) -> Result<(), Error> {
     Ok(())
 }
 
+/// 解析某个 commit 的改动为结构化 diff(按文件;相对其第一个父,根提交则为全量新增)。
+/// 复用 unified diff 解析器;merge 提交的 combined diff 不在此处特殊处理。
+pub(crate) fn commit_files(repo: &Repo, sha: &str) -> Result<Vec<FileDiff>, Error> {
+    let text = repo.git(&[
+        "-c",
+        "diff.noprefix=false",
+        "-c",
+        "diff.mnemonicprefix=false",
+        "show",
+        "--no-color",
+        "--format=",
+        sha,
+    ])?;
+    Ok(parse(&text))
+}
+
 /// 暂存某文件某 hunk 中"选中的行"(`selected` 为 `hunk.lines` 的下标,仅 +/- 行有意义)。
 pub(crate) fn stage_lines(
     repo: &Repo,
