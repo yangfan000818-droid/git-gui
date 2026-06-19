@@ -50,7 +50,7 @@ cargo workspace:
 
 **log(分支图) / diff 查看 + hunk 级暂存**:
 
-- 提交历史(log + LogEntry,默认 50 条、可滚动加载更多;LogEntry 带完整 SHA 供复制)
+- 提交历史(log + LogEntry,默认 100 条、可滚动加载更多;LogEntry 带完整 SHA 供复制)
 - 分支拓扑图(log_graph + GraphRow):`git log --graph` 生成图形列,解析为每行图形前缀 + 可选 commit
 - 工作区 diff(diff / show_commit / commit_message);DiffOptions 开关 `--cached`、`-- <path>`
 - 结构化 diff 解析(unstaged_diff / staged_diff / commit_files → 文件 → hunk → 行),供 UI 着色展示

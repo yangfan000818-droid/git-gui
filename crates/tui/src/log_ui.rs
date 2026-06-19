@@ -125,7 +125,7 @@ pub struct LogView {
 
 impl LogView {
     pub fn load(repo: &Repo) -> Result<Self, Error> {
-        let max_count = 50;
+        let max_count = 100;
         let rows = repo.log_graph(&LogOptions {
             max_count,
             branch: None,
@@ -147,7 +147,7 @@ impl LogView {
         if !self.has_more {
             return Ok(());
         }
-        self.max_count += 50;
+        self.max_count += 100;
         let rows = repo.log_graph(&LogOptions {
             max_count: self.max_count,
             branch: None,
