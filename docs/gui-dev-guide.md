@@ -135,7 +135,9 @@ cargo build -p gui              # 后端(需 gui/build/ 已存在)
 
 ### 6.2 serde 是 feature-gated
 
-gitcore **默认零依赖**;GUI 通过 `gitcore = { features = ["serde"] }` 开启。加任何跨 IPC 的新类型,记得加 `#[cfg_attr(feature = "serde", derive(serde::Serialize))]`,**不要**无条件 `derive(Serialize)`(会破坏 gitcore 的零依赖)。
+gitcore **默认零依赖**;GUI 通过 `gitcore = { features = ["serde"] }` 开启。加任何跨 IPC 的新类型,记得加 `#[cfg_attr(feature = "serde", derive(...))]`,**不要**无条件 `derive`(会破坏 gitcore 的零依赖)。
+
+derive 哪些按命令的**数据方向**定,别无脑全加:只读展示给前端的类型(如 `RepoStatus`)加 `Serialize`;**需要从前端传回后端**的类型(如 `stage_hunk`/`stage_lines` 入参的 `FileDiff`/`Hunk`)再加 `Deserialize`;只在后端构造、不跨 IPC 的(如 `CommitOptions`,命令只收 `message` 自己组装)两个都不加。
 
 ### 6.3 跨平台(Windows)硬规约 —— 现在就守,否则后期重写
 
