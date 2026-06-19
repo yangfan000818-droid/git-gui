@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import UpdateView from "$lib/UpdateView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -45,6 +46,7 @@
   let activeList = $state<"unstaged" | "staged">("unstaged");
   let loading = $state(false);
   let error = $state("");
+  let tab = $state<"changes" | "update">("changes");
 
   // ── 数据加载 ──
   async function load() {
@@ -345,252 +347,276 @@
     {/if}
   </header>
 
-  {#if error}
-    <pre class="error">{error}</pre>
-  {/if}
+  <!-- ── 标签栏 ── -->
+  <nav class="tab-bar">
+    <button
+      class="tab-btn"
+      class:tab-active={tab === "changes"}
+      onclick={() => (tab = "changes")}
+    >
+      Changes
+    </button>
+    <button
+      class="tab-btn"
+      class:tab-active={tab === "update"}
+      onclick={() => (tab = "update")}
+    >
+      Update
+    </button>
+  </nav>
 
-  {#if status}
-    <div class="split">
-      <!-- ── 左侧:文件列表 ── -->
-      <aside class="file-list">
-        <!-- 未暂存 -->
-        <section>
-          <h2 class={activeList === "unstaged" ? "active" : ""}>
-            未暂存 ({unstaged.length})
-          </h2>
-          {#if unstaged.length === 0}
-            <p class="muted">无改动</p>
-          {:else}
-            <div class="file-rows">
-              {#each unstaged as f}
-                <div
-                  class="file-item"
-                  class:selected={selectedFile === f}
-                  role="button"
-                  tabindex="0"
-                  onclick={() => selectFile(f, "unstaged")}
-                  onkeydown={(e) =>
-                    onActivate(e, () => selectFile(f, "unstaged"))}
-                >
-                  <span class="fpath">{f.path}</span>
-                  {#if f.binary}<span class="tag tag-binary">二进制</span>{/if}
-                  <span class="file-actions">
-                    <button
-                      class="btn-act btn-stage"
-                      disabled={operating}
-                      title="暂存"
-                      onclick={(e) => {
-                        e.stopPropagation();
-                        stageFile(f);
-                      }}>+</button
-                    >
-                    <button
-                      class="btn-act btn-discard"
-                      disabled={operating}
-                      title="丢弃改动（stash 保存可找回）"
-                      onclick={(e) => {
-                        e.stopPropagation();
-                        discardFile(f);
-                      }}>↺</button
-                    >
-                  </span>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
+  {#if tab === "changes"}
+    {#if error}
+      <pre class="error">{error}</pre>
+    {/if}
 
-        <!-- 已暂存 -->
-        <section>
-          <h2 class={activeList === "staged" ? "active" : ""}>
-            已暂存 ({staged.length})
-          </h2>
-          {#if staged.length === 0}
-            <p class="muted">无暂存</p>
-          {:else}
-            <div class="file-rows">
-              {#each staged as f}
-                <div
-                  class="file-item"
-                  class:selected={selectedFile === f}
-                  role="button"
-                  tabindex="0"
-                  onclick={() => selectFile(f, "staged")}
-                  onkeydown={(e) =>
-                    onActivate(e, () => selectFile(f, "staged"))}
-                >
-                  <span class="fpath">{f.path}</span>
-                  {#if f.binary}<span class="tag tag-binary">二进制</span>{/if}
-                  <span class="file-actions">
-                    <button
-                      class="btn-act btn-unstage"
-                      disabled={operating}
-                      title="取消暂存"
-                      onclick={(e) => {
-                        e.stopPropagation();
-                        unstageFile(f);
-                      }}>−</button
-                    >
-                  </span>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-
-        <!-- 冲突 -->
-        {#if status.conflicted.length}
+    {#if status}
+      <div class="split">
+        <!-- ── 左侧:文件列表 ── -->
+        <aside class="file-list">
+          <!-- 未暂存 -->
           <section>
-            <h2>冲突 ({status.conflicted.length})</h2>
-            <ul>
-              {#each status.conflicted as c}
-                <li class="file-item conflict">{c}</li>
-              {/each}
-            </ul>
+            <h2 class={activeList === "unstaged" ? "active" : ""}>
+              未暂存 ({unstaged.length})
+            </h2>
+            {#if unstaged.length === 0}
+              <p class="muted">无改动</p>
+            {:else}
+              <div class="file-rows">
+                {#each unstaged as f}
+                  <div
+                    class="file-item"
+                    class:selected={selectedFile === f}
+                    role="button"
+                    tabindex="0"
+                    onclick={() => selectFile(f, "unstaged")}
+                    onkeydown={(e) =>
+                      onActivate(e, () => selectFile(f, "unstaged"))}
+                  >
+                    <span class="fpath">{f.path}</span>
+                    {#if f.binary}<span class="tag tag-binary">二进制</span
+                      >{/if}
+                    <span class="file-actions">
+                      <button
+                        class="btn-act btn-stage"
+                        disabled={operating}
+                        title="暂存"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          stageFile(f);
+                        }}>+</button
+                      >
+                      <button
+                        class="btn-act btn-discard"
+                        disabled={operating}
+                        title="丢弃改动（stash 保存可找回）"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          discardFile(f);
+                        }}>↺</button
+                      >
+                    </span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
           </section>
-        {/if}
 
-        <!-- commit -->
-        <section class="commit-section">
-          <h2>提交</h2>
-          {#if staged.length === 0}
-            <p class="muted">暂存文件以创建提交</p>
-          {:else}
-            <textarea
-              bind:value={commitMessage}
-              placeholder="提交信息（必填）"
-              rows={3}
-              disabled={operating}></textarea>
-            <div class="commit-bar">
-              <button
-                class="btn-commit"
-                disabled={operating || !commitMessage.trim()}
-                onclick={doCommit}>提交（{staged.length} 个文件）</button
-              >
-            </div>
-          {/if}
-          {#if commitResult}
-            <p class="commit-ok">{commitResult}</p>
-          {/if}
-        </section>
-      </aside>
+          <!-- 已暂存 -->
+          <section>
+            <h2 class={activeList === "staged" ? "active" : ""}>
+              已暂存 ({staged.length})
+            </h2>
+            {#if staged.length === 0}
+              <p class="muted">无暂存</p>
+            {:else}
+              <div class="file-rows">
+                {#each staged as f}
+                  <div
+                    class="file-item"
+                    class:selected={selectedFile === f}
+                    role="button"
+                    tabindex="0"
+                    onclick={() => selectFile(f, "staged")}
+                    onkeydown={(e) =>
+                      onActivate(e, () => selectFile(f, "staged"))}
+                  >
+                    <span class="fpath">{f.path}</span>
+                    {#if f.binary}<span class="tag tag-binary">二进制</span
+                      >{/if}
+                    <span class="file-actions">
+                      <button
+                        class="btn-act btn-unstage"
+                        disabled={operating}
+                        title="取消暂存"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          unstageFile(f);
+                        }}>−</button
+                      >
+                    </span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </section>
 
-      <!-- ── 右侧:diff 视图 ── -->
-      <section class="diff-view">
-        {#if selectedFile}
-          <h3 class="diff-path">{selectedFile.path}</h3>
-          {#if selectedFile.binary}
-            <p class="muted">二进制文件,无法显示 diff</p>
-          {:else if selectedFile.hunks.length === 0}
-            <p class="muted">空文件或无改动行</p>
-          {:else}
-            <div class="diff-content">
-              {#snippet lineCells(
-                oldNo: number | null,
-                newNo: number | null,
-                line: DiffLine,
-              )}
-                <span class="ln ln-old">{oldNo ?? ""}</span>
-                <span class="ln ln-new">{newNo ?? ""}</span>
-                <span class="line-content"
-                  >{line.kind === "Added"
-                    ? "+"
-                    : line.kind === "Removed"
-                      ? "-"
-                      : " "}{line.content}</span
+          <!-- 冲突 -->
+          {#if status.conflicted.length}
+            <section>
+              <h2>冲突 ({status.conflicted.length})</h2>
+              <ul>
+                {#each status.conflicted as c}
+                  <li class="file-item conflict">{c}</li>
+                {/each}
+              </ul>
+            </section>
+          {/if}
+
+          <!-- commit -->
+          <section class="commit-section">
+            <h2>提交</h2>
+            {#if staged.length === 0}
+              <p class="muted">暂存文件以创建提交</p>
+            {:else}
+              <textarea
+                bind:value={commitMessage}
+                placeholder="提交信息（必填）"
+                rows={3}
+                disabled={operating}></textarea>
+              <div class="commit-bar">
+                <button
+                  class="btn-commit"
+                  disabled={operating || !commitMessage.trim()}
+                  onclick={doCommit}>提交（{staged.length} 个文件）</button
                 >
-              {/snippet}
-              {#each selectedFile.hunks as hunk, hi}
-                {@const selCount = selectedCount(hi)}
-                <div class="hunk">
-                  <div class="hunk-header">
-                    <span
-                      >@@ -{hunk.old_start},{hunk.lines.filter(
-                        (l) => l.kind !== "Added",
-                      ).length} +{hunk.new_start},{hunk.lines.filter(
-                        (l) => l.kind !== "Removed",
-                      ).length} @@ {hunk.heading}</span
-                    >
-                    {#if activeList === "unstaged"}
-                      <div class="hunk-actions">
-                        {#if selCount > 0}
+              </div>
+            {/if}
+            {#if commitResult}
+              <p class="commit-ok">{commitResult}</p>
+            {/if}
+          </section>
+        </aside>
+
+        <!-- ── 右侧:diff 视图 ── -->
+        <section class="diff-view">
+          {#if selectedFile}
+            <h3 class="diff-path">{selectedFile.path}</h3>
+            {#if selectedFile.binary}
+              <p class="muted">二进制文件,无法显示 diff</p>
+            {:else if selectedFile.hunks.length === 0}
+              <p class="muted">空文件或无改动行</p>
+            {:else}
+              <div class="diff-content">
+                {#snippet lineCells(
+                  oldNo: number | null,
+                  newNo: number | null,
+                  line: DiffLine,
+                )}
+                  <span class="ln ln-old">{oldNo ?? ""}</span>
+                  <span class="ln ln-new">{newNo ?? ""}</span>
+                  <span class="line-content"
+                    >{line.kind === "Added"
+                      ? "+"
+                      : line.kind === "Removed"
+                        ? "-"
+                        : " "}{line.content}</span
+                  >
+                {/snippet}
+                {#each selectedFile.hunks as hunk, hi}
+                  {@const selCount = selectedCount(hi)}
+                  <div class="hunk">
+                    <div class="hunk-header">
+                      <span
+                        >@@ -{hunk.old_start},{hunk.lines.filter(
+                          (l) => l.kind !== "Added",
+                        ).length} +{hunk.new_start},{hunk.lines.filter(
+                          (l) => l.kind !== "Removed",
+                        ).length} @@ {hunk.heading}</span
+                      >
+                      {#if activeList === "unstaged"}
+                        <div class="hunk-actions">
+                          {#if selCount > 0}
+                            <button
+                              class="btn-act btn-stage"
+                              disabled={operating}
+                              title="暂存选中行"
+                              onclick={() =>
+                                stageSelectedLines(selectedFile!, hunk, hi)}
+                            >
+                              暂存 {selCount} 行
+                            </button>
+                          {/if}
                           <button
                             class="btn-act btn-stage"
                             disabled={operating}
-                            title="暂存选中行"
-                            onclick={() =>
-                              stageSelectedLines(selectedFile!, hunk, hi)}
+                            title="暂存整个 hunk"
+                            onclick={() => stageHunk(selectedFile!, hunk)}
+                            >暂存 Hunk</button
                           >
-                            暂存 {selCount} 行
-                          </button>
-                        {/if}
-                        <button
-                          class="btn-act btn-stage"
-                          disabled={operating}
-                          title="暂存整个 hunk"
-                          onclick={() => stageHunk(selectedFile!, hunk)}
-                          >暂存 Hunk</button
-                        >
-                      </div>
-                    {:else}
-                      <div class="hunk-actions">
-                        {#if selCount > 0}
+                        </div>
+                      {:else}
+                        <div class="hunk-actions">
+                          {#if selCount > 0}
+                            <button
+                              class="btn-act btn-unstage"
+                              disabled={operating}
+                              title="取消暂存选中行"
+                              onclick={() =>
+                                unstageSelectedLines(selectedFile!, hunk, hi)}
+                            >
+                              取消暂存 {selCount} 行
+                            </button>
+                          {/if}
                           <button
                             class="btn-act btn-unstage"
                             disabled={operating}
-                            title="取消暂存选中行"
-                            onclick={() =>
-                              unstageSelectedLines(selectedFile!, hunk, hi)}
+                            title="取消暂存整个 hunk"
+                            onclick={() => unstageHunk(selectedFile!, hunk)}
+                            >取消暂存 Hunk</button
                           >
-                            取消暂存 {selCount} 行
-                          </button>
-                        {/if}
-                        <button
-                          class="btn-act btn-unstage"
-                          disabled={operating}
-                          title="取消暂存整个 hunk"
-                          onclick={() => unstageHunk(selectedFile!, hunk)}
-                          >取消暂存 Hunk</button
+                        </div>
+                      {/if}
+                    </div>
+                    {#each hunkLines(hunk) as { oldNo, newNo, line, idx }}
+                      {#if line.kind !== "Context"}
+                        {@const selected = isLineSelected(hi, idx)}
+                        <div
+                          class="diff-line line-selectable"
+                          class:line-added={line.kind === "Added"}
+                          class:line-removed={line.kind === "Removed"}
+                          class:line-selected={selected}
+                          role="checkbox"
+                          aria-checked={selected}
+                          tabindex="0"
+                          onclick={() => toggleLine(hi, idx)}
+                          onkeydown={(e) =>
+                            onActivate(e, () => toggleLine(hi, idx))}
                         >
-                      </div>
-                    {/if}
+                          {@render lineCells(oldNo, newNo, line)}
+                        </div>
+                      {:else}
+                        <div class="diff-line">
+                          {@render lineCells(oldNo, newNo, line)}
+                        </div>
+                      {/if}
+                    {/each}
                   </div>
-                  {#each hunkLines(hunk) as { oldNo, newNo, line, idx }}
-                    {#if line.kind !== "Context"}
-                      {@const selected = isLineSelected(hi, idx)}
-                      <div
-                        class="diff-line line-selectable"
-                        class:line-added={line.kind === "Added"}
-                        class:line-removed={line.kind === "Removed"}
-                        class:line-selected={selected}
-                        role="checkbox"
-                        aria-checked={selected}
-                        tabindex="0"
-                        onclick={() => toggleLine(hi, idx)}
-                        onkeydown={(e) =>
-                          onActivate(e, () => toggleLine(hi, idx))}
-                      >
-                        {@render lineCells(oldNo, newNo, line)}
-                      </div>
-                    {:else}
-                      <div class="diff-line">
-                        {@render lineCells(oldNo, newNo, line)}
-                      </div>
-                    {/if}
-                  {/each}
-                </div>
-              {/each}
-            </div>
+                {/each}
+              </div>
+            {/if}
+          {:else}
+            <p class="muted placeholder">← 选择左侧文件查看 diff</p>
           {/if}
-        {:else}
-          <p class="muted placeholder">← 选择左侧文件查看 diff</p>
-        {/if}
-      </section>
-    </div>
-  {/if}
+        </section>
+      </div>
+    {/if}
 
-  {#if !status && !error && !loading}
-    <p class="hint">打开一个 Git 仓库以查看 Changes</p>
+    {#if !status && !error && !loading}
+      <p class="hint">打开一个 Git 仓库以查看 Changes</p>
+    {/if}
+  {:else if tab === "update"}
+    <UpdateView {path} onRefresh={refresh} />
   {/if}
 </main>
 
@@ -618,6 +644,33 @@
     border-bottom: 1px solid #383838;
     flex-shrink: 0;
   }
+  /* ── 标签栏 ── */
+  .tab-bar {
+    display: flex;
+    background: #1e1e1e;
+    border-bottom: 1px solid #383838;
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #888;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 8px 18px;
+    transition:
+      color 0.15s,
+      border-color 0.15s;
+  }
+  .tab-btn:hover {
+    color: #ccc;
+  }
+  .tab-active {
+    color: #e4e4e4;
+    border-bottom-color: #0e639c;
+  }
+
   .logo {
     font-weight: 700;
     font-size: 15px;

@@ -456,7 +456,7 @@ fn dispatch(state: &mut AppState, c: char) -> bool {
             'R' => {
                 if let Some(repo) = state.current_repo() {
                     match repo.resume_conflicts() {
-                        Ok(Some((files, autostash))) => enter_conflict(state, files, autostash),
+                        Ok(Some(pc)) => enter_conflict(state, pc.files, pc.autostash),
                         Ok(None) => state.message = "没有未完成的整合".into(),
                         Err(e) => state.message = format!("恢复失败: {e}"),
                     }
