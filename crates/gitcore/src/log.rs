@@ -23,6 +23,10 @@ pub struct LogOptions {
     pub max_count: usize,
     /// 指定分支或引用(如 "main"、"HEAD"),None 表示当前 HEAD。
     pub branch: Option<String>,
+    /// 按作者筛选(映射 git log --author=<>)。
+    pub author: Option<String>,
+    /// 按提交消息筛选(映射 git log --grep=<>)。
+    pub grep: Option<String>,
 }
 
 impl Default for LogOptions {
@@ -30,6 +34,8 @@ impl Default for LogOptions {
         Self {
             max_count: 50,
             branch: None,
+            author: None,
+            grep: None,
         }
     }
 }
@@ -42,6 +48,20 @@ pub(crate) fn log(repo: &Repo, opts: &LogOptions) -> Result<Vec<LogEntry>, Error
         "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ar",
         &max_count_str,
     ];
+
+    let author_str;
+    if let Some(ref a) = opts.author {
+        author_str = format!("--author={}", a);
+        args.push(&author_str);
+        args.push("--regexp-ignore-case");
+    }
+
+    let grep_str;
+    if let Some(ref g) = opts.grep {
+        grep_str = format!("--grep={}", g);
+        args.push(&grep_str);
+        args.push("--regexp-ignore-case");
+    }
 
     let branch_str;
     if let Some(ref b) = opts.branch {
@@ -89,6 +109,20 @@ pub(crate) fn log_graph(repo: &Repo, opts: &LogOptions) -> Result<Vec<GraphRow>,
         "--pretty=format:%x00%H%x00%h%x00%s%x00%an%x00%ar",
         &max_count_str,
     ];
+
+    let author_str;
+    if let Some(ref a) = opts.author {
+        author_str = format!("--author={}", a);
+        args.push(&author_str);
+        args.push("--regexp-ignore-case");
+    }
+
+    let grep_str;
+    if let Some(ref g) = opts.grep {
+        grep_str = format!("--grep={}", g);
+        args.push(&grep_str);
+        args.push("--regexp-ignore-case");
+    }
 
     let branch_str;
     if let Some(ref b) = opts.branch {

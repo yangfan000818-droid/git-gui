@@ -129,6 +129,8 @@ impl LogView {
         let rows = repo.log_graph(&LogOptions {
             max_count,
             branch: None,
+            author: None,
+            grep: None,
         })?;
         let has_more = count_commits(&rows) >= max_count;
         let cursor = rows.iter().position(|r| r.entry.is_some()).unwrap_or(0);
@@ -151,6 +153,8 @@ impl LogView {
         let rows = repo.log_graph(&LogOptions {
             max_count: self.max_count,
             branch: None,
+            author: None,
+            grep: None,
         })?;
         self.has_more = count_commits(&rows) >= self.max_count;
         self.rows = rows;

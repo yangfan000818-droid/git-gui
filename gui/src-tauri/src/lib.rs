@@ -395,7 +395,12 @@ fn repo_log_graph(
     branch: Option<String>,
 ) -> Result<Vec<gitcore::GraphRow>, String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let opts = gitcore::LogOptions { max_count, branch };
+    let opts = gitcore::LogOptions {
+        max_count,
+        branch,
+        author: None,
+        grep: None,
+    };
     repo.log_graph(&opts).map_err(|e| e.to_string())
 }
 
@@ -404,9 +409,16 @@ fn repo_log_topology(
     path: String,
     max_count: usize,
     branch: Option<String>,
+    author: Option<String>,
+    grep: Option<String>,
 ) -> Result<Vec<gitcore::GraphCommit>, String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let opts = gitcore::LogOptions { max_count, branch };
+    let opts = gitcore::LogOptions {
+        max_count,
+        branch,
+        author,
+        grep,
+    };
     repo.log_topology(&opts).map_err(|e| e.to_string())
 }
 

@@ -53,6 +53,9 @@
   let detailLoading = $state(false);
   let detailError = $state("");
   let copied = $state(false);
+  let authorFilter = $state("");
+  let grepFilter = $state("");
+  let filterTimeout: number | undefined;
 
   // ── 数据加载 ──
   async function load() {
@@ -63,6 +66,8 @@
         path,
         maxCount,
         branch: null,
+        author: authorFilter || null,
+        grep: grepFilter || null,
       });
     } catch (e) {
       error = String(e);
@@ -154,6 +159,9 @@
   );
   let svgWidth = $derived((maxLane + 1) * LANE_W);
   let svgHeight = $derived(commits.length * ROW_H);
+  // 筛选激活时,过滤后的子集 parent 链断裂会让 topology lane 爆炸(图无意义且会撑爆布局挤掉提交列),
+  // 故筛选态下不画拓扑图,退化为线性提交列表。
+  let filtering = $derived(authorFilter !== "" || grepFilter !== "");
 
   // ── Edge → SVG path d ──
   function edgePath(edge: GraphEdge, rowIndex: number): string {
@@ -171,12 +179,25 @@
     return `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
   }
 
+  // 筛选变化:debounce 300ms 后重载,并重置 maxCount
+  function onFilterChange() {
+    if (filterTimeout !== undefined) {
+      clearTimeout(filterTimeout);
+    }
+    filterTimeout = setTimeout(() => {
+      maxCount = 50;
+      load();
+    }, 300) as unknown as number;
+  }
+
   // 初始化 / path 变化时重置并重载
   let prevPath = $state("");
   $effect(() => {
     if (path && path !== prevPath) {
       prevPath = path;
       maxCount = 50;
+      authorFilter = "";
+      grepFilter = "";
       selectedCommit = null;
       commitMsg = "";
       commitDiffs = [];
@@ -200,46 +221,68 @@
         >
       </div>
 
+      <!-- 筛选栏 -->
+      <div class="filter-row">
+        <input
+          type="text"
+          class="filter-input"
+          placeholder="作者"
+          aria-label="按作者筛选"
+          bind:value={authorFilter}
+          oninput={onFilterChange}
+        />
+        <input
+          type="text"
+          class="filter-input"
+          placeholder="提交消息关键词"
+          aria-label="按提交消息筛选"
+          bind:value={grepFilter}
+          oninput={onFilterChange}
+        />
+      </div>
+
       {#if commits.length === 0 && !loading}
         <p class="muted">无提交记录</p>
       {:else}
         <div class="log-scroll">
-          <!-- SVG 拓扑图 -->
-          <svg
-            class="graph-svg"
-            width={svgWidth}
-            height={svgHeight}
-            viewBox="0 0 {svgWidth} {svgHeight}"
-            aria-hidden="true"
-          >
-            <!-- edges:先画连线,再画 node 覆盖 -->
-            {#each commits as commit, i}
-              {#each commit.edges as edge}
-                {@const fromColor = laneColor(edge.from_lane)}
-                <path
-                  d={edgePath(edge, i)}
-                  stroke={fromColor}
-                  stroke-width="1.5"
-                  fill="none"
-                  stroke-linecap="round"
+          {#if !filtering}
+            <!-- SVG 拓扑图 -->
+            <svg
+              class="graph-svg"
+              width={svgWidth}
+              height={svgHeight}
+              viewBox="0 0 {svgWidth} {svgHeight}"
+              aria-hidden="true"
+            >
+              <!-- edges:先画连线,再画 node 覆盖 -->
+              {#each commits as commit, i}
+                {#each commit.edges as edge}
+                  {@const fromColor = laneColor(edge.from_lane)}
+                  <path
+                    d={edgePath(edge, i)}
+                    stroke={fromColor}
+                    stroke-width="1.5"
+                    fill="none"
+                    stroke-linecap="round"
+                  />
+                {/each}
+              {/each}
+              <!-- nodes -->
+              {#each commits as commit, i}
+                {@const cx = laneX(commit.lane)}
+                {@const cy = i * ROW_H + ROW_H / 2}
+                {@const color = laneColor(commit.lane)}
+                <circle
+                  {cx}
+                  {cy}
+                  r={NODE_R}
+                  fill={color}
+                  stroke={color}
+                  stroke-width="1"
                 />
               {/each}
-            {/each}
-            <!-- nodes -->
-            {#each commits as commit, i}
-              {@const cx = laneX(commit.lane)}
-              {@const cy = i * ROW_H + ROW_H / 2}
-              {@const color = laneColor(commit.lane)}
-              <circle
-                {cx}
-                {cy}
-                r={NODE_R}
-                fill={color}
-                stroke={color}
-                stroke-width="1"
-              />
-            {/each}
-          </svg>
+            </svg>
+          {/if}
 
           <!-- 提交信息列(与 SVG 行对齐) -->
           <div class="info-rows">
@@ -376,6 +419,31 @@
     cursor: default;
   }
 
+  /* ── 筛选栏 ── */
+  .filter-row {
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #383838;
+    flex-shrink: 0;
+  }
+  .filter-input {
+    flex: 1;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #ddd;
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+  .filter-input:focus {
+    outline: none;
+    border-color: #0e639c;
+  }
+  .filter-input::placeholder {
+    color: #666;
+  }
+
   /* ── SVG + 信息行(同滚容器) ── */
   .log-scroll {
     display: flex;
@@ -391,6 +459,7 @@
 
   .info-rows {
     flex: 1;
+    min-width: 0;
   }
 
   .log-row {

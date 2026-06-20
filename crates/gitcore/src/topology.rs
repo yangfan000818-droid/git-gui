@@ -41,6 +41,20 @@ pub(crate) fn log_topology(repo: &Repo, opts: &LogOptions) -> Result<Vec<GraphCo
         &max_count_str,
     ];
 
+    let author_str;
+    if let Some(ref a) = opts.author {
+        author_str = format!("--author={}", a);
+        args.push(&author_str);
+        args.push("--regexp-ignore-case");
+    }
+
+    let grep_str;
+    if let Some(ref g) = opts.grep {
+        grep_str = format!("--grep={}", g);
+        args.push(&grep_str);
+        args.push("--regexp-ignore-case");
+    }
+
     let branch_str;
     if let Some(ref b) = opts.branch {
         branch_str = b.clone();
