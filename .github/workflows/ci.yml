@@ -132,18 +132,18 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ github.sha }}
-          path: gui/src-tauri/target/release/bundle/
+          path: target/release/bundle/
 
       - name: Upload artifacts (Linux)
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: linux-${{ github.sha }}
-          path: gui/src-tauri/target/release/bundle/
+          path: target/release/bundle/
 
       - name: Upload artifacts (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ github.sha }}
-          path: gui/src-tauri/target/release/bundle/
+          path: target/release/bundle/
