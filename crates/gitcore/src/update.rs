@@ -79,13 +79,14 @@ pub(crate) fn plan_update(repo: &Repo, _opts: &UpdateOptions) -> Result<UpdatePl
 /// 同 [`plan_update`],但 fetch 阶段支持取消(cancel 置位后中止)和进度回调。
 pub(crate) fn plan_update_streaming(
     repo: &Repo,
-    opts: &UpdateOptions,
+    _opts: &UpdateOptions,
     on_progress: &mut dyn FnMut(Progress),
     cancel: &CancelToken,
 ) -> Result<UpdatePlan, Error> {
     preflight(repo)?;
     let upstream = require_upstream(repo)?;
-    fetch(repo, on_progress, cancel, opts.recurse_submodules)?;
+    // plan 只为看主仓库 ahead/behind,不递归子模块(检查更新要快);子模块同步是 execute 的事。
+    fetch(repo, on_progress, cancel, false)?;
     let (behind, ahead) = ahead_behind(repo)?;
     Ok(UpdatePlan {
         upstream,

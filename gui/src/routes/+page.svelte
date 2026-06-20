@@ -81,6 +81,7 @@
     staged = [];
     selectedFile = null;
     try {
+      await invoke("check_git"); // git 不在 PATH 时给友好提示(Windows 不自带)
       const [s, u, d] = await Promise.all([
         invoke<RepoStatus>("repo_status", { path }),
         invoke<FileDiff[]>("repo_unstaged_diff", { path }),
