@@ -1,7 +1,9 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import UpdateView from "$lib/UpdateView.svelte";
   import HistoryView from "$lib/HistoryView.svelte";
+  import DiffView from "$lib/DiffView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -49,6 +51,27 @@
   let error = $state("");
   let tab = $state<"changes" | "update" | "history">("changes");
 
+  // ── 文件监视:后端 debounce 300ms 后 emit "repo-changed",前端再接一次 debounce 防抖 ──
+  let repoChangedUnlisten: UnlistenFn | undefined = $state();
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  $effect(() => {
+    const init = async () => {
+      repoChangedUnlisten = await listen("repo-changed", () => {
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null;
+          if (status) refresh();
+        }, 300);
+      });
+    };
+    init();
+    return () => {
+      repoChangedUnlisten?.();
+      if (refreshTimer) clearTimeout(refreshTimer);
+    };
+  });
+
   // ── 数据加载 ──
   async function load() {
     loading = true;
@@ -74,6 +97,8 @@
         selectedFile = staged[0];
         activeList = "staged";
       }
+      // 启动文件监视(自动切仓:start_watch 内部会停旧启新)
+      invoke("start_watch", { path }).catch(() => {});
     } catch (e) {
       error = String(e);
     } finally {
@@ -303,30 +328,6 @@
       }
     }
   }
-
-  // ── 行号计算 ──
-  function hunkLines(h: Hunk): {
-    oldNo: number | null;
-    newNo: number | null;
-    line: DiffLine;
-    idx: number;
-  }[] {
-    let oldNo = h.old_start;
-    let newNo = h.new_start;
-    return h.lines.map((line, idx) => {
-      let curOld: number | null = null;
-      let curNew: number | null = null;
-      if (line.kind === "Context") {
-        curOld = oldNo++;
-        curNew = newNo++;
-      } else if (line.kind === "Added") {
-        curNew = newNo++;
-      } else {
-        curOld = oldNo++;
-      }
-      return { oldNo: curOld, newNo: curNew, line, idx };
-    });
-  }
 </script>
 
 <main>
@@ -509,110 +510,20 @@
         <!-- ── 右侧:diff 视图 ── -->
         <section class="diff-view">
           {#if selectedFile}
-            <h3 class="diff-path">{selectedFile.path}</h3>
-            {#if selectedFile.binary}
-              <p class="muted">二进制文件,无法显示 diff</p>
-            {:else if selectedFile.hunks.length === 0}
-              <p class="muted">空文件或无改动行</p>
-            {:else}
-              <div class="diff-content">
-                {#snippet lineCells(
-                  oldNo: number | null,
-                  newNo: number | null,
-                  line: DiffLine,
-                )}
-                  <span class="ln ln-old">{oldNo ?? ""}</span>
-                  <span class="ln ln-new">{newNo ?? ""}</span>
-                  <span class="line-content"
-                    >{line.kind === "Added"
-                      ? "+"
-                      : line.kind === "Removed"
-                        ? "-"
-                        : " "}{line.content}</span
-                  >
-                {/snippet}
-                {#each selectedFile.hunks as hunk, hi}
-                  {@const selCount = selectedCount(hi)}
-                  <div class="hunk">
-                    <div class="hunk-header">
-                      <span
-                        >@@ -{hunk.old_start},{hunk.lines.filter(
-                          (l) => l.kind !== "Added",
-                        ).length} +{hunk.new_start},{hunk.lines.filter(
-                          (l) => l.kind !== "Removed",
-                        ).length} @@ {hunk.heading}</span
-                      >
-                      {#if activeList === "unstaged"}
-                        <div class="hunk-actions">
-                          {#if selCount > 0}
-                            <button
-                              class="btn-act btn-stage"
-                              disabled={operating}
-                              title="暂存选中行"
-                              onclick={() =>
-                                stageSelectedLines(selectedFile!, hunk, hi)}
-                            >
-                              暂存 {selCount} 行
-                            </button>
-                          {/if}
-                          <button
-                            class="btn-act btn-stage"
-                            disabled={operating}
-                            title="暂存整个 hunk"
-                            onclick={() => stageHunk(selectedFile!, hunk)}
-                            >暂存 Hunk</button
-                          >
-                        </div>
-                      {:else}
-                        <div class="hunk-actions">
-                          {#if selCount > 0}
-                            <button
-                              class="btn-act btn-unstage"
-                              disabled={operating}
-                              title="取消暂存选中行"
-                              onclick={() =>
-                                unstageSelectedLines(selectedFile!, hunk, hi)}
-                            >
-                              取消暂存 {selCount} 行
-                            </button>
-                          {/if}
-                          <button
-                            class="btn-act btn-unstage"
-                            disabled={operating}
-                            title="取消暂存整个 hunk"
-                            onclick={() => unstageHunk(selectedFile!, hunk)}
-                            >取消暂存 Hunk</button
-                          >
-                        </div>
-                      {/if}
-                    </div>
-                    {#each hunkLines(hunk) as { oldNo, newNo, line, idx }}
-                      {#if line.kind !== "Context"}
-                        {@const selected = isLineSelected(hi, idx)}
-                        <div
-                          class="diff-line line-selectable"
-                          class:line-added={line.kind === "Added"}
-                          class:line-removed={line.kind === "Removed"}
-                          class:line-selected={selected}
-                          role="checkbox"
-                          aria-checked={selected}
-                          tabindex="0"
-                          onclick={() => toggleLine(hi, idx)}
-                          onkeydown={(e) =>
-                            onActivate(e, () => toggleLine(hi, idx))}
-                        >
-                          {@render lineCells(oldNo, newNo, line)}
-                        </div>
-                      {:else}
-                        <div class="diff-line">
-                          {@render lineCells(oldNo, newNo, line)}
-                        </div>
-                      {/if}
-                    {/each}
-                  </div>
-                {/each}
-              </div>
-            {/if}
+            <DiffView
+              files={[selectedFile]}
+              interactive
+              {selectedLines}
+              onToggleLine={toggleLine}
+              onStageHunk={(hunk) => stageHunk(selectedFile!, hunk)}
+              onStageLines={(hunk, hi) =>
+                stageSelectedLines(selectedFile!, hunk, hi)}
+              onUnstageHunk={(hunk) => unstageHunk(selectedFile!, hunk)}
+              onUnstageLines={(hunk, hi) =>
+                unstageSelectedLines(selectedFile!, hunk, hi)}
+              {activeList}
+              {operating}
+            />
           {:else}
             <p class="muted placeholder">← 选择左侧文件查看 diff</p>
           {/if}
@@ -929,81 +840,10 @@
     flex: 1;
     overflow-y: auto;
     padding: 12px 16px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    line-height: 1.55;
-  }
-  .diff-path {
-    font-size: 14px;
-    font-weight: 600;
-    margin: 0 0 12px;
-    color: #ddd;
   }
   .placeholder {
     margin-top: 40px;
     text-align: center;
-  }
-
-  .hunk {
-    margin-bottom: 8px;
-  }
-  .hunk-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #999;
-    margin: 8px 0 2px;
-  }
-  .hunk-header span {
-    flex: 1;
-  }
-  .hunk-actions {
-    display: flex;
-    gap: 4px;
-    flex-shrink: 0;
-  }
-  .hunk-actions .btn-act {
-    font-size: 11px;
-    width: auto;
-    padding: 1px 8px;
-    height: 20px;
-  }
-  .diff-line {
-    display: flex;
-    white-space: pre;
-  }
-  .line-added {
-    background: #1d3520;
-  }
-  .line-removed {
-    background: #351d1d;
-  }
-  .line-selectable {
-    cursor: pointer;
-  }
-  .line-selectable:hover {
-    filter: brightness(1.3);
-  }
-  .line-selected {
-    outline: 1px solid #5a8af0;
-    outline-offset: -1px;
-  }
-  .ln {
-    width: 48px;
-    text-align: right;
-    padding-right: 8px;
-    color: #666;
-    flex-shrink: 0;
-    user-select: none;
-  }
-  .line-content {
-    flex: 1;
-  }
-  .line-added .line-content {
-    color: #a8d8ab;
-  }
-  .line-removed .line-content {
-    color: #d8a8a8;
   }
 
   .hint {

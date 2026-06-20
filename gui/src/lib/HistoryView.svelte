@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import DiffView from "$lib/DiffView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   interface LogEntry {
@@ -170,30 +171,6 @@
     return `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
   }
 
-  // ── diff 渲染辅助 ──
-  function hunkLines(h: Hunk): {
-    oldNo: number | null;
-    newNo: number | null;
-    line: DiffLine;
-    idx: number;
-  }[] {
-    let oldNo = h.old_start;
-    let newNo = h.new_start;
-    return h.lines.map((line, idx) => {
-      let curOld: number | null = null;
-      let curNew: number | null = null;
-      if (line.kind === "Context") {
-        curOld = oldNo++;
-        curNew = newNo++;
-      } else if (line.kind === "Added") {
-        curNew = newNo++;
-      } else {
-        curOld = oldNo++;
-      }
-      return { oldNo: curOld, newNo: curNew, line, idx };
-    });
-  }
-
   // 初始化 / path 变化时重置并重载
   let prevPath = $state("");
   $effect(() => {
@@ -326,49 +303,7 @@
           <p class="muted">无文件改动</p>
         {:else}
           <div class="diff-list">
-            {#each commitDiffs as filediff}
-              <div class="diff-file">
-                <h4 class="diff-fpath">{filediff.path}</h4>
-                {#if filediff.binary}
-                  <p class="muted">二进制文件</p>
-                {:else if filediff.hunks.length === 0}
-                  <p class="muted">空文件</p>
-                {:else}
-                  <div class="diff-content">
-                    {#each filediff.hunks as hunk}
-                      <div class="hunk">
-                        <div class="hunk-header">
-                          <span
-                            >@@ -{hunk.old_start},{hunk.lines.filter(
-                              (l) => l.kind !== "Added",
-                            ).length} +{hunk.new_start},{hunk.lines.filter(
-                              (l) => l.kind !== "Removed",
-                            ).length} @@ {hunk.heading}</span
-                          >
-                        </div>
-                        {#each hunkLines(hunk) as { oldNo, newNo, line }}
-                          <div
-                            class="diff-line"
-                            class:line-added={line.kind === "Added"}
-                            class:line-removed={line.kind === "Removed"}
-                          >
-                            <span class="ln ln-old">{oldNo ?? ""}</span>
-                            <span class="ln ln-new">{newNo ?? ""}</span>
-                            <span class="line-content"
-                              >{line.kind === "Added"
-                                ? "+"
-                                : line.kind === "Removed"
-                                  ? "-"
-                                  : " "}{line.content}</span
-                            >
-                          </div>
-                        {/each}
-                      </div>
-                    {/each}
-                  </div>
-                {/if}
-              </div>
-            {/each}
+            <DiffView files={commitDiffs} />
           </div>
         {/if}
       {:else}
@@ -565,65 +500,6 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-  }
-  .diff-file {
-    border: 1px solid #383838;
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .diff-fpath {
-    margin: 0;
-    padding: 6px 12px;
-    background: #252525;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    font-weight: 600;
-    color: #ddd;
-    border-bottom: 1px solid #383838;
-  }
-  .diff-content {
-    padding: 4px 0;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    line-height: 1.55;
-  }
-  .hunk {
-    margin-bottom: 4px;
-  }
-  .hunk-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #999;
-    padding: 4px 12px;
-  }
-  .diff-line {
-    display: flex;
-    white-space: pre;
-    padding: 0 12px;
-  }
-  .line-added {
-    background: #1d3520;
-  }
-  .line-removed {
-    background: #351d1d;
-  }
-  .ln {
-    width: 48px;
-    text-align: right;
-    padding-right: 8px;
-    color: #666;
-    flex-shrink: 0;
-    user-select: none;
-  }
-  .line-content {
-    flex: 1;
-  }
-  .line-added .line-content {
-    color: #a8d8ab;
-  }
-  .line-removed .line-content {
-    color: #d8a8a8;
   }
   .muted {
     color: #666;

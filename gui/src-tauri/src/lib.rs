@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::mpsc;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use gitcore::{
     CancelToken, Choice, CommitOptions, FileDiff, Hunk, PendingConflicts, Progress, Repo,
     RepoStatus, Segment, StashRef, UpdateOptions, UpdateOutcome, UpdatePlan,
 };
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter, State};
 
 // ── 取消注册表:op_id → CancelToken,供前端取消长操作 ──
@@ -28,6 +31,76 @@ impl Default for CancelRegistry {
     fn default() -> Self {
         Self(Mutex::new(HashMap::new()))
     }
+}
+
+// ── 文件监视:debounce 300ms 后 emit "repo-changed" ──
+
+struct WatchState {
+    watcher: Mutex<Option<RecommendedWatcher>>,
+}
+
+impl Default for WatchState {
+    fn default() -> Self {
+        Self {
+            watcher: Mutex::new(None),
+        }
+    }
+}
+
+#[tauri::command]
+fn start_watch(app: AppHandle, path: String, state: State<'_, WatchState>) -> Result<(), String> {
+    // 停掉旧的 watcher(释放即停)并重新开始监视。
+    *state.watcher.lock().unwrap() = None;
+
+    let (tx, rx) = mpsc::channel::<()>();
+
+    // 后台线程:收到事件后等 300ms 无新事件才 emit。
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        let mut pending = false;
+        let mut last = Instant::now();
+        loop {
+            match rx.recv_timeout(Duration::from_millis(300)) {
+                Ok(()) => {
+                    pending = true;
+                    last = Instant::now();
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if pending && last.elapsed() >= Duration::from_millis(300) {
+                        let _ = app_handle.emit("repo-changed", ());
+                        pending = false;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+
+    let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        if let Ok(event) = res {
+            if event.kind.is_access() {
+                return;
+            }
+            let _ = tx.send(());
+        }
+    })
+    .map_err(|e| e.to_string())?;
+
+    // 监视工作目录(非递归:只关心直接文件变更)
+    watcher
+        .watch(Path::new(&path), RecursiveMode::NonRecursive)
+        .map_err(|e| e.to_string())?;
+
+    // 监视 .git(递归:objects/refs/HEAD/index 都在里)
+    let git_dir = Path::new(&path).join(".git");
+    if git_dir.is_dir() {
+        watcher
+            .watch(&git_dir, RecursiveMode::Recursive)
+            .map_err(|e| e.to_string())?;
+    }
+
+    *state.watcher.lock().unwrap() = Some(watcher);
+    Ok(())
 }
 
 // ── Changes 视图命令 ──
@@ -287,6 +360,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(CancelRegistry::default())
+        .manage(WatchState::default())
         .invoke_handler(tauri::generate_handler![
             repo_status,
             repo_unstaged_diff,
@@ -311,6 +385,7 @@ pub fn run() {
             resume_conflicts,
             repo_log_graph,
             repo_log_topology,
+            start_watch,
             repo_commit_files,
             repo_commit_message,
         ])
