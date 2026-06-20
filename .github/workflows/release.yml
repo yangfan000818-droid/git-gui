@@ -97,6 +97,10 @@ jobs:
         if: runner.os == 'macOS'
         uses: softprops/action-gh-release@v2
         with:
+          body: |
+            > **macOS 用户**：首次打开提示「已损坏无法打开」是因为应用未签名。
+            > 解决方法：打开终端，运行 `xattr -cr /Applications/gui.app` 后再打开即可。
+            > 或右键点击 app → 打开 → 再点一次「打开」。
           files: target/release/bundle/dmg/*.dmg
 
       - name: Upload to Release (Windows)
