@@ -6,6 +6,7 @@
   import HistoryView from "$lib/HistoryView.svelte";
   import DiffView from "$lib/DiffView.svelte";
   import FileTree from "$lib/FileTree.svelte";
+  import ProjectPicker from "$lib/ProjectPicker.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -62,7 +63,7 @@
   };
 
   // ── 状态 ──
-  let path = $state(""); // 主仓库路径（顶栏:"选择目录"或手动输入）
+  let path = $state(""); // 主仓库路径
   let status = $state<RepoStatus | null>(null); // 主仓库状态（分支/ahead-behind/冲突/子仓库列表）
   let repos = $state<RepoView[]>([]); // 主仓库 + 各子仓库
   let selectedRepoPath = $state<string | null>(null); // 当前选中文件所属仓库
@@ -72,6 +73,7 @@
   let error = $state("");
   let opMessage = $state(""); // fetch/push 等操作的成功提示
   let tab = $state<"changes" | "update" | "history">("changes");
+  let showProjectPicker = $state(false);
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
   let commitMessage = $state("");
@@ -173,13 +175,18 @@
   }
 
   // ── 数据加载 ──
-  // 弹原生目录选择对话框,选中后载入该仓库。
-  async function selectDir() {
-    const dir = await open({ directory: true, title: "选择项目目录" });
-    if (typeof dir === "string") {
-      path = dir;
-      await load();
-    }
+  function toggleProjectPicker() {
+    showProjectPicker = !showProjectPicker;
+  }
+
+  function handleProjectSelect(selectedPath: string) {
+    showProjectPicker = false;
+    openProject(selectedPath);
+  }
+
+  async function openProject(projectPath: string) {
+    path = projectPath;
+    await load();
   }
 
   async function load() {
@@ -195,12 +202,29 @@
       await reload();
       // 启动文件监视(自动切仓:start_watch 内部会停旧启新)
       invoke("start_watch", { path }).catch(() => {});
+      // 加载成功后保存到历史
+      await invoke("add_recent_project", { path });
     } catch (e) {
       error = String(e);
     } finally {
       loading = false;
     }
   }
+
+  // 启动时自动加载上次项目
+  $effect(() => {
+    const initLoad = async () => {
+      try {
+        const lastProject = await invoke<string | null>("get_last_project");
+        if (lastProject) {
+          await openProject(lastProject);
+        }
+      } catch (e) {
+        console.error("无法加载上次项目:", e);
+      }
+    };
+    initLoad();
+  });
 
   async function refresh() {
     selectedLines = new Map();
@@ -489,27 +513,48 @@
 </script>
 
 <main>
+  <!-- ── 项目选择器覆盖层 ── -->
+  {#if showProjectPicker}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+      class="picker-overlay"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      onclick={toggleProjectPicker}
+      onkeydown={(e) => e.key === "Escape" && toggleProjectPicker()}
+    >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="picker-modal" onclick={(e) => e.stopPropagation()}>
+        <ProjectPicker onselect={handleProjectSelect} />
+      </div>
+    </div>
+  {/if}
+
   <!-- ── 顶栏 ── -->
   <header class="topbar">
     <span class="logo">git-gui</span>
     <div class="path-bar">
-      <button class="btn-pick" onclick={selectDir} disabled={loading}
-        >选择目录</button
-      >
-      <input
-        bind:value={path}
-        placeholder="选择或输入项目目录"
-        spellcheck="false"
-      />
-      <button onclick={load} disabled={loading || !path.trim()}
-        >{loading ? "读取中…" : "打开"}</button
-      >
       {#if status}
+        <button
+          class="btn-pick"
+          onclick={toggleProjectPicker}
+          disabled={loading}>切换项目</button
+        >
+        <span class="current-path" title={path}>{repoLabel(path)}</span>
         <button
           class="btn-refresh"
           onclick={refresh}
           disabled={loading || operating}
           title="刷新所有仓库（含子仓库的外部改动）">↻</button
+        >
+      {:else}
+        <span class="current-path-empty">未选择项目</span>
+        <button
+          class="btn-pick"
+          onclick={toggleProjectPicker}
+          disabled={loading}>选择项目</button
         >
       {/if}
     </div>
@@ -817,7 +862,7 @@
     gap: 6px;
     flex: 1;
   }
-  .path-bar input {
+  .current-path {
     flex: 1;
     max-width: 360px;
     background: #2a2a2a;
@@ -826,6 +871,16 @@
     color: #e4e4e4;
     padding: 6px 10px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .current-path-empty {
+    flex: 1;
+    max-width: 360px;
+    color: #666;
+    padding: 6px 10px;
     font-size: 12px;
   }
   .path-bar button {
@@ -854,6 +909,30 @@
     padding: 6px 10px !important;
     flex-shrink: 0;
   }
+
+  /* ── 项目选择器覆盖层 ── */
+  .picker-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .picker-modal {
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 24px;
+    max-width: 90%;
+    max-height: 90%;
+    overflow-y: auto;
+  }
+
   .branch {
     font-weight: 600;
     font-size: 13px;

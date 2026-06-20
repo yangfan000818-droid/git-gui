@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -9,7 +10,81 @@ use gitcore::{
     RepoStatus, Segment, StashRef, UpdateOptions, UpdateOutcome, UpdatePlan,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use tauri::{AppHandle, Emitter, State};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+// ── 项目历史管理 ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ProjectHistory {
+    last_project: Option<String>,
+    recent_projects: Vec<String>,
+}
+
+impl ProjectHistory {
+    fn load(app: &AppHandle) -> Self {
+        let path = Self::config_path(app);
+        if let Ok(content) = fs::read_to_string(&path) {
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            Self::default()
+        }
+    }
+
+    fn save(&self, app: &AppHandle) -> Result<(), String> {
+        let path = Self::config_path(app);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let content = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        fs::write(&path, content).map_err(|e| e.to_string())
+    }
+
+    fn config_path(app: &AppHandle) -> PathBuf {
+        app.path()
+            .app_data_dir()
+            .expect("无法获取应用数据目录")
+            .join("projects.json")
+    }
+
+    fn add_project(&mut self, path: String) {
+        // 移除重复项
+        self.recent_projects.retain(|p| p != &path);
+        // 插入到开头
+        self.recent_projects.insert(0, path.clone());
+        // 最多保留 10 个
+        self.recent_projects.truncate(10);
+        // 更新上次打开
+        self.last_project = Some(path);
+    }
+}
+
+#[tauri::command]
+fn get_last_project(app: AppHandle) -> Option<String> {
+    ProjectHistory::load(&app).last_project
+}
+
+#[tauri::command]
+fn get_recent_projects(app: AppHandle) -> Vec<String> {
+    ProjectHistory::load(&app).recent_projects
+}
+
+#[tauri::command]
+fn add_recent_project(app: AppHandle, path: String) -> Result<(), String> {
+    let mut history = ProjectHistory::load(&app);
+    history.add_project(path);
+    history.save(&app)
+}
+
+#[tauri::command]
+fn remove_recent_project(app: AppHandle, path: String) -> Result<(), String> {
+    let mut history = ProjectHistory::load(&app);
+    history.recent_projects.retain(|p| p != &path);
+    if history.last_project.as_ref() == Some(&path) {
+        history.last_project = history.recent_projects.first().cloned();
+    }
+    history.save(&app)
+}
 
 // ── 取消注册表:op_id → CancelToken,供前端取消长操作 ──
 
@@ -450,6 +525,10 @@ pub fn run() {
         .manage(CancelRegistry::default())
         .manage(WatchState::default())
         .invoke_handler(tauri::generate_handler![
+            get_last_project,
+            get_recent_projects,
+            add_recent_project,
+            remove_recent_project,
             repo_status,
             repo_unstaged_diff,
             repo_staged_diff,
