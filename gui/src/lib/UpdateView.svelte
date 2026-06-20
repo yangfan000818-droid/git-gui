@@ -507,9 +507,6 @@
     font-size: 12px;
     margin: 0 0 12px;
   }
-  .update-status {
-    color: #888;
-  }
   .hint {
     color: #888;
     font-size: 12px;
