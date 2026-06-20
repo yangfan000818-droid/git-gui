@@ -190,6 +190,75 @@ fn repo_commit(path: String, message: String) -> Result<String, String> {
     repo.commit(&opts).map_err(|e| e.to_string())
 }
 
+/// 初始化/更新子仓库到父仓库记录的提交。可能较慢(需 clone/fetch),故 spawn_blocking。
+#[tauri::command]
+async fn repo_submodule_update(path: String, sub_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.submodule_update(Path::new(&sub_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 将子仓库更新到其远程分支最新提交(git submodule update --remote)。
+#[tauri::command]
+async fn repo_submodule_update_remote(path: String, sub_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.submodule_update_remote(Path::new(&sub_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 同步子仓库的 URL 配置(git submodule sync)。
+#[tauri::command]
+async fn repo_submodule_sync(path: String, sub_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.submodule_sync(Path::new(&sub_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 主仓库:fetch 远程(只下载不合并,无冲突风险)。
+#[tauri::command]
+async fn repo_fetch(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let cancel = CancelToken::default();
+        let mut noop = |_p: Progress| {};
+        repo.fetch_streaming(&mut noop, &cancel)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 主仓库:push 当前分支到 upstream。映射 PushOutcome 为前端消息。
+#[tauri::command]
+async fn repo_push(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        match repo.push().map_err(|e| e.to_string())? {
+            gitcore::PushOutcome::Success => Ok("推送成功".to_string()),
+            gitcore::PushOutcome::NoUpstream => {
+                Err("当前分支没有 upstream，请先设置上游分支".to_string())
+            }
+            gitcore::PushOutcome::NonFastForward => {
+                Err("推送被拒绝：远端领先，请先「更新」后再推送".to_string())
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ── Update 视图命令 ──
 
 /// 预检 + fetch + 计算计划,不改动工作区。fetch 阶段可取消。
@@ -365,6 +434,7 @@ fn check_git() -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(CancelRegistry::default())
         .manage(WatchState::default())
         .invoke_handler(tauri::generate_handler![
@@ -379,6 +449,11 @@ pub fn run() {
             repo_stage_lines,
             repo_unstage_lines,
             repo_commit,
+            repo_submodule_update,
+            repo_submodule_update_remote,
+            repo_submodule_sync,
+            repo_fetch,
+            repo_push,
             plan_update,
             execute_update,
             cancel_op,

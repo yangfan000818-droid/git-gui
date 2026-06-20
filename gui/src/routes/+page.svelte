@@ -1,9 +1,11 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { open } from "@tauri-apps/plugin-dialog";
   import UpdateView from "$lib/UpdateView.svelte";
   import HistoryView from "$lib/HistoryView.svelte";
   import DiffView from "$lib/DiffView.svelte";
+  import FileTree from "$lib/FileTree.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -29,6 +31,7 @@
     path: string;
     state: FileState;
   }
+  type SubStatus = "Clean" | "Dirty" | "Detached" | "Uninitialized";
   interface RepoStatus {
     branch: string | null;
     upstream: string | null;
@@ -37,19 +40,52 @@
     dirty: boolean;
     conflicted: string[];
     files: FileStatus[];
-    submodules: { name: string; path: string; status: string }[];
+    submodules: { name: string; path: string; status: SubStatus }[];
   }
 
+  // 一个仓库（主仓库或某子仓库）在 Changes 视图里的本地状态。
+  interface RepoView {
+    path: string; // 绝对路径，用于 stage/diff/commit 等所有命令
+    label: string; // 显示名
+    isMain: boolean;
+    subRelPath: string | null; // 子仓库相对主仓库的路径（管理操作用），主仓库为 null
+    subStatus: SubStatus | null; // 子仓库状态徽章，主仓库为 null
+    unstaged: FileDiff[];
+    staged: FileDiff[];
+  }
+
+  const SUB_STATE_LABEL: Record<SubStatus, string> = {
+    Clean: "干净",
+    Dirty: "有改动",
+    Detached: "游离 HEAD",
+    Uninitialized: "未初始化",
+  };
+
   // ── 状态 ──
-  let path = $state("/Users/yfan/work/git-gui");
-  let status = $state<RepoStatus | null>(null);
-  let unstaged = $state<FileDiff[]>([]);
-  let staged = $state<FileDiff[]>([]);
+  let path = $state(""); // 主仓库路径（顶栏:"选择目录"或手动输入）
+  let status = $state<RepoStatus | null>(null); // 主仓库状态（分支/ahead-behind/冲突/子仓库列表）
+  let repos = $state<RepoView[]>([]); // 主仓库 + 各子仓库
+  let selectedRepoPath = $state<string | null>(null); // 当前选中文件所属仓库
   let selectedFile = $state<FileDiff | null>(null);
   let activeList = $state<"unstaged" | "staged">("unstaged");
   let loading = $state(false);
   let error = $state("");
+  let opMessage = $state(""); // fetch/push 等操作的成功提示
   let tab = $state<"changes" | "update" | "history">("changes");
+
+  // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
+  let commitMessage = $state("");
+  let commitResult = $state("");
+  let totalUnstaged = $derived(
+    repos.reduce((n, r) => n + r.unstaged.length, 0),
+  );
+  let stagedRepos = $derived(repos.filter((r) => r.staged.length > 0));
+  let totalStaged = $derived(
+    stagedRepos.reduce((n, r) => n + r.staged.length, 0),
+  );
+  let commitSummary = $derived(
+    stagedRepos.map((r) => `${r.label} (${r.staged.length})`).join(" · "),
+  );
 
   // ── 文件监视:后端 debounce 300ms 后 emit "repo-changed",前端再接一次 debounce 防抖 ──
   let repoChangedUnlisten: UnlistenFn | undefined = $state();
@@ -72,32 +108,91 @@
     };
   });
 
+  // ── 路径辅助 ──
+  function joinPath(base: string, rel: string): string {
+    return `${base.replace(/[/\\]+$/, "")}/${rel}`;
+  }
+  function repoLabel(p: string): string {
+    return (
+      p
+        .replace(/[/\\]+$/, "")
+        .split(/[/\\]/)
+        .pop() || p
+    );
+  }
+
+  // 读取某仓库的未暂存/已暂存 diff,构建 RepoView。
+  async function buildRepoView(
+    repoPath: string,
+    label: string,
+    isMain: boolean,
+    subRelPath: string | null,
+    subStatus: SubStatus | null,
+  ): Promise<RepoView> {
+    let unstaged: FileDiff[] = [];
+    let staged: FileDiff[] = [];
+    // 未初始化的子仓库没有 .git,无法读 diff。
+    if (subStatus !== "Uninitialized") {
+      try {
+        [unstaged, staged] = await Promise.all([
+          invoke<FileDiff[]>("repo_unstaged_diff", { path: repoPath }),
+          invoke<FileDiff[]>("repo_staged_diff", { path: repoPath }),
+        ]);
+      } catch {
+        // 子仓库读取失败(损坏等)时留空,不阻塞整体加载。
+      }
+    }
+    return {
+      path: repoPath,
+      label,
+      isMain,
+      subRelPath,
+      subStatus,
+      unstaged,
+      staged,
+    };
+  }
+
+  // 重新读取主仓库状态 + 所有仓库 diff,重建 repos。
+  async function reload() {
+    const s = await invoke<RepoStatus>("repo_status", { path });
+    status = s;
+    const main = await buildRepoView(path, repoLabel(path), true, null, null);
+    const subs = await Promise.all(
+      s.submodules.map((sub) =>
+        buildRepoView(
+          joinPath(path, sub.path),
+          sub.path,
+          false,
+          sub.path,
+          sub.status,
+        ),
+      ),
+    );
+    repos = [main, ...subs];
+  }
+
   // ── 数据加载 ──
+  // 弹原生目录选择对话框,选中后载入该仓库。
+  async function selectDir() {
+    const dir = await open({ directory: true, title: "选择项目目录" });
+    if (typeof dir === "string") {
+      path = dir;
+      await load();
+    }
+  }
+
   async function load() {
+    if (!path.trim()) return;
     loading = true;
     error = "";
     status = null;
-    unstaged = [];
-    staged = [];
+    repos = [];
+    selectedRepoPath = null;
     selectedFile = null;
     try {
       await invoke("check_git"); // git 不在 PATH 时给友好提示(Windows 不自带)
-      const [s, u, d] = await Promise.all([
-        invoke<RepoStatus>("repo_status", { path }),
-        invoke<FileDiff[]>("repo_unstaged_diff", { path }),
-        invoke<FileDiff[]>("repo_staged_diff", { path }),
-      ]);
-      status = s;
-      unstaged = u;
-      staged = d;
-      // 自动选中第一个文件
-      if (unstaged.length > 0) {
-        selectedFile = unstaged[0];
-        activeList = "unstaged";
-      } else if (staged.length > 0) {
-        selectedFile = staged[0];
-        activeList = "staged";
-      }
+      await reload();
       // 启动文件监视(自动切仓:start_watch 内部会停旧启新)
       invoke("start_watch", { path }).catch(() => {});
     } catch (e) {
@@ -107,18 +202,52 @@
     }
   }
 
-  function selectFile(file: FileDiff, list: "unstaged" | "staged") {
+  async function refresh() {
+    selectedLines = new Map();
+    await reload();
+    reconcileSelection();
+  }
+
+  // 刷新后保持原选中文件;若它已消失则清空选中(不自动另选,保持收起的初始态)。
+  function reconcileSelection() {
+    if (selectedRepoPath && selectedFile) {
+      const repo = repos.find((r) => r.path === selectedRepoPath);
+      if (repo) {
+        const inU = repo.unstaged.find((f) => f.path === selectedFile!.path);
+        if (inU) {
+          selectedFile = inU;
+          activeList = "unstaged";
+          return;
+        }
+        const inS = repo.staged.find((f) => f.path === selectedFile!.path);
+        if (inS) {
+          selectedFile = inS;
+          activeList = "staged";
+          return;
+        }
+      }
+    }
+    selectedRepoPath = null;
+    selectedFile = null;
+  }
+
+  function selectFile(
+    repoPath: string,
+    file: FileDiff,
+    list: "unstaged" | "staged",
+  ) {
+    selectedRepoPath = repoPath;
     selectedFile = file;
     activeList = list;
     selectedLines = new Map();
   }
 
-  // 键盘激活(Enter / 空格)：让 role=button 的可点击 div 可用键盘操作。
-  function onActivate(e: KeyboardEvent, fn: () => void) {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      fn();
-    }
+  function isActive(repo: RepoView, list: "unstaged" | "staged"): boolean {
+    return selectedRepoPath === repo.path && activeList === list;
+  }
+  // FileTree 的 selectedPath:仅当该仓库该列表正被选中时高亮。
+  function selKey(repo: RepoView, list: "unstaged" | "staged"): string | null {
+    return isActive(repo, list) ? (selectedFile?.path ?? null) : null;
   }
 
   // ── 行选择 ──
@@ -152,14 +281,15 @@
     return selectedLines.get(hunkIdx)?.has(lineIdx) ?? false;
   }
 
-  // ── 文件操作 ──
+  // ── 文件操作(均按 repoPath 定向到对应仓库) ──
   let operating = $state(false);
 
-  async function stageFile(file: FileDiff) {
+  async function stagePaths(repoPath: string, paths: string[]) {
+    if (paths.length === 0) return;
     operating = true;
     error = "";
     try {
-      await invoke("repo_stage", { path, files: [file.path] });
+      await invoke("repo_stage", { path: repoPath, files: paths });
       await refresh();
     } catch (e) {
       error = String(e);
@@ -168,11 +298,12 @@
     }
   }
 
-  async function unstageFile(file: FileDiff) {
+  async function unstagePaths(repoPath: string, paths: string[]) {
+    if (paths.length === 0) return;
     operating = true;
     error = "";
     try {
-      await invoke("repo_unstage", { path, files: [file.path] });
+      await invoke("repo_unstage", { path: repoPath, files: paths });
       await refresh();
     } catch (e) {
       error = String(e);
@@ -181,12 +312,17 @@
     }
   }
 
-  async function discardFile(file: FileDiff) {
-    if (!confirm(`确定丢弃 ${file.path} 的改动?（stash 保存可找回）`)) return;
+  async function discardPaths(repoPath: string, paths: string[]) {
+    if (paths.length === 0) return;
+    const msg =
+      paths.length === 1
+        ? `确定丢弃 ${paths[0]} 的改动?（stash 保存可找回）`
+        : `确定丢弃这 ${paths.length} 个文件的改动?（stash 保存可找回）`;
+    if (!confirm(msg)) return;
     operating = true;
     error = "";
     try {
-      await invoke("repo_discard", { path, files: [file.path] });
+      await invoke("repo_discard", { path: repoPath, files: paths });
       await refresh();
     } catch (e) {
       error = String(e);
@@ -195,12 +331,92 @@
     }
   }
 
-  // ── hunk / 行级操作 ──
+  // 提交所有有暂存改动的仓库:子仓库先提交(主仓库可能含其指针变更),同一条 message。
+  async function doCommit() {
+    if (totalStaged === 0 || !commitMessage.trim()) return;
+    const targets = [...stagedRepos].sort(
+      (a, b) => Number(a.isMain) - Number(b.isMain),
+    );
+    operating = true;
+    error = "";
+    commitResult = "";
+    const message = commitMessage;
+    try {
+      for (const r of targets) {
+        await invoke<string>("repo_commit", { path: r.path, message });
+      }
+      commitMessage = "";
+      commitResult = `已提交 ${targets.length} 个仓库`;
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      operating = false;
+    }
+  }
+
+  // ── 子仓库管理(在主仓库执行 git submodule ...) ──
+  async function submoduleAction(
+    repo: RepoView,
+    op: "update" | "remote" | "sync",
+  ) {
+    if (!repo.subRelPath) return;
+    operating = true;
+    error = "";
+    try {
+      const cmd =
+        op === "update"
+          ? "repo_submodule_update"
+          : op === "remote"
+            ? "repo_submodule_update_remote"
+            : "repo_submodule_sync";
+      await invoke(cmd, { path, subPath: repo.subRelPath });
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      operating = false;
+    }
+  }
+
+  // ── 主仓库远程操作 ──
+  async function doFetch(repoPath: string) {
+    operating = true;
+    error = "";
+    opMessage = "";
+    try {
+      await invoke("repo_fetch", { path: repoPath });
+      opMessage = "已拉取远程更新（fetch）";
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      operating = false;
+    }
+  }
+
+  async function doPush(repoPath: string) {
+    operating = true;
+    error = "";
+    opMessage = "";
+    try {
+      const msg = await invoke<string>("repo_push", { path: repoPath });
+      opMessage = msg;
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      operating = false;
+    }
+  }
+
+  // ── hunk / 行级操作(作用于当前选中文件所属仓库) ──
   async function stageHunk(file: FileDiff, hunk: Hunk) {
+    if (!selectedRepoPath) return;
     operating = true;
     error = "";
     try {
-      await invoke("repo_stage_hunk", { path, file, hunk });
+      await invoke("repo_stage_hunk", { path: selectedRepoPath, file, hunk });
       await refresh();
     } catch (e) {
       error = String(e);
@@ -210,10 +426,11 @@
   }
 
   async function unstageHunk(file: FileDiff, hunk: Hunk) {
+    if (!selectedRepoPath) return;
     operating = true;
     error = "";
     try {
-      await invoke("repo_unstage_hunk", { path, file, hunk });
+      await invoke("repo_unstage_hunk", { path: selectedRepoPath, file, hunk });
       await refresh();
     } catch (e) {
       error = String(e);
@@ -228,12 +445,12 @@
     hunkIdx: number,
   ) {
     const sel = selectedLines.get(hunkIdx);
-    if (!sel || sel.size === 0) return;
+    if (!sel || sel.size === 0 || !selectedRepoPath) return;
     operating = true;
     error = "";
     try {
       await invoke("repo_stage_lines", {
-        path,
+        path: selectedRepoPath,
         file,
         hunk,
         selected: Array.from(sel),
@@ -252,12 +469,12 @@
     hunkIdx: number,
   ) {
     const sel = selectedLines.get(hunkIdx);
-    if (!sel || sel.size === 0) return;
+    if (!sel || sel.size === 0 || !selectedRepoPath) return;
     operating = true;
     error = "";
     try {
       await invoke("repo_unstage_lines", {
-        path,
+        path: selectedRepoPath,
         file,
         hunk,
         selected: Array.from(sel),
@@ -269,66 +486,6 @@
       operating = false;
     }
   }
-
-  // ── commit ──
-  let commitMessage = $state("");
-  let commitResult = $state("");
-
-  async function doCommit() {
-    if (!commitMessage.trim()) return;
-    operating = true;
-    error = "";
-    commitResult = "";
-    try {
-      const sha = await invoke<string>("repo_commit", {
-        path,
-        message: commitMessage,
-      });
-      commitResult = `提交成功: ${sha}`;
-      commitMessage = "";
-      await refresh();
-    } catch (e) {
-      commitResult = "";
-      error = String(e);
-    } finally {
-      operating = false;
-    }
-  }
-
-  async function refresh() {
-    selectedLines = new Map();
-    const [s, u, d] = await Promise.all([
-      invoke<RepoStatus>("repo_status", { path }),
-      invoke<FileDiff[]>("repo_unstaged_diff", { path }),
-      invoke<FileDiff[]>("repo_staged_diff", { path }),
-    ]);
-    status = s;
-    unstaged = u;
-    staged = d;
-    // 保持选中文件，并追踪它当前属于哪个列表
-    if (selectedFile) {
-      const inUnstaged = unstaged.find((f) => f.path === selectedFile!.path);
-      const inStaged = staged.find((f) => f.path === selectedFile!.path);
-      if (inUnstaged) {
-        selectedFile = inUnstaged;
-        activeList = "unstaged";
-      } else if (inStaged) {
-        selectedFile = inStaged;
-        activeList = "staged";
-      } else {
-        selectedFile = null;
-      }
-    }
-    if (!selectedFile) {
-      if (unstaged.length > 0) {
-        selectedFile = unstaged[0];
-        activeList = "unstaged";
-      } else if (staged.length > 0) {
-        selectedFile = staged[0];
-        activeList = "staged";
-      }
-    }
-  }
 </script>
 
 <main>
@@ -336,10 +493,25 @@
   <header class="topbar">
     <span class="logo">git-gui</span>
     <div class="path-bar">
-      <input bind:value={path} placeholder="仓库路径" spellcheck="false" />
-      <button onclick={load} disabled={loading}
+      <button class="btn-pick" onclick={selectDir} disabled={loading}
+        >选择目录</button
+      >
+      <input
+        bind:value={path}
+        placeholder="选择或输入项目目录"
+        spellcheck="false"
+      />
+      <button onclick={load} disabled={loading || !path.trim()}
         >{loading ? "读取中…" : "打开"}</button
       >
+      {#if status}
+        <button
+          class="btn-refresh"
+          onclick={refresh}
+          disabled={loading || operating}
+          title="刷新所有仓库（含子仓库的外部改动）">↻</button
+        >
+      {/if}
     </div>
     {#if status}
       <span class="branch">{status.branch ?? "(detached)"}</span>
@@ -379,133 +551,175 @@
     {#if error}
       <pre class="error">{error}</pre>
     {/if}
+    {#if opMessage}
+      <p class="op-message">{opMessage}</p>
+    {/if}
 
     {#if status}
       <div class="split">
-        <!-- ── 左侧:文件列表 ── -->
+        <!-- ── 左侧:主仓库 + 各子仓库,每个都能独立暂存/提交 ── -->
         <aside class="file-list">
-          <!-- 未暂存 -->
-          <section>
-            <h2 class={activeList === "unstaged" ? "active" : ""}>
-              未暂存 ({unstaged.length})
-            </h2>
-            {#if unstaged.length === 0}
-              <p class="muted">无改动</p>
-            {:else}
-              <div class="file-rows">
-                {#each unstaged as f}
-                  <div
-                    class="file-item"
-                    class:selected={selectedFile === f}
-                    role="button"
-                    tabindex="0"
-                    onclick={() => selectFile(f, "unstaged")}
-                    onkeydown={(e) =>
-                      onActivate(e, () => selectFile(f, "unstaged"))}
-                  >
-                    <span class="fpath">{f.path}</span>
-                    {#if f.binary}<span class="tag tag-binary">二进制</span
-                      >{/if}
-                    <span class="file-actions">
-                      <button
-                        class="btn-act btn-stage"
-                        disabled={operating}
-                        title="暂存"
-                        onclick={(e) => {
-                          e.stopPropagation();
-                          stageFile(f);
-                        }}>+</button
+          <div class="repo-scroll">
+            <!-- 未暂存区:各仓库分组(含仓库操作按钮) + 未暂存目录树 -->
+            <section class="zone">
+              <h2 class="zone-title">未暂存 ({totalUnstaged})</h2>
+              {#each repos as repo (repo.path)}
+                <div class="repo-group">
+                  <div class="repo-grouphead">
+                    {#if repo.isMain}
+                      <span class="repo-title main">主仓库 · {repo.label}</span>
+                    {:else}
+                      <span class="sub-dot sub-{repo.subStatus?.toLowerCase()}"
+                        >●</span
                       >
-                      <button
-                        class="btn-act btn-discard"
-                        disabled={operating}
-                        title="丢弃改动（stash 保存可找回）"
-                        onclick={(e) => {
-                          e.stopPropagation();
-                          discardFile(f);
-                        }}>↺</button
+                      <span class="repo-title" title={repo.path}
+                        >{repo.label}</span
                       >
-                    </span>
+                      <span class="sub-state"
+                        >{repo.subStatus
+                          ? SUB_STATE_LABEL[repo.subStatus]
+                          : ""}</span
+                      >
+                    {/if}
                   </div>
-                {/each}
-              </div>
-            {/if}
-          </section>
-
-          <!-- 已暂存 -->
-          <section>
-            <h2 class={activeList === "staged" ? "active" : ""}>
-              已暂存 ({staged.length})
-            </h2>
-            {#if staged.length === 0}
-              <p class="muted">无暂存</p>
-            {:else}
-              <div class="file-rows">
-                {#each staged as f}
-                  <div
-                    class="file-item"
-                    class:selected={selectedFile === f}
-                    role="button"
-                    tabindex="0"
-                    onclick={() => selectFile(f, "staged")}
-                    onkeydown={(e) =>
-                      onActivate(e, () => selectFile(f, "staged"))}
-                  >
-                    <span class="fpath">{f.path}</span>
-                    {#if f.binary}<span class="tag tag-binary">二进制</span
-                      >{/if}
-                    <span class="file-actions">
+                  {#if repo.isMain}
+                    <div class="repo-manage">
                       <button
-                        class="btn-act btn-unstage"
+                        class="sub-btn"
                         disabled={operating}
-                        title="取消暂存"
-                        onclick={(e) => {
-                          e.stopPropagation();
-                          unstageFile(f);
-                        }}>−</button
+                        title="合并远程改动:走 Update 流程,可处理冲突"
+                        onclick={() => (tab = "update")}>更新</button
                       >
-                    </span>
-                  </div>
-                {/each}
-              </div>
-            {/if}
-          </section>
-
-          <!-- 冲突 -->
-          {#if status.conflicted.length}
-            <section>
-              <h2>冲突 ({status.conflicted.length})</h2>
-              <ul>
-                {#each status.conflicted as c}
-                  <li class="file-item conflict">{c}</li>
-                {/each}
-              </ul>
+                      <button
+                        class="sub-btn"
+                        disabled={operating}
+                        title="拉取远程(fetch:只下载不合并,无冲突)"
+                        onclick={() => doFetch(repo.path)}>拉取</button
+                      >
+                      <button
+                        class="sub-btn"
+                        disabled={operating}
+                        title="推送当前分支到远程"
+                        onclick={() => doPush(repo.path)}>推送</button
+                      >
+                    </div>
+                  {:else}
+                    <div class="repo-manage">
+                      <button
+                        class="sub-btn"
+                        disabled={operating}
+                        title="初始化 / 更新到父仓库记录的提交（update --init）"
+                        onclick={() => submoduleAction(repo, "update")}
+                        >更新</button
+                      >
+                      {#if repo.subStatus !== "Uninitialized"}
+                        <button
+                          class="sub-btn"
+                          disabled={operating}
+                          title="拉取远程分支最新提交（update --remote）"
+                          onclick={() => submoduleAction(repo, "remote")}
+                          >拉取</button
+                        >
+                        <button
+                          class="sub-btn"
+                          disabled={operating}
+                          title="同步子仓库 URL 配置（sync）"
+                          onclick={() => submoduleAction(repo, "sync")}
+                          >同步</button
+                        >
+                      {/if}
+                    </div>
+                  {/if}
+                  {#if repo.subStatus === "Uninitialized"}
+                    <p class="muted">未初始化 — 点"更新"执行 init</p>
+                  {:else if repo.unstaged.length === 0}
+                    <p class="muted">无改动</p>
+                  {:else}
+                    <FileTree
+                      files={repo.unstaged}
+                      selectedPath={selKey(repo, "unstaged")}
+                      kind="unstaged"
+                      {operating}
+                      onSelect={(f) => selectFile(repo.path, f, "unstaged")}
+                      onStage={(p) => stagePaths(repo.path, p)}
+                      onUnstage={(p) => unstagePaths(repo.path, p)}
+                      onDiscard={(p) => discardPaths(repo.path, p)}
+                    />
+                  {/if}
+                </div>
+              {/each}
             </section>
-          {/if}
 
-          <!-- commit -->
-          <section class="commit-section">
-            <h2>提交</h2>
-            {#if staged.length === 0}
+            <!-- 已暂存区:仅列出有已暂存改动的仓库,作为待提交预览 -->
+            {#if totalStaged > 0}
+              <section class="zone">
+                <h2 class="zone-title">已暂存 ({totalStaged})</h2>
+                {#each repos as repo (repo.path)}
+                  {#if repo.staged.length > 0}
+                    <div class="repo-group">
+                      <div class="repo-grouphead">
+                        {#if repo.isMain}
+                          <span class="repo-title main"
+                            >主仓库 · {repo.label}</span
+                          >
+                        {:else}
+                          <span class="repo-title" title={repo.path}
+                            >{repo.label}</span
+                          >
+                        {/if}
+                      </div>
+                      <FileTree
+                        files={repo.staged}
+                        selectedPath={selKey(repo, "staged")}
+                        kind="staged"
+                        {operating}
+                        onSelect={(f) => selectFile(repo.path, f, "staged")}
+                        onStage={(p) => stagePaths(repo.path, p)}
+                        onUnstage={(p) => unstagePaths(repo.path, p)}
+                        onDiscard={(p) => discardPaths(repo.path, p)}
+                      />
+                    </div>
+                  {/if}
+                {/each}
+              </section>
+            {/if}
+
+            <!-- 冲突(主仓库) -->
+            {#if status.conflicted.length}
+              <section class="zone">
+                <h2 class="zone-title">冲突 ({status.conflicted.length})</h2>
+                <ul>
+                  {#each status.conflicted as c}
+                    <li class="file-item conflict">{c}</li>
+                  {/each}
+                </ul>
+              </section>
+            {/if}
+          </div>
+
+          <!-- 统一提交区(所有有暂存改动的仓库套用同一条 message) -->
+          <div class="commit-area">
+            {#if totalStaged === 0}
               <p class="muted">暂存文件以创建提交</p>
             {:else}
               <textarea
                 bind:value={commitMessage}
-                placeholder="提交信息（必填）"
+                placeholder="提交信息（必填，应用于所有已暂存的仓库）"
                 rows={3}
                 disabled={operating}></textarea>
+              <p class="commit-targets">将提交：{commitSummary}</p>
               <div class="commit-bar">
                 <button
                   class="btn-commit"
                   disabled={operating || !commitMessage.trim()}
-                  onclick={doCommit}>提交（{staged.length} 个文件）</button
+                  onclick={doCommit}>提交（{totalStaged} 个文件）</button
                 >
               </div>
             {/if}
             {#if commitResult}
               <p class="commit-ok">{commitResult}</p>
             {/if}
-          </section>
+          </div>
         </aside>
 
         <!-- ── 右侧:diff 视图 ── -->
@@ -627,6 +841,19 @@
     opacity: 0.5;
     cursor: default;
   }
+  .btn-pick {
+    background: #2a2a2a !important;
+    border: 1px solid #444 !important;
+    color: #e4e4e4 !important;
+    flex-shrink: 0;
+  }
+  .btn-refresh {
+    background: #2a2a2a !important;
+    border: 1px solid #444 !important;
+    color: #e4e4e4 !important;
+    padding: 6px 10px !important;
+    flex-shrink: 0;
+  }
   .branch {
     font-weight: 600;
     font-size: 13px;
@@ -655,6 +882,14 @@
     font-size: 12px;
     margin: 0;
   }
+  .op-message {
+    background: #1d3a24;
+    border-bottom: 1px solid #2b6a3b;
+    padding: 8px 14px;
+    color: #7ee29a;
+    font-size: 12px;
+    margin: 0;
+  }
 
   /* ── 分栏 ── */
   .split {
@@ -665,26 +900,18 @@
 
   /* ── 左侧文件列表 ── */
   .file-list {
-    width: 260px;
+    width: 270px;
     flex-shrink: 0;
     border-right: 1px solid #383838;
-    overflow-y: auto;
-    padding: 10px 0;
+    display: flex;
+    flex-direction: column;
     background: #212121;
   }
-  .file-list section {
-    margin-bottom: 6px;
-  }
-  .file-list h2 {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #888;
-    margin: 0;
-    padding: 6px 14px 4px;
-  }
-  .file-list h2.active {
-    color: #ccc;
+  .repo-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 0;
+    contain: layout paint; /* 与右侧 diff 互相隔离重绘,大 diff 不拖累左侧滚动 */
   }
   .file-list ul {
     list-style: none;
@@ -702,97 +929,115 @@
   .file-item:hover {
     background: #2a2a2a;
   }
-  .file-item.selected {
-    background: #0e639c55;
-  }
   .file-item.conflict {
     color: #f3b4b4;
-  }
-  .fpath {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .muted {
     color: #666;
     font-size: 12px;
     padding: 4px 14px;
   }
-  .tag {
+
+  /* ── 暂存状态分区 + 仓库分组 ── */
+  .zone {
+    margin-bottom: 10px;
+  }
+  .zone-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #bbb;
+    font-weight: 600;
+    margin: 0;
+    padding: 8px 14px 6px;
+    position: sticky;
+    top: 0;
+    background: #212121;
+    z-index: 1;
+  }
+  .repo-group {
+    margin-bottom: 6px;
+  }
+  .repo-grouphead {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px 3px;
+  }
+  .repo-title {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: #cdcdcd;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .repo-title.main {
+    color: #9ecbff;
+  }
+  .repo-manage {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    padding: 0 14px 6px 32px;
+  }
+  .sub-dot {
     font-size: 10px;
-    border-radius: 4px;
-    padding: 1px 5px;
     flex-shrink: 0;
   }
-  .tag-binary {
-    background: #2f2f2f;
-    color: #999;
+  .sub-clean {
+    color: #7ee29a;
   }
-
-  /* ── 文件操作按钮 ── */
-  .file-actions {
-    display: none;
-    gap: 2px;
+  .sub-dirty {
+    color: #e2c47a;
+  }
+  .sub-detached {
+    color: #f3b4b4;
+  }
+  .sub-uninitialized {
+    color: #777;
+  }
+  .sub-state {
+    font-size: 11px;
+    color: #888;
     margin-left: auto;
     flex-shrink: 0;
   }
-  .file-item:hover .file-actions {
-    display: flex;
-  }
-  .btn-act {
-    background: transparent;
+  .sub-btn {
+    background: #333;
     border: 1px solid #555;
-    border-radius: 3px;
-    color: #ccc;
+    border-radius: 4px;
+    color: #ddd;
     cursor: pointer;
-    font-size: 13px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    width: 22px;
-    height: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    line-height: 1;
+    font-size: 11px;
+    padding: 3px 10px;
+    line-height: 1.4;
   }
-  .btn-act:hover {
-    background: #444;
+  .sub-btn:hover {
+    background: #3d4f63;
+    border-color: #0e639c;
+    color: #fff;
   }
-  .btn-act:disabled {
-    opacity: 0.3;
+  .sub-btn:disabled {
+    opacity: 0.35;
     cursor: default;
-  }
-  .btn-stage {
-    color: #7ee29a;
-    border-color: #3a5a3a;
-  }
-  .btn-stage:hover {
-    background: #1d3a24;
-  }
-  .btn-unstage {
-    color: #e2c47a;
-    border-color: #5a4a3a;
-  }
-  .btn-unstage:hover {
-    background: #3a311d;
-  }
-  .btn-discard {
-    color: #f3b4b4;
-    border-color: #5a3a3a;
-  }
-  .btn-discard:hover {
-    background: #3a1d1d;
   }
 
   /* ── commit ── */
-  .commit-section {
+  .commit-area {
+    flex-shrink: 0;
     border-top: 1px solid #383838;
-    margin-top: 6px;
     padding: 10px 14px 14px;
   }
-  .commit-section textarea {
+  .commit-targets {
+    font-size: 11px;
+    color: #888;
+    margin: 6px 0 0;
+    word-break: break-all;
+  }
+  .commit-area textarea {
     width: 100%;
     box-sizing: border-box;
     background: #2a2a2a;
@@ -805,7 +1050,7 @@
     resize: vertical;
     margin-top: 4px;
   }
-  .commit-section textarea:disabled {
+  .commit-area textarea:disabled {
     opacity: 0.5;
   }
   .commit-bar {
@@ -841,6 +1086,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 12px 16px;
+    contain: layout paint; /* 隔离右侧大 diff 的重绘,左侧滚动更流畅 */
   }
   .placeholder {
     margin-top: 40px;

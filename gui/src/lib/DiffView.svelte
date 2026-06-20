@@ -382,6 +382,7 @@
   }
   .diff-content {
     padding: 4px 0;
+    overflow-x: auto;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     line-height: 1.55;
@@ -389,6 +390,8 @@
 
   .hunk {
     margin-bottom: 4px;
+    width: max-content;
+    min-width: 100%; /* 行等宽=max(最长行,容器):背景铺满+横向滚动,精确实测不裁 */
   }
   .hunk-header {
     display: flex;

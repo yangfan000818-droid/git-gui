@@ -332,6 +332,21 @@ impl Repo {
         submodule::list_submodules(self)
     }
 
+    /// 初始化并更新子仓库到父仓库记录的提交(git submodule update --init)。
+    pub fn submodule_update(&self, path: &Path) -> Result<(), Error> {
+        submodule::update_submodule(self, path)
+    }
+
+    /// 将子仓库更新到其远程跟踪分支的最新提交(git submodule update --remote)。
+    pub fn submodule_update_remote(&self, path: &Path) -> Result<(), Error> {
+        submodule::update_submodule_remote(self, path)
+    }
+
+    /// 同步子仓库的 URL 配置(git submodule sync)。
+    pub fn submodule_sync(&self, path: &Path) -> Result<(), Error> {
+        submodule::sync_submodule(self, path)
+    }
+
     /// 列出所有本地分支。
     pub fn branches(&self) -> Result<Vec<BranchInfo>, Error> {
         branch::list_branches(self)

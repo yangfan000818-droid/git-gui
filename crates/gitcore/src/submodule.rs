@@ -1,5 +1,5 @@
 use crate::{Error, Repo};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// 子仓库信息。
 #[derive(Debug, Clone)]
@@ -101,4 +101,31 @@ fn check_submodule_status(repo: &Repo, submodule_path: &PathBuf) -> Result<Submo
     }
 
     Ok(SubmoduleStatus::Clean)
+}
+
+/// 初始化并更新子仓库到父仓库记录的提交(git submodule update --init)。
+pub(crate) fn update_submodule(repo: &Repo, path: &Path) -> Result<(), Error> {
+    let p = path
+        .to_str()
+        .ok_or_else(|| Error::Parse("子仓库路径含非 UTF-8 字符".into()))?;
+    repo.git(&["submodule", "update", "--init", "--", p])?;
+    Ok(())
+}
+
+/// 将子仓库更新到其远程跟踪分支的最新提交(git submodule update --remote --init)。
+pub(crate) fn update_submodule_remote(repo: &Repo, path: &Path) -> Result<(), Error> {
+    let p = path
+        .to_str()
+        .ok_or_else(|| Error::Parse("子仓库路径含非 UTF-8 字符".into()))?;
+    repo.git(&["submodule", "update", "--remote", "--init", "--", p])?;
+    Ok(())
+}
+
+/// 同步子仓库的 URL 配置(git submodule sync)。
+pub(crate) fn sync_submodule(repo: &Repo, path: &Path) -> Result<(), Error> {
+    let p = path
+        .to_str()
+        .ok_or_else(|| Error::Parse("子仓库路径含非 UTF-8 字符".into()))?;
+    repo.git(&["submodule", "sync", "--", p])?;
+    Ok(())
 }
