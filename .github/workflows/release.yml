@@ -103,6 +103,4 @@ jobs:
         if: runner.os == 'Windows'
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            target/release/bundle/msi/*.msi
-            target/release/bundle/nsis/*.exe
+          files: target/release/bundle/nsis/*.exe
