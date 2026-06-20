@@ -103,8 +103,24 @@ jobs:
           npm ci
           npx tauri build --ci
 
-      - name: Upload to Release
+      - name: Upload to Release (macOS)
+        if: runner.os == 'macOS'
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/bundle/**/*
-          fail_on_unmatched_files: false
+          files: target/release/bundle/dmg/*.dmg
+
+      - name: Upload to Release (Linux)
+        if: runner.os == 'Linux'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+
+      - name: Upload to Release (Windows)
+        if: runner.os == 'Windows'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe
