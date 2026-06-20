@@ -27,6 +27,17 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
+      - name: Install Linux deps (for gui)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
       - name: clippy (gitcore)
         run: cargo clippy -p gitcore --features serde -- -D warnings
 
@@ -58,7 +69,8 @@ jobs:
         run: |
           cd gui
           npm ci
-          npx svelte-check
+          npx svelte-kit sync
+          npx svelte-check --tsconfig ./tsconfig.json
           npx prettier --check "src/**/*.svelte"
 
   # ── 三平台构建(未签名) ──
