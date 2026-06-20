@@ -201,6 +201,11 @@ impl Repo {
         log::log_graph(self, opts)
     }
 
+    /// 检查 git 是否在 PATH 中可用。不可用返回友好错误供 UI 展示。
+    pub fn check_git() -> Result<(), Error> {
+        git::check_available()
+    }
+
     /// 获取结构化拓扑图:每个 commit 的 lane 分配 + lane 间连线,供前端 SVG 绘图。
     pub fn log_topology(&self, opts: &LogOptions) -> Result<Vec<GraphCommit>, Error> {
         topology::log_topology(self, opts)

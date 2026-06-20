@@ -353,6 +353,12 @@ fn repo_commit_message(path: String, sha: String) -> Result<String, String> {
     repo.commit_message(&sha).map_err(|e| e.to_string())
 }
 
+/// 检查 git 是否可用:Windows 不自带 git,缺 git 时给友好提示。
+#[tauri::command]
+fn check_git() -> Result<(), String> {
+    gitcore::Repo::check_git().map_err(|e| e.to_string())
+}
+
 // ── 启动 ──
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -386,6 +392,7 @@ pub fn run() {
             repo_log_graph,
             repo_log_topology,
             start_watch,
+            check_git,
             repo_commit_files,
             repo_commit_message,
         ])

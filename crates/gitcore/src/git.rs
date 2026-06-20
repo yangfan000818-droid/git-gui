@@ -5,6 +5,38 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// 创建一个预置 Windows `CREATE_NO_WINDOW` flag 的 git Command,
+/// 避免每次 spawn 闪黑框。
+fn git_command() -> Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut cmd = Command::new("git");
+        let _ = cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("git")
+    }
+}
+
+/// 检查 git 是否在 PATH 中可用。不可用返回友好错误。
+pub(crate) fn check_available() -> Result<(), Error> {
+    match git_command().arg("--version").output() {
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(_) => Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "git 未正确安装(非零退出)",
+        ))),
+        Err(_) => Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "git 不在 PATH 中,请安装 Git 并将其加入 PATH",
+        ))),
+    }
+}
+
 /// 一次 git 调用的原始结果。
 pub(crate) struct Output {
     pub success: bool,
@@ -29,10 +61,7 @@ pub(crate) fn run(workdir: &Path, args: &[&str]) -> Result<String, Error> {
 
 /// 跑 git;非零退出不视为错误,原样返回(供整合等可能冲突的命令使用)。
 pub(crate) fn run_checked(workdir: &Path, args: &[&str]) -> Result<Output, Error> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(workdir)
-        .output()?;
+    let output = git_command().args(args).current_dir(workdir).output()?;
     Ok(Output {
         success: output.status.success(),
         code: output.status.code(),
@@ -43,7 +72,7 @@ pub(crate) fn run_checked(workdir: &Path, args: &[&str]) -> Result<Output, Error
 
 /// 跑 git 并把 `input` 写入其 stdin;非零退出 → Err。供 `git apply` 等需喂 patch 的命令使用。
 pub(crate) fn run_with_stdin(workdir: &Path, args: &[&str], input: &str) -> Result<String, Error> {
-    let mut child = Command::new("git")
+    let mut child = git_command()
         .args(args)
         .current_dir(workdir)
         .stdin(Stdio::piped())
@@ -106,7 +135,7 @@ pub(crate) fn run_streaming(
     on_progress: &mut dyn FnMut(Progress),
     cancel: &CancelToken,
 ) -> Result<Output, Error> {
-    let mut child = Command::new("git")
+    let mut child = git_command()
         .args(args)
         .current_dir(workdir)
         .stdout(Stdio::piped())
