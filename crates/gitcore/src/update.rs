@@ -220,6 +220,26 @@ pub(crate) fn continue_update(
                 "--continue",
             ])?;
         }
+        Some(Integration::CherryPick) => {
+            repo.git(&[
+                "-c",
+                "core.editor=true",
+                "-c",
+                "rerere.enabled=true",
+                "cherry-pick",
+                "--continue",
+            ])?;
+        }
+        Some(Integration::Revert) => {
+            repo.git(&[
+                "-c",
+                "core.editor=true",
+                "-c",
+                "rerere.enabled=true",
+                "revert",
+                "--continue",
+            ])?;
+        }
         None => {}
     }
 
@@ -251,6 +271,12 @@ pub(crate) fn abort_update(repo: &Repo, autostash: Option<StashRef>) -> Result<(
         }
         Some(Integration::Rebase) => {
             repo.git(&["rebase", "--abort"])?;
+        }
+        Some(Integration::CherryPick) => {
+            repo.git(&["cherry-pick", "--abort"])?;
+        }
+        Some(Integration::Revert) => {
+            repo.git(&["revert", "--abort"])?;
         }
         None => {}
     }
@@ -303,6 +329,12 @@ fn recover_or_strand(
         }
         Some(Integration::Rebase) => {
             repo.git(&["rebase", "--abort"])?;
+        }
+        Some(Integration::CherryPick) => {
+            repo.git(&["cherry-pick", "--abort"])?;
+        }
+        Some(Integration::Revert) => {
+            repo.git(&["revert", "--abort"])?;
         }
         None => {}
     }
@@ -378,6 +410,8 @@ fn auto_resolve_rerere(repo: &Repo) -> Result<(), Error> {
 enum Integration {
     Merge,
     Rebase,
+    CherryPick,
+    Revert,
 }
 
 fn git_dir(repo: &Repo) -> Result<PathBuf, Error> {
@@ -389,13 +423,17 @@ fn git_dir(repo: &Repo) -> Result<PathBuf, Error> {
     })
 }
 
-// 是否有正在进行的 merge / rebase。
+// 是否有正在进行的 merge / rebase / cherry-pick / revert。
 fn in_progress(repo: &Repo) -> Result<Option<Integration>, Error> {
     let base = git_dir(repo)?;
     if base.join("MERGE_HEAD").exists() {
         Ok(Some(Integration::Merge))
     } else if base.join("rebase-merge").exists() || base.join("rebase-apply").exists() {
         Ok(Some(Integration::Rebase))
+    } else if base.join("CHERRY_PICK_HEAD").exists() {
+        Ok(Some(Integration::CherryPick))
+    } else if base.join("REVERT_HEAD").exists() {
+        Ok(Some(Integration::Revert))
     } else {
         Ok(None)
     }
@@ -407,6 +445,8 @@ fn preflight(repo: &Repo) -> Result<(), Error> {
         let what = match kind {
             Integration::Merge => "合并",
             Integration::Rebase => "变基",
+            Integration::CherryPick => "拣选",
+            Integration::Revert => "回退",
         };
         return Err(Error::Precondition(format!(
             "已有{what}进行中,请先解决或 abort"
@@ -422,6 +462,52 @@ fn require_upstream(repo: &Repo) -> Result<String, Error> {
     } else {
         Err(Error::Precondition("当前分支没有设置 upstream".into()))
     }
+}
+
+/// Cherry-pick 一个提交到当前分支。
+pub(crate) fn cherry_pick(repo: &Repo, sha: &str) -> Result<UpdateOutcome, Error> {
+    preflight(repo)?;
+
+    let result = repo.git_checked(&["cherry-pick", sha])?;
+    if !result.success {
+        let files = crate::conflict::conflicted_files(repo)?;
+        if !files.is_empty() {
+            return Ok(UpdateOutcome::Conflicted {
+                files,
+                autostash: None,
+            });
+        }
+        return Err(Error::Git {
+            args: vec!["cherry-pick".into(), sha.into()],
+            code: result.code,
+            stderr: result.stderr,
+        });
+    }
+
+    Ok(UpdateOutcome::Resolved)
+}
+
+/// Revert 一个提交(生成反向提交)。
+pub(crate) fn revert(repo: &Repo, sha: &str) -> Result<UpdateOutcome, Error> {
+    preflight(repo)?;
+
+    let result = repo.git_checked(&["revert", "--no-edit", sha])?;
+    if !result.success {
+        let files = crate::conflict::conflicted_files(repo)?;
+        if !files.is_empty() {
+            return Ok(UpdateOutcome::Conflicted {
+                files,
+                autostash: None,
+            });
+        }
+        return Err(Error::Git {
+            args: vec!["revert".into(), "--no-edit".into(), sha.into()],
+            code: result.code,
+            stderr: result.stderr,
+        });
+    }
+
+    Ok(UpdateOutcome::Resolved)
 }
 
 fn ahead_behind(repo: &Repo) -> Result<(u32, u32), Error> {

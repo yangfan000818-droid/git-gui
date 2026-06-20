@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import DiffView from "$lib/DiffView.svelte";
+  import ConflictView from "$lib/ConflictView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   interface LogEntry {
@@ -38,6 +39,38 @@
     hunks: Hunk[];
     header_raw: string;
   }
+  interface StashRef {
+    label: string;
+  }
+  interface ConflictedData {
+    files: string[];
+    autostash: StashRef | null;
+  }
+  type OutcomeVariant =
+    | "AlreadyUpToDate"
+    | "FastForwarded"
+    | "Integrated"
+    | "Conflicted"
+    | "StashRestoreConflict"
+    | "Resolved"
+    | "SubmoduleSyncFailed";
+  type UpdateOutcome =
+    | "AlreadyUpToDate"
+    | "Resolved"
+    | { FastForwarded: unknown }
+    | { Integrated: unknown }
+    | { Conflicted: ConflictedData }
+    | { StashRestoreConflict: unknown }
+    | { SubmoduleSyncFailed: unknown };
+
+  function outcomeVariant(o: UpdateOutcome): OutcomeVariant {
+    if (typeof o === "string") return o as OutcomeVariant;
+    return Object.keys(o)[0] as OutcomeVariant;
+  }
+  function outcomeData<T>(o: UpdateOutcome): T | undefined {
+    if (typeof o === "string") return undefined;
+    return (o as unknown as Record<string, T>)[Object.keys(o)[0]];
+  }
 
   // ── Props ──
   let { path }: { path: string } = $props();
@@ -56,6 +89,13 @@
   let authorFilter = $state("");
   let grepFilter = $state("");
   let filterTimeout: number | undefined;
+
+  // ── Cherry-pick / Revert 状态 ──
+  let operationInProgress = $state(false);
+  let operationError = $state("");
+  let conflictFiles = $state<string[]>([]);
+  let autostash = $state<StashRef | null>(null);
+  let inConflictResolution = $state(false);
 
   // ── 数据加载 ──
   async function load() {
@@ -118,6 +158,70 @@
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       fn();
+    }
+  }
+
+  // ── Cherry-pick / Revert 操作 ──
+  async function doOperation(command: "repo_cherry_pick" | "repo_revert") {
+    if (!selectedCommit || operationInProgress) return;
+    operationInProgress = true;
+    operationError = "";
+    try {
+      const outcome = await invoke<UpdateOutcome>(command, {
+        path,
+        sha: selectedCommit.full_sha,
+      });
+      if (outcomeVariant(outcome) === "Conflicted") {
+        const data = outcomeData<ConflictedData>(outcome);
+        if (data) {
+          conflictFiles = data.files;
+          autostash = data.autostash;
+          inConflictResolution = true;
+        }
+      } else {
+        await load();
+      }
+    } catch (e) {
+      operationError = String(e);
+    } finally {
+      operationInProgress = false;
+    }
+  }
+
+  async function handleContinue() {
+    try {
+      const outcome = await invoke<UpdateOutcome>("continue_update_cmd", {
+        path,
+        autostash,
+        recurse_submodules: false,
+      });
+      const variant = outcomeVariant(outcome);
+      if (variant === "Conflicted") {
+        const data = outcomeData<ConflictedData>(outcome);
+        if (data) {
+          conflictFiles = data.files;
+          autostash = data.autostash;
+        }
+      } else {
+        inConflictResolution = false;
+        conflictFiles = [];
+        autostash = null;
+        await load();
+      }
+    } catch (e) {
+      operationError = String(e);
+    }
+  }
+
+  async function handleAbort() {
+    try {
+      await invoke("abort_update_cmd", { path, autostash });
+      inConflictResolution = false;
+      conflictFiles = [];
+      autostash = null;
+      operationError = "";
+    } catch (e) {
+      operationError = String(e);
     }
   }
 
@@ -314,14 +418,39 @@
 
     <!-- ── 右侧:提交详情 ── -->
     <section class="detail-view">
-      {#if selectedCommit}
+      {#if inConflictResolution}
+        <!-- 冲突解决视图 -->
+        {#if operationError}
+          <pre class="error">{operationError}</pre>
+        {/if}
+        <ConflictView
+          {path}
+          {conflictFiles}
+          {autostash}
+          onContinue={handleContinue}
+          onAbort={handleAbort}
+        />
+      {:else if selectedCommit}
         <!-- 提交信息头部 -->
         <div class="commit-header">
           <div class="commit-title-row">
             <h3 class="commit-title">{selectedCommit.message}</h3>
-            <button class="btn-copy" onclick={copySha}
-              >{copied ? "已复制 ✓" : "复制 SHA"}</button
-            >
+            <div class="action-buttons">
+              <button
+                class="btn-action"
+                disabled={operationInProgress}
+                onclick={() => doOperation("repo_cherry_pick")}
+                >Cherry-pick</button
+              >
+              <button
+                class="btn-action"
+                disabled={operationInProgress}
+                onclick={() => doOperation("repo_revert")}>Revert</button
+              >
+              <button class="btn-copy" onclick={copySha}
+                >{copied ? "已复制 ✓" : "复制 SHA"}</button
+              >
+            </div>
           </div>
           <div class="commit-meta">
             <span class="meta-sha" title={selectedCommit.full_sha}
@@ -331,6 +460,10 @@
             <span class="meta-date">{selectedCommit.date}</span>
           </div>
         </div>
+
+        {#if operationError}
+          <pre class="error">{operationError}</pre>
+        {/if}
 
         <!-- 完整提交消息 -->
         {#if commitMsg}
@@ -526,6 +659,27 @@
     font-weight: 600;
     color: #e4e4e4;
     line-height: 1.35;
+  }
+  .action-buttons {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .btn-action {
+    background: #0e639c;
+    border: 1px solid #0e639c;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 3px 10px;
+  }
+  .btn-action:hover:not(:disabled) {
+    background: #1177b8;
+  }
+  .btn-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .btn-copy {
     flex-shrink: 0;

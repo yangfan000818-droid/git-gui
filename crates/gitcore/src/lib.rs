@@ -133,6 +133,16 @@ impl Repo {
         update::resume(self)
     }
 
+    /// Cherry-pick 一个提交到当前分支。
+    pub fn cherry_pick(&self, sha: &str) -> Result<UpdateOutcome, Error> {
+        update::cherry_pick(self, sha)
+    }
+
+    /// Revert 一个提交(生成反向提交)。
+    pub fn revert(&self, sha: &str) -> Result<UpdateOutcome, Error> {
+        update::revert(self, sha)
+    }
+
     /// 暂存指定文件。
     pub fn stage(&self, paths: &[&Path]) -> Result<(), Error> {
         stage::stage_files(self, paths)

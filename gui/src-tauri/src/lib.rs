@@ -461,6 +461,20 @@ fn resume_conflicts(path: String) -> Result<Option<PendingConflicts>, String> {
     repo.resume_conflicts().map_err(|e| e.to_string())
 }
 
+/// Cherry-pick 一个提交到当前分支。
+#[tauri::command]
+fn repo_cherry_pick(path: String, sha: String) -> Result<UpdateOutcome, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.cherry_pick(&sha).map_err(|e| e.to_string())
+}
+
+/// Revert 一个提交(生成反向提交)。
+#[tauri::command]
+fn repo_revert(path: String, sha: String) -> Result<UpdateOutcome, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.revert(&sha).map_err(|e| e.to_string())
+}
+
 // ── History 视图命令 ──
 
 #[tauri::command]
@@ -555,6 +569,8 @@ pub fn run() {
             continue_update_cmd,
             abort_update_cmd,
             resume_conflicts,
+            repo_cherry_pick,
+            repo_revert,
             repo_log_graph,
             repo_log_topology,
             start_watch,
