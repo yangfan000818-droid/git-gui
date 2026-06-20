@@ -261,9 +261,11 @@
   }
 
   function cancelPlan() {
-    cancelled = true;
-    if (opId) {
-      invoke("cancel_op", { opId });
+    // planning 阶段:设标志让 doPlan catch 静默处理,不 reset(避免清掉 cancelled)
+    if (phase === "planning") {
+      cancelled = true;
+      if (opId) invoke("cancel_op", { opId });
+      return;
     }
     reset();
   }
@@ -286,9 +288,11 @@
   });
 
   function cancelOp() {
-    cancelled = true;
-    if (opId) {
-      invoke("cancel_op", { opId });
+    // executing 阶段:设标志让 doExecute catch 静默处理
+    if (phase === "executing") {
+      cancelled = true;
+      if (opId) invoke("cancel_op", { opId });
+      return;
     }
   }
 
