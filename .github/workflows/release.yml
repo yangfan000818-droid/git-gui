@@ -87,6 +87,11 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
+      # 清掉 cache 恢复的历次构建产物,避免旧版本 exe/dmg 被下方 glob 一起上传。
+      - name: Clean stale bundles
+        shell: bash
+        run: rm -rf target/release/bundle
+
       - name: Build Tauri
         run: |
           cd gui
