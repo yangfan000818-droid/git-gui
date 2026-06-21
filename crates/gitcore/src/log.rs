@@ -98,6 +98,64 @@ pub struct GraphRow {
     pub entry: Option<LogEntry>,
 }
 
+/// 获取单个文件的提交历史(追踪重命名)。
+pub(crate) fn file_history(
+    repo: &Repo,
+    file_path: &std::path::Path,
+    opts: &LogOptions,
+) -> Result<Vec<LogEntry>, Error> {
+    let max_count_str = format!("-{}", opts.max_count);
+    let mut args = vec![
+        "log",
+        "--follow",
+        "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ar",
+        &max_count_str,
+    ];
+
+    let author_str;
+    if let Some(ref a) = opts.author {
+        author_str = format!("--author={}", a);
+        args.push(&author_str);
+        args.push("--regexp-ignore-case");
+    }
+
+    let grep_str;
+    if let Some(ref g) = opts.grep {
+        grep_str = format!("--grep={}", g);
+        args.push(&grep_str);
+        args.push("--regexp-ignore-case");
+    }
+
+    let branch_str;
+    if let Some(ref b) = opts.branch {
+        branch_str = b.clone();
+        args.push(&branch_str);
+    }
+
+    args.push("--");
+    let path_str = file_path.to_string_lossy().to_string();
+    args.push(&path_str);
+
+    let output = repo.git(&args)?;
+    let entries = output
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split('\0').collect();
+            if parts.len() != 5 {
+                return None;
+            }
+            Some(LogEntry {
+                full_sha: parts[0].to_string(),
+                sha: parts[1].to_string(),
+                message: parts[2].to_string(),
+                author: parts[3].to_string(),
+                date: parts[4].to_string(),
+            })
+        })
+        .collect();
+    Ok(entries)
+}
+
 /// 获取带分支拓扑图的提交历史。图形列交给 `git log --graph` 生成,
 /// 每个 commit 行用 NUL 分隔图形前缀与提交数据;无数据的行即纯连接行。
 pub(crate) fn log_graph(repo: &Repo, opts: &LogOptions) -> Result<Vec<GraphRow>, Error> {

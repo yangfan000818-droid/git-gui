@@ -273,6 +273,29 @@ pub(crate) fn commit_files(repo: &Repo, sha: &str) -> Result<Vec<FileDiff>, Erro
     Ok(parse(&text))
 }
 
+/// 获取某提交中单个文件的 diff(0 或 1 个 FileDiff)。
+/// 改名前匹配不到 → None;该提交未改动此文件 → None。
+pub(crate) fn commit_file_diff(
+    repo: &Repo,
+    sha: &str,
+    file_path: &std::path::Path,
+) -> Result<Option<FileDiff>, Error> {
+    let path_str = file_path.to_string_lossy().to_string();
+    let text = repo.git(&[
+        "-c",
+        "diff.noprefix=false",
+        "-c",
+        "diff.mnemonicprefix=false",
+        "show",
+        "--no-color",
+        "--format=",
+        sha,
+        "--",
+        &path_str,
+    ])?;
+    Ok(parse(&text).into_iter().next())
+}
+
 /// 把一个未跟踪文件构造成"全新增"的 FileDiff(`git diff` 不含未跟踪,需单独补)。
 /// 生成的 patch 是标准 new-file 格式,`git apply --cached` 可直接当 `git add` 用。
 pub(crate) fn untracked_file(repo: &Repo, path: &str) -> Option<FileDiff> {

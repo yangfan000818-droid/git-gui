@@ -510,6 +510,34 @@ fn repo_log_graph(
 }
 
 #[tauri::command]
+fn repo_file_history(
+    path: String,
+    file_path: String,
+    max_count: usize,
+) -> Result<Vec<gitcore::LogEntry>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    let opts = gitcore::LogOptions {
+        max_count,
+        branch: None,
+        author: None,
+        grep: None,
+    };
+    repo.file_history(Path::new(&file_path), &opts)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn repo_commit_file_diff(
+    path: String,
+    sha: String,
+    file_path: String,
+) -> Result<Option<FileDiff>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.commit_file_diff(&sha, Path::new(&file_path))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn repo_log_topology(
     path: String,
     max_count: usize,
@@ -590,6 +618,8 @@ pub fn run() {
             repo_cherry_pick,
             repo_revert,
             repo_log_graph,
+            repo_file_history,
+            repo_commit_file_diff,
             repo_log_topology,
             start_watch,
             check_git,

@@ -211,6 +211,15 @@ impl Repo {
         log::log_graph(self, opts)
     }
 
+    /// 获取单个文件的提交历史(追踪重命名)。
+    pub fn file_history(
+        &self,
+        file_path: &Path,
+        opts: &LogOptions,
+    ) -> Result<Vec<LogEntry>, Error> {
+        log::file_history(self, file_path, opts)
+    }
+
     /// 检查 git 是否在 PATH 中可用。不可用返回友好错误供 UI 展示。
     pub fn check_git() -> Result<(), Error> {
         git::check_available()
@@ -347,6 +356,11 @@ impl Repo {
     /// 解析某个 commit 的改动为结构化 diff(按文件 → hunk → 行)。
     pub fn commit_files(&self, sha: &str) -> Result<Vec<FileDiff>, Error> {
         hunk::commit_files(self, sha)
+    }
+
+    /// 获取某提交中单个文件的 diff。改名前匹配不到或该提交未改动此文件 → None。
+    pub fn commit_file_diff(&self, sha: &str, file_path: &Path) -> Result<Option<FileDiff>, Error> {
+        hunk::commit_file_diff(self, sha, file_path)
     }
 
     /// 获取指定提交的完整消息(多行)。

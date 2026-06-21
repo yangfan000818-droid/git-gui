@@ -7,6 +7,7 @@
   import DiffView from "$lib/DiffView.svelte";
   import FileTree from "$lib/FileTree.svelte";
   import ProjectPicker from "$lib/ProjectPicker.svelte";
+  import FileHistory from "$lib/FileHistory.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -84,6 +85,8 @@
   let showProjectPicker = $state(false);
   let showUpdate = $state(false); // 更新弹层
   let updateIncludesSubs = $state(true); // 弹层是否同时更新子仓库
+  let showFileHistory = $state(false); // 文件历史弹窗
+  let fileHistoryPath = $state(""); // 文件历史查看的文件路径
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
   let commitMessage = $state("");
@@ -850,6 +853,10 @@
                 unstageSelectedLines(selectedFile!, hunk, hi)}
               {activeList}
               {operating}
+              onFileHistory={(filePath) => {
+                fileHistoryPath = filePath;
+                showFileHistory = true;
+              }}
             />
           {:else if selectedFilePath}
             <p class="muted placeholder">该文件无差异内容</p>
@@ -880,6 +887,15 @@
         />
       </div>
     </div>
+  {/if}
+
+  <!-- ── 文件历史弹窗 ── -->
+  {#if showFileHistory}
+    <FileHistory
+      {path}
+      filePath={fileHistoryPath}
+      onClose={() => (showFileHistory = false)}
+    />
   {/if}
 </main>
 

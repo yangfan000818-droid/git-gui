@@ -29,6 +29,7 @@
     onUnstageLines,
     activeList,
     operating = false,
+    onFileHistory,
   }: {
     files: FileDiff[];
     interactive?: boolean;
@@ -40,6 +41,7 @@
     onUnstageLines?: (hunk: Hunk, hunkIndex: number) => void;
     activeList?: "unstaged" | "staged";
     operating?: boolean;
+    onFileHistory?: (filePath: string) => void;
   } = $props();
 
   function hunkLines(h: Hunk): {
@@ -239,7 +241,18 @@
 
 {#each files as file (file.path)}
   <div class="diff-file">
-    <h3 class="diff-path">{file.path}</h3>
+    <div class="diff-header">
+      <h3 class="diff-path">{file.path}</h3>
+      {#if onFileHistory}
+        <button
+          class="history-btn"
+          onclick={() => onFileHistory?.(file.path)}
+          aria-label="查看文件历史"
+        >
+          历史
+        </button>
+      {/if}
+    </div>
     {#if file.binary}
       <p class="muted">二进制文件，无法显示 diff</p>
     {:else if file.hunks.length === 0}
@@ -370,15 +383,36 @@
     border-radius: 6px;
     overflow: hidden;
   }
+  .diff-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #252525;
+    border-bottom: 1px solid #383838;
+    padding: 6px 12px;
+  }
   .diff-path {
     margin: 0;
-    padding: 6px 12px;
-    background: #252525;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     font-weight: 600;
     color: #ddd;
-    border-bottom: 1px solid #383838;
+    flex: 1;
+  }
+  .history-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    background: transparent;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #aaa;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .history-btn:hover {
+    background: #2a2a2a;
+    border-color: #666;
+    color: #ddd;
   }
   .diff-content {
     padding: 4px 0;
