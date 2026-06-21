@@ -1,4 +1,4 @@
-<script lang="ts" generics="F extends { path: string; binary: boolean }">
+<script lang="ts" generics="F extends { path: string }">
   // 可折叠目录树:把扁平文件列表按目录分组,目录节点支持批量操作。
   // 连续单子目录自动合并为一行(如 src/lib/components)。折叠状态按目录路径记忆。
   interface Props {
@@ -178,7 +178,6 @@
     onkeydown={(e) => onActivate(e, () => onSelect(node.file))}
   >
     <span class="fname">{node.name}</span>
-    {#if node.file.binary}<span class="tag">二进制</span>{/if}
     <span class="actions">
       {#if kind === "unstaged"}
         <button
@@ -270,14 +269,6 @@
   .count {
     font-size: 10px;
     color: #666;
-    flex-shrink: 0;
-  }
-  .tag {
-    font-size: 10px;
-    border-radius: 4px;
-    padding: 1px 5px;
-    background: #2f2f2f;
-    color: #999;
     flex-shrink: 0;
   }
   .actions {

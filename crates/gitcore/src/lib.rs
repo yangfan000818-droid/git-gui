@@ -267,6 +267,48 @@ impl Repo {
         Ok(hunk::parse(&text))
     }
 
+    /// 单个文件的未暂存 diff(懒加载用):普通改动走 git diff,未跟踪文件补成"全新增"。
+    /// 文件无未暂存改动时返回 None。
+    pub fn file_unstaged_diff(&self, file: &Path) -> Result<Option<FileDiff>, Error> {
+        let p = file
+            .to_str()
+            .ok_or_else(|| Error::Parse("文件路径含非 UTF-8 字符".into()))?;
+        let text = self.git(&[
+            "-c",
+            "diff.noprefix=false",
+            "-c",
+            "diff.mnemonicprefix=false",
+            "diff",
+            "--no-color",
+            "--",
+            p,
+        ])?;
+        if let Some(fd) = hunk::parse(&text).into_iter().next() {
+            return Ok(Some(fd));
+        }
+        // git diff 不含未跟踪文件,补成"全新增"。
+        Ok(hunk::untracked_file(self, p))
+    }
+
+    /// 单个文件的已暂存 diff(懒加载用)。文件无已暂存改动时返回 None。
+    pub fn file_staged_diff(&self, file: &Path) -> Result<Option<FileDiff>, Error> {
+        let p = file
+            .to_str()
+            .ok_or_else(|| Error::Parse("文件路径含非 UTF-8 字符".into()))?;
+        let text = self.git(&[
+            "-c",
+            "diff.noprefix=false",
+            "-c",
+            "diff.mnemonicprefix=false",
+            "diff",
+            "--cached",
+            "--no-color",
+            "--",
+            p,
+        ])?;
+        Ok(hunk::parse(&text).into_iter().next())
+    }
+
     /// 暂存某文件的某个 hunk(`file`/`hunk` 取自 [`Repo::unstaged_diff`])。
     pub fn stage_hunk(&self, file: &FileDiff, hunk: &Hunk) -> Result<(), Error> {
         hunk::stage_hunk(self, file, hunk)

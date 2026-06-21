@@ -60,7 +60,8 @@ pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
         (0, 0)
     };
 
-    let porcelain = repo.git(&["status", "--porcelain=v1"])?;
+    // quotepath=false:非 ASCII 路径不转义,保持原始 UTF-8,供前端按 path 懒加载 diff。
+    let porcelain = repo.git(&["-c", "core.quotepath=false", "status", "--porcelain=v1"])?;
     let files = parse_porcelain(&porcelain);
     let dirty = !files.is_empty();
     let conflicted = crate::conflict::conflicted_files(repo)?;
@@ -102,7 +103,9 @@ fn parse_porcelain(output: &str) -> Vec<FileStatus> {
             }
             let x = line.chars().next()?;
             let y = line.chars().nth(1)?;
-            let path = line[3..].trim().to_string();
+            // rename/copy 的 porcelain 是 "old -> new",取 new 作路径(与 git diff 一致)。
+            let raw = line[3..].trim();
+            let path = raw.rsplit(" -> ").next().unwrap_or(raw).to_string();
 
             let state = match (x, y) {
                 ('?', '?') => FileState::Untracked,

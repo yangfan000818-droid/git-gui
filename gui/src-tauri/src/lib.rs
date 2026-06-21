@@ -198,6 +198,22 @@ fn repo_staged_diff(path: String) -> Result<Vec<FileDiff>, String> {
     repo.staged_diff().map_err(|e| e.to_string())
 }
 
+/// 单个文件的未暂存 diff(选中文件时懒加载)。
+#[tauri::command]
+fn repo_file_unstaged_diff(path: String, file: String) -> Result<Option<FileDiff>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.file_unstaged_diff(Path::new(&file))
+        .map_err(|e| e.to_string())
+}
+
+/// 单个文件的已暂存 diff(选中文件时懒加载)。
+#[tauri::command]
+fn repo_file_staged_diff(path: String, file: String) -> Result<Option<FileDiff>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.file_staged_diff(Path::new(&file))
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn repo_stage(path: String, files: Vec<String>) -> Result<(), String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
@@ -546,6 +562,8 @@ pub fn run() {
             repo_status,
             repo_unstaged_diff,
             repo_staged_diff,
+            repo_file_unstaged_diff,
+            repo_file_staged_diff,
             repo_stage,
             repo_unstage,
             repo_discard,

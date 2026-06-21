@@ -44,6 +44,12 @@
     submodules: { name: string; path: string; status: SubStatus }[];
   }
 
+  // 列表用的轻量文件条目(只含路径和状态;完整 diff 在选中文件时懒加载)。
+  interface FileEntry {
+    path: string;
+    state: FileState;
+  }
+
   // 一个仓库（主仓库或某子仓库）在 Changes 视图里的本地状态。
   interface RepoView {
     path: string; // 绝对路径，用于 stage/diff/commit 等所有命令
@@ -51,8 +57,8 @@
     isMain: boolean;
     subRelPath: string | null; // 子仓库相对主仓库的路径（管理操作用），主仓库为 null
     subStatus: SubStatus | null; // 子仓库状态徽章，主仓库为 null
-    unstaged: FileDiff[];
-    staged: FileDiff[];
+    unstaged: FileEntry[];
+    staged: FileEntry[];
   }
 
   const SUB_STATE_LABEL: Record<SubStatus, string> = {
@@ -67,7 +73,9 @@
   let status = $state<RepoStatus | null>(null); // 主仓库状态（分支/ahead-behind/冲突/子仓库列表）
   let repos = $state<RepoView[]>([]); // 主仓库 + 各子仓库
   let selectedRepoPath = $state<string | null>(null); // 当前选中文件所属仓库
-  let selectedFile = $state<FileDiff | null>(null);
+  let selectedFilePath = $state<string | null>(null); // 选中文件路径(列表高亮 + 懒加载键)
+  let selectedFile = $state<FileDiff | null>(null); // 懒加载的完整 diff
+  let diffLoading = $state(false);
   let activeList = $state<"unstaged" | "staged">("unstaged");
   let loading = $state(false);
   let error = $state("");
@@ -98,6 +106,9 @@
   $effect(() => {
     const init = async () => {
       repoChangedUnlisten = await listen("repo-changed", () => {
+        // 更新进行中:git 大量改 .git/工作区会狂触发 watcher,此时自动刷新只会
+        // 读到中间态并反复全量 reload 阻塞主线程(卡顿源),跳过;更新完成会主动刷新。
+        if (showUpdate) return;
         if (refreshTimer) clearTimeout(refreshTimer);
         refreshTimer = setTimeout(() => {
           refreshTimer = null;
@@ -125,27 +136,26 @@
     );
   }
 
-  // 读取某仓库的未暂存/已暂存 diff,构建 RepoView。
-  async function buildRepoView(
+  // 用仓库的文件状态列表构建 RepoView(轻量,不含 diff 内容;diff 选中时懒加载)。
+  function buildRepoView(
     repoPath: string,
     label: string,
     isMain: boolean,
     subRelPath: string | null,
     subStatus: SubStatus | null,
-  ): Promise<RepoView> {
-    let unstaged: FileDiff[] = [];
-    let staged: FileDiff[] = [];
-    // 未初始化的子仓库没有 .git,无法读 diff。
-    if (subStatus !== "Uninitialized") {
-      try {
-        [unstaged, staged] = await Promise.all([
-          invoke<FileDiff[]>("repo_unstaged_diff", { path: repoPath }),
-          invoke<FileDiff[]>("repo_staged_diff", { path: repoPath }),
-        ]);
-      } catch {
-        // 子仓库读取失败(损坏等)时留空,不阻塞整体加载。
-      }
-    }
+    files: FileStatus[],
+  ): RepoView {
+    const unstaged = files
+      .filter(
+        (f) =>
+          f.state === "Modified" ||
+          f.state === "Untracked" ||
+          f.state === "StagedAndModified",
+      )
+      .map((f) => ({ path: f.path, state: f.state }));
+    const staged = files
+      .filter((f) => f.state === "Staged" || f.state === "StagedAndModified")
+      .map((f) => ({ path: f.path, state: f.state }));
     return {
       path: repoPath,
       label,
@@ -157,21 +167,41 @@
     };
   }
 
-  // 重新读取主仓库状态 + 所有仓库 diff,重建 repos。
+  // 重新读取主仓库 + 各子仓库状态,重建 repos(只拉文件状态,不拉 diff)。
   async function reload() {
     const s = await invoke<RepoStatus>("repo_status", { path });
     status = s;
-    const main = await buildRepoView(path, repoLabel(path), true, null, null);
+    const main = buildRepoView(
+      path,
+      repoLabel(path),
+      true,
+      null,
+      null,
+      s.files,
+    );
     const subs = await Promise.all(
-      s.submodules.map((sub) =>
-        buildRepoView(
+      s.submodules.map(async (sub) => {
+        let files: FileStatus[] = [];
+        // 未初始化的子仓库没有 .git,无法读状态。
+        if (sub.status !== "Uninitialized") {
+          try {
+            const ss = await invoke<RepoStatus>("repo_status", {
+              path: joinPath(path, sub.path),
+            });
+            files = ss.files;
+          } catch {
+            // 子仓库读取失败(损坏等)时留空,不阻塞整体加载。
+          }
+        }
+        return buildRepoView(
           joinPath(path, sub.path),
           sub.path,
           false,
           sub.path,
           sub.status,
-        ),
-      ),
+          files,
+        );
+      }),
     );
     repos = [main, ...subs];
   }
@@ -198,6 +228,7 @@
     status = null;
     repos = [];
     selectedRepoPath = null;
+    selectedFilePath = null;
     selectedFile = null;
     try {
       await invoke("check_git"); // git 不在 PATH 时给友好提示(Windows 不自带)
@@ -231,41 +262,65 @@
   async function refresh() {
     selectedLines = new Map();
     await reload();
-    reconcileSelection();
+    await reconcileSelection();
   }
 
-  // 刷新后保持原选中文件;若它已消失则清空选中(不自动另选,保持收起的初始态)。
-  function reconcileSelection() {
-    if (selectedRepoPath && selectedFile) {
+  // 刷新后保持原选中文件并重新懒加载其 diff;若它已消失则清空选中。
+  async function reconcileSelection() {
+    if (selectedRepoPath && selectedFilePath) {
       const repo = repos.find((r) => r.path === selectedRepoPath);
       if (repo) {
-        const inU = repo.unstaged.find((f) => f.path === selectedFile!.path);
-        if (inU) {
-          selectedFile = inU;
+        if (repo.unstaged.find((f) => f.path === selectedFilePath)) {
           activeList = "unstaged";
+          await loadDiff(selectedRepoPath, selectedFilePath, "unstaged");
           return;
         }
-        const inS = repo.staged.find((f) => f.path === selectedFile!.path);
-        if (inS) {
-          selectedFile = inS;
+        if (repo.staged.find((f) => f.path === selectedFilePath)) {
           activeList = "staged";
+          await loadDiff(selectedRepoPath, selectedFilePath, "staged");
           return;
         }
       }
     }
     selectedRepoPath = null;
+    selectedFilePath = null;
     selectedFile = null;
   }
 
-  function selectFile(
+  async function selectFile(
     repoPath: string,
-    file: FileDiff,
+    entry: FileEntry,
     list: "unstaged" | "staged",
   ) {
     selectedRepoPath = repoPath;
-    selectedFile = file;
+    selectedFilePath = entry.path;
     activeList = list;
     selectedLines = new Map();
+    await loadDiff(repoPath, entry.path, list);
+  }
+
+  // 懒加载选中文件的完整 diff(列表只有路径/状态,内容点开才拉)。
+  async function loadDiff(
+    repoPath: string,
+    filePath: string,
+    list: "unstaged" | "staged",
+  ) {
+    diffLoading = true;
+    try {
+      const cmd =
+        list === "unstaged"
+          ? "repo_file_unstaged_diff"
+          : "repo_file_staged_diff";
+      selectedFile = await invoke<FileDiff | null>(cmd, {
+        path: repoPath,
+        file: filePath,
+      });
+    } catch (e) {
+      error = String(e);
+      selectedFile = null;
+    } finally {
+      diffLoading = false;
+    }
   }
 
   function isActive(repo: RepoView, list: "unstaged" | "staged"): boolean {
@@ -273,7 +328,7 @@
   }
   // FileTree 的 selectedPath:仅当该仓库该列表正被选中时高亮。
   function selKey(repo: RepoView, list: "unstaged" | "staged"): string | null {
-    return isActive(repo, list) ? (selectedFile?.path ?? null) : null;
+    return isActive(repo, list) ? selectedFilePath : null;
   }
 
   // ── 行选择 ──
@@ -779,7 +834,9 @@
 
         <!-- ── 右侧:diff 视图 ── -->
         <section class="diff-view">
-          {#if selectedFile}
+          {#if diffLoading}
+            <p class="muted placeholder">加载 diff 中…</p>
+          {:else if selectedFile}
             <DiffView
               files={[selectedFile]}
               interactive
@@ -794,6 +851,8 @@
               {activeList}
               {operating}
             />
+          {:else if selectedFilePath}
+            <p class="muted placeholder">该文件无差异内容</p>
           {:else}
             <p class="muted placeholder">← 选择左侧文件查看 diff</p>
           {/if}
@@ -1065,7 +1124,7 @@
   .repo-scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 0;
+    padding: 0 0 10px; /* 顶部不留白:否则 sticky 的 .zone-title 吸顶时上方会漏出滚动内容 */
     contain: layout paint; /* 与右侧 diff 互相隔离重绘,大 diff 不拖累左侧滚动 */
   }
   .file-list ul {
