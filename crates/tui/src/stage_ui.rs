@@ -128,6 +128,7 @@ impl StageView {
                 let opts = gitcore::CommitOptions {
                     message: self.commit_input.clone(),
                     allow_empty: false,
+                    amend: false,
                 };
                 match repo.commit(&opts) {
                     Ok(sha) => return Ok(Action::Commit(sha)),

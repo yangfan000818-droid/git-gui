@@ -272,10 +272,11 @@ fn repo_unstage_lines(
 }
 
 #[tauri::command]
-fn repo_commit(path: String, message: String) -> Result<String, String> {
+fn repo_commit(path: String, message: String, amend: bool) -> Result<String, String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
     let opts = CommitOptions {
         message,
+        amend,
         ..Default::default()
     };
     repo.commit(&opts).map_err(|e| e.to_string())

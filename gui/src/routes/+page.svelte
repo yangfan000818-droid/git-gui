@@ -90,6 +90,7 @@
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
   let commitMessage = $state("");
+  let amendMode = $state(false); // amend 模式:仅修改主仓库上次提交
   let commitResult = $state("");
   let totalUnstaged = $derived(
     repos.reduce((n, r) => n + r.unstaged.length, 0),
@@ -415,6 +416,43 @@
     }
   }
 
+  // amend:勾选时预填主仓库上次 message;仅修改主仓库上次提交。
+  async function toggleAmend(checked: boolean) {
+    amendMode = checked;
+    if (checked) {
+      try {
+        commitMessage = await invoke<string>("repo_commit_message", {
+          path,
+          sha: "HEAD",
+        });
+      } catch (e) {
+        error = String(e);
+        amendMode = false;
+      }
+    } else {
+      commitMessage = "";
+    }
+  }
+
+  async function doAmend() {
+    if (!commitMessage.trim()) return;
+    operating = true;
+    error = "";
+    commitResult = "";
+    const message = commitMessage;
+    try {
+      await invoke<string>("repo_commit", { path, message, amend: true });
+      commitMessage = "";
+      amendMode = false;
+      commitResult = "已修改主仓库上次提交";
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      operating = false;
+    }
+  }
+
   // 提交所有有暂存改动的仓库:子仓库先提交(主仓库可能含其指针变更),同一条 message。
   async function doCommit() {
     if (totalStaged === 0 || !commitMessage.trim()) return;
@@ -427,7 +465,11 @@
     const message = commitMessage;
     try {
       for (const r of targets) {
-        await invoke<string>("repo_commit", { path: r.path, message });
+        await invoke<string>("repo_commit", {
+          path: r.path,
+          message,
+          amend: false,
+        });
       }
       commitMessage = "";
       commitResult = `已提交 ${targets.length} 个仓库`;
@@ -812,20 +854,38 @@
 
           <!-- 统一提交区(所有有暂存改动的仓库套用同一条 message) -->
           <div class="commit-area">
-            {#if totalStaged === 0}
+            <label class="amend-toggle">
+              <input
+                type="checkbox"
+                checked={amendMode}
+                disabled={operating}
+                onchange={(e) => toggleAmend(e.currentTarget.checked)}
+              />
+              修改主仓库上次提交（amend）
+            </label>
+            {#if totalStaged === 0 && !amendMode}
               <p class="muted">暂存文件以创建提交</p>
             {:else}
               <textarea
                 bind:value={commitMessage}
-                placeholder="提交信息（必填，应用于所有已暂存的仓库）"
+                placeholder="提交信息（必填）"
                 rows={3}
                 disabled={operating}></textarea>
-              <p class="commit-targets">将提交：{commitSummary}</p>
+              {#if amendMode}
+                <p class="commit-targets muted">
+                  amend 仅改主仓库上次提交；子仓库改动请取消勾选后单独提交
+                </p>
+              {:else}
+                <p class="commit-targets">将提交：{commitSummary}</p>
+              {/if}
               <div class="commit-bar">
                 <button
                   class="btn-commit"
                   disabled={operating || !commitMessage.trim()}
-                  onclick={doCommit}>提交（{totalStaged} 个文件）</button
+                  onclick={amendMode ? doAmend : doCommit}
+                  >{amendMode
+                    ? "修改主仓库上次提交"
+                    : `提交（${totalStaged} 个文件）`}</button
                 >
               </div>
             {/if}
@@ -1260,6 +1320,15 @@
     flex-shrink: 0;
     border-top: 1px solid #383838;
     padding: 10px 14px 14px;
+  }
+  .amend-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #aaa;
+    margin-bottom: 8px;
+    cursor: pointer;
   }
   .commit-targets {
     font-size: 11px;

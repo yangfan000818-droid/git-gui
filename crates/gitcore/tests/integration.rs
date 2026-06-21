@@ -572,6 +572,7 @@ fn stage_and_commit_advances_head() {
     let opts = gitcore::CommitOptions {
         message: "add b".into(),
         allow_empty: false,
+        amend: false,
     };
     let sha = repo.commit(&opts).unwrap();
     assert_eq!(sha.len(), 8, "SHA 应为 8 位");
@@ -870,6 +871,7 @@ fn commit_empty_staging_fails() {
     let opts = gitcore::CommitOptions {
         message: "empty".into(),
         allow_empty: false,
+        amend: false,
     };
 
     let err = repo.commit(&opts).unwrap_err();
@@ -1061,4 +1063,58 @@ fn update_honors_precancelled_token_before_autostash() {
     );
 
     cleanup(&[&a, &remote, &b]);
+}
+
+#[test]
+fn commit_amend_rewrites_head_without_new_commit() {
+    let dir = init_repo("amend");
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+
+    let repo = Repo::open(&dir).unwrap();
+
+    // 正常提交 b.txt
+    write(&dir, "b.txt", "world");
+    repo.stage(&[Path::new("b.txt")]).unwrap();
+    repo.commit(&gitcore::CommitOptions {
+        message: "add b".into(),
+        allow_empty: false,
+        amend: false,
+    })
+    .unwrap();
+
+    let rev_count = |d: &Path| -> usize {
+        let out = Command::new("git")
+            .args(["rev-list", "--count", "HEAD"])
+            .current_dir(d)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
+    };
+    let before = rev_count(&dir);
+
+    // amend:无新暂存改动,仅改 message —— 验证 amend 跳过"暂存区为空"检查
+    repo.commit(&gitcore::CommitOptions {
+        message: "add b (reworded)".into(),
+        allow_empty: false,
+        amend: true,
+    })
+    .unwrap();
+
+    // 提交数不变(替换而非新增)
+    assert_eq!(rev_count(&dir), before, "amend 不应增加提交数");
+
+    // 顶部 message 已改写
+    let msg = Command::new("git")
+        .args(["log", "-1", "--format=%s"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&msg.stdout).trim(),
+        "add b (reworded)",
+        "amend 应改写顶部提交 message"
+    );
+
+    cleanup(&[&dir]);
 }
