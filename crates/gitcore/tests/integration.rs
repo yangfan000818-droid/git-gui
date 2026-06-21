@@ -616,6 +616,39 @@ fn unstage_removes_from_index() {
     cleanup(&[&dir]);
 }
 
+// 回归:整个未跟踪目录,git 默认折叠成 "dir/" 单条目(尾斜杠),前端取 basename 得空名、
+// 且目录无法 diff/单独暂存;status 必须用 -uall 把未跟踪目录展开到文件级。
+#[test]
+fn status_expands_untracked_directory_to_files() {
+    let dir = init_repo("sx");
+    write(&dir, "a.txt", "hello");
+    commit_all(&dir, "init");
+
+    let repo = Repo::open(&dir).unwrap();
+    std::fs::create_dir_all(dir.join("新目录")).unwrap();
+    write(&dir, "新目录/x.txt", "x");
+    write(&dir, "新目录/y.txt", "y");
+
+    let paths: Vec<String> = repo
+        .status()
+        .unwrap()
+        .files
+        .iter()
+        .map(|f| f.path.to_string_lossy().replace('\\', "/"))
+        .collect();
+
+    assert!(
+        paths.iter().all(|p| !p.ends_with('/')),
+        "未跟踪目录应展开到文件级,不应出现尾斜杠条目: {paths:?}"
+    );
+    assert!(
+        paths.iter().any(|p| p == "新目录/x.txt") && paths.iter().any(|p| p == "新目录/y.txt"),
+        "目录内文件应各自作为未跟踪条目出现: {paths:?}"
+    );
+
+    cleanup(&[&dir]);
+}
+
 #[test]
 fn discard_reverts_to_head_with_stash_backup() {
     let dir = init_repo("dc");

@@ -61,7 +61,15 @@ pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
     };
 
     // quotepath=false:非 ASCII 路径不转义,保持原始 UTF-8,供前端按 path 懒加载 diff。
-    let porcelain = repo.git(&["-c", "core.quotepath=false", "status", "--porcelain=v1"])?;
+    // untracked-files=all:展开未跟踪目录到文件级,否则 git 默认把整个未跟踪目录折叠成
+    // 一个 "dir/" 条目(尾斜杠),前端按 path 取 basename 会得到空名、且无法 diff/单独暂存。
+    let porcelain = repo.git(&[
+        "-c",
+        "core.quotepath=false",
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+    ])?;
     let files = parse_porcelain(&porcelain);
     let dirty = !files.is_empty();
     let conflicted = crate::conflict::conflicted_files(repo)?;
