@@ -453,6 +453,20 @@
     display: flex;
     gap: 4px;
     flex-shrink: 0;
+    position: sticky;
+    right: 12px;
+    padding-left: 12px;
+    background: #1e1e1e; /* 钉在横向可视区右侧,底色同 diff 背景,避免内容超宽时按钮被裁 */
+  }
+  .hunk-actions::before {
+    content: "";
+    position: absolute;
+    left: -16px;
+    top: 0;
+    bottom: 0;
+    width: 16px;
+    background: linear-gradient(to right, transparent, #1e1e1e);
+    pointer-events: none;
   }
   .btn-act {
     background: transparent;
