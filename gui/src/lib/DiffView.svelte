@@ -30,6 +30,7 @@
     activeList,
     operating = false,
     onFileHistory,
+    onBlame,
   }: {
     files: FileDiff[];
     interactive?: boolean;
@@ -42,6 +43,7 @@
     activeList?: "unstaged" | "staged";
     operating?: boolean;
     onFileHistory?: (filePath: string) => void;
+    onBlame?: (filePath: string) => void;
   } = $props();
 
   function hunkLines(h: Hunk): {
@@ -250,6 +252,15 @@
           aria-label="查看文件历史"
         >
           历史
+        </button>
+      {/if}
+      {#if onBlame}
+        <button
+          class="history-btn"
+          onclick={() => onBlame?.(file.path)}
+          aria-label="查看 blame"
+        >
+          blame
         </button>
       {/if}
     </div>

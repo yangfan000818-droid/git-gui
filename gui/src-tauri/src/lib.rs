@@ -539,6 +539,12 @@ fn repo_commit_file_diff(
 }
 
 #[tauri::command]
+fn repo_blame(path: String, file_path: String) -> Result<Vec<gitcore::BlameLine>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.blame(Path::new(&file_path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn repo_log_topology(
     path: String,
     max_count: usize,
@@ -621,6 +627,7 @@ pub fn run() {
             repo_log_graph,
             repo_file_history,
             repo_commit_file_diff,
+            repo_blame,
             repo_log_topology,
             start_watch,
             check_git,

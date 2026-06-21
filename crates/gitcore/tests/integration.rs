@@ -1118,3 +1118,27 @@ fn commit_amend_rewrites_head_without_new_commit() {
 
     cleanup(&[&dir]);
 }
+
+#[test]
+fn blame_attributes_lines_to_commits() {
+    let dir = init_repo("blame");
+    write(&dir, "f.txt", "line1\nline2\n");
+    commit_all(&dir, "first");
+    // 只改第二行,使两行归属不同提交
+    write(&dir, "f.txt", "line1\nline2-changed\n");
+    commit_all(&dir, "second");
+
+    let repo = Repo::open(&dir).unwrap();
+    let blame = repo.blame(Path::new("f.txt")).unwrap();
+
+    assert_eq!(blame.len(), 2, "应有 2 行 blame");
+    assert_eq!(blame[0].line_no, 1);
+    assert_eq!(blame[0].content, "line1");
+    assert_eq!(blame[1].line_no, 2);
+    assert_eq!(blame[1].content, "line2-changed");
+    assert_ne!(blame[0].full_sha, blame[1].full_sha, "两行应来自不同提交");
+    assert!(!blame[0].author.is_empty(), "应解析出作者");
+    assert!(blame[0].time > 0, "应解析出时间戳");
+
+    cleanup(&[&dir]);
+}

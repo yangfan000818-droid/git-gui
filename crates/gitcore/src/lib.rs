@@ -3,6 +3,7 @@
 //! 所有前端(TUI / 未来 GUI)都依赖本 crate,不直接调用 git。
 //! 设计:spawn git CLI + plumbing 命令拿可解析输出;每个写操作尽量可回退。
 
+mod blame;
 mod branch;
 mod commit;
 mod config;
@@ -24,6 +25,7 @@ mod update;
 
 use std::path::{Path, PathBuf};
 
+pub use blame::BlameLine;
 pub use branch::BranchInfo;
 pub use commit::CommitOptions;
 pub use config::{parse_repos_config, RepoConfig};
@@ -361,6 +363,11 @@ impl Repo {
     /// 获取某提交中单个文件的 diff。改名前匹配不到或该提交未改动此文件 → None。
     pub fn commit_file_diff(&self, sha: &str, file_path: &Path) -> Result<Option<FileDiff>, Error> {
         hunk::commit_file_diff(self, sha, file_path)
+    }
+
+    /// 逐行 blame 一个文件(每行的作者/提交)。
+    pub fn blame(&self, file_path: &Path) -> Result<Vec<BlameLine>, Error> {
+        blame::blame(self, file_path)
     }
 
     /// 获取指定提交的完整消息(多行)。

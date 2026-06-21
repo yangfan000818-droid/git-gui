@@ -8,6 +8,7 @@
   import FileTree from "$lib/FileTree.svelte";
   import ProjectPicker from "$lib/ProjectPicker.svelte";
   import FileHistory from "$lib/FileHistory.svelte";
+  import BlameView from "$lib/BlameView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -87,6 +88,8 @@
   let updateIncludesSubs = $state(true); // 弹层是否同时更新子仓库
   let showFileHistory = $state(false); // 文件历史弹窗
   let fileHistoryPath = $state(""); // 文件历史查看的文件路径
+  let showBlame = $state(false); // blame 弹窗
+  let blamePath = $state(""); // blame 查看的文件路径
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
   let commitMessage = $state("");
@@ -917,6 +920,10 @@
                 fileHistoryPath = filePath;
                 showFileHistory = true;
               }}
+              onBlame={(filePath) => {
+                blamePath = filePath;
+                showBlame = true;
+              }}
             />
           {:else if selectedFilePath}
             <p class="muted placeholder">该文件无差异内容</p>
@@ -955,6 +962,14 @@
       {path}
       filePath={fileHistoryPath}
       onClose={() => (showFileHistory = false)}
+    />
+  {/if}
+
+  {#if showBlame}
+    <BlameView
+      {path}
+      filePath={blamePath}
+      onClose={() => (showBlame = false)}
     />
   {/if}
 </main>
