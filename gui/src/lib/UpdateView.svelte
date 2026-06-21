@@ -73,13 +73,25 @@
     return (o as unknown as Record<string, T>)[Object.keys(o)[0]];
   }
 
-  let { path, onRefresh }: { path: string; onRefresh: () => Promise<void> } =
-    $props();
+  let {
+    path,
+    submodules = [],
+    title = "全部更新",
+    onRefresh,
+    onClose,
+  }: {
+    path: string;
+    submodules: { name: string; path: string; status: string }[];
+    title?: string;
+    onRefresh: () => Promise<void>;
+    onClose: () => void;
+  } = $props();
 
   // ── 策略选项 ──
   let strategy = $state<"Merge" | "Rebase">("Merge");
   let ignoreWhitespace = $state(true);
-  let recurseSubmodules = $state(true);
+  // 全部更新:主仓库整合时不自动递归子模块,子仓库改用 update --remote 单独拉远程最新。
+  let recurseSubmodules = $state(false);
 
   function buildOptions(): UpdateOptions {
     return {
@@ -95,6 +107,7 @@
     | "planning"
     | "plan_shown"
     | "executing"
+    | "submodules_updating"
     | "outcome"
     | "conflict_resolution";
   let phase = $state<Phase>("idle");
@@ -108,6 +121,15 @@
   // ── 冲突解决状态 ──
   let conflictFiles = $state<string[]>([]);
   let autostash = $state<StashRef | null>(null);
+
+  // ── 子仓库更新状态(主仓库整合成功后,逐个 update --remote) ──
+  interface SubResult {
+    label: string;
+    ok: boolean;
+    error?: string;
+  }
+  let subResults = $state<SubResult[]>([]);
+  let subCurrent = $state(""); // 正在更新的子仓库路径
 
   let unlisten: UnlistenFn | null = null;
 
@@ -183,9 +205,7 @@
         opId,
         options: buildOptions(),
       });
-      outcome = result;
-      phase = "outcome";
-      dispatchOutcome(result);
+      await handleMainOutcome(result);
     } catch (e) {
       if (cancelled) {
         // 取消是主动行为，不显示为红色 error
@@ -200,17 +220,48 @@
     }
   }
 
-  // ── Step 3: 终态分发 ──
-  function dispatchOutcome(o: UpdateOutcome) {
+  // ── Step 3: 主仓库终态分流 ──
+  // 冲突 → 进冲突解决;其余终态 → 主仓库已完成,继续逐个更新子仓库。
+  async function handleMainOutcome(o: UpdateOutcome) {
+    outcome = o;
     const v = outcomeVariant(o);
     if (v === "Conflicted") {
       const d = outcomeData<ConflictedData>(o)!;
       conflictFiles = d.files;
       autostash = d.autostash;
       phase = "conflict_resolution";
+      return;
     }
-    // AlreadyUpToDate / FastForwarded / Integrated / Resolved / StashRestoreConflict / SubmoduleSyncFailed
-    // 由 UI 直接展示,用户手动刷新
+    // AlreadyUpToDate / FastForwarded / Integrated / Resolved / StashRestoreConflict
+    await proceedToSubmodules();
+  }
+
+  // 主仓库整合完成后,把每个子仓库更新到其远程分支最新(update --remote)。
+  // 单个失败不阻断,逐个记录结果,最终在 outcome 汇总。
+  async function proceedToSubmodules() {
+    if (submodules.length === 0) {
+      phase = "outcome";
+      return;
+    }
+    phase = "submodules_updating";
+    subResults = [];
+    for (const sub of submodules) {
+      subCurrent = sub.path;
+      try {
+        await invoke("repo_submodule_update_remote", {
+          path,
+          subPath: sub.path,
+        });
+        subResults = [...subResults, { label: sub.path, ok: true }];
+      } catch (e) {
+        subResults = [
+          ...subResults,
+          { label: sub.path, ok: false, error: String(e) },
+        ];
+      }
+    }
+    subCurrent = "";
+    phase = "outcome";
   }
 
   async function doContinue() {
@@ -221,9 +272,7 @@
         autostash,
         recurseSubmodules,
       });
-      outcome = result;
-      phase = "outcome";
-      dispatchOutcome(result);
+      await handleMainOutcome(result);
     } catch (e) {
       error = String(e);
     }
@@ -236,15 +285,17 @@
       await invoke("abort_update_cmd", { path, autostash });
       await onRefresh();
       reset();
+      onClose();
     } catch (e) {
       error = String(e);
     }
   }
 
-  // ── 成功后的刷新 ──
+  // ── 成功后刷新并关闭弹层 ──
   async function finishAndRefresh() {
     await onRefresh();
     reset();
+    onClose();
   }
 
   function reset() {
@@ -256,6 +307,8 @@
     progress = null;
     conflictFiles = [];
     autostash = null;
+    subResults = [];
+    subCurrent = "";
     planning = false;
     cancelled = false;
   }
@@ -327,6 +380,20 @@
 </script>
 
 <div class="update-view">
+  <div class="update-header">
+    <h2 class="update-title">{title}</h2>
+    <button
+      class="btn-close"
+      onclick={onClose}
+      disabled={phase === "planning" ||
+        phase === "executing" ||
+        phase === "submodules_updating"}
+      title="关闭"
+    >
+      ✕
+    </button>
+  </div>
+
   {#if error}
     <pre class="update-error">{error}</pre>
   {/if}
@@ -357,6 +424,10 @@
           </label>
         </fieldset>
       </div>
+      <p class="update-scope">
+        将更新主仓库{#if submodules.length > 0}，并把 {submodules.length}
+          个子仓库拉取到各自远程最新{/if}。
+      </p>
       <button class="btn-primary" onclick={doPlan}> 检查更新 </button>
     </div>
   {/if}
@@ -433,6 +504,27 @@
     </div>
   {/if}
 
+  <!-- ── submodules_updating: 逐个更新子仓库 ── -->
+  {#if phase === "submodules_updating"}
+    <div class="sub-updating">
+      <p class="sub-updating-title">正在更新子仓库（拉取各自远程最新）…</p>
+      <ul class="sub-progress-list">
+        {#each subResults as r (r.label)}
+          <li class:sub-fail={!r.ok}>
+            <span class="sub-icon">{r.ok ? "✓" : "✕"}</span>
+            {r.label}
+          </li>
+        {/each}
+        {#if subCurrent}
+          <li class="sub-current">
+            <span class="sub-icon">⋯</span>
+            {subCurrent}
+          </li>
+        {/if}
+      </ul>
+    </div>
+  {/if}
+
   <!-- ── outcome: 终态展示 ── -->
   {#if phase === "outcome" && outcome}
     {@const v = outcomeVariant(outcome)}
@@ -476,6 +568,24 @@
         <p>主仓库已更新，但子仓库同步失败：</p>
         <pre class="update-error">{d.error}</pre>
       {/if}
+
+      {#if subResults.length > 0}
+        <div class="sub-results">
+          <h4>子仓库更新</h4>
+          <ul class="sub-result-list">
+            {#each subResults as r (r.label)}
+              <li class:sub-fail={!r.ok}>
+                <span class="sub-icon">{r.ok ? "✓" : "✕"}</span>
+                <span class="sub-label">{r.label}</span>
+                {#if !r.ok && r.error}
+                  <span class="sub-error" title={r.error}>{r.error}</span>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+
       <button class="btn-primary" onclick={finishAndRefresh}> 刷新 </button>
     </div>
   {/if}
@@ -496,6 +606,98 @@
   .update-view {
     padding: 16px;
     font-size: 13px;
+  }
+
+  /* ── 弹层头部 ── */
+  .update-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .update-title {
+    margin: 0;
+    font-size: 15px;
+    color: #e4e4e4;
+  }
+  .btn-close {
+    background: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  .btn-close:hover {
+    background: #383838;
+    color: #e4e4e4;
+  }
+  .btn-close:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .update-scope {
+    color: #aaa;
+    font-size: 12px;
+    margin: 0 0 10px;
+  }
+
+  /* ── 子仓库更新进度 / 结果 ── */
+  .sub-updating {
+    max-width: 480px;
+  }
+  .sub-updating-title {
+    color: #ccc;
+    margin: 0 0 8px;
+  }
+  .sub-progress-list,
+  .sub-result-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+  }
+  .sub-progress-list li,
+  .sub-result-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    color: #7ee29a;
+  }
+  .sub-progress-list li.sub-fail,
+  .sub-result-list li.sub-fail {
+    color: #f3b4b4;
+  }
+  .sub-current {
+    color: #888 !important;
+  }
+  .sub-icon {
+    flex-shrink: 0;
+    width: 12px;
+    text-align: center;
+  }
+  .sub-results {
+    margin: 14px 0 4px;
+  }
+  .sub-results h4 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    color: #bbb;
+    font-weight: 600;
+  }
+  .sub-label {
+    flex-shrink: 0;
+  }
+  .sub-error {
+    color: #c98a8a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
   .update-error {
     background: #3a1d1d;

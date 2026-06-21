@@ -72,8 +72,10 @@
   let loading = $state(false);
   let error = $state("");
   let opMessage = $state(""); // fetch/push 等操作的成功提示
-  let tab = $state<"changes" | "update" | "history">("changes");
+  let tab = $state<"changes" | "history">("changes");
   let showProjectPicker = $state(false);
+  let showUpdate = $state(false); // 更新弹层
+  let updateIncludesSubs = $state(true); // 弹层是否同时更新子仓库
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
   let commitMessage = $state("");
@@ -380,20 +382,13 @@
   }
 
   // ── 子仓库管理(在主仓库执行 git submodule ...) ──
-  async function submoduleAction(
-    repo: RepoView,
-    op: "update" | "remote" | "sync",
-  ) {
+  async function submoduleAction(repo: RepoView, op: "update" | "sync") {
     if (!repo.subRelPath) return;
     operating = true;
     error = "";
     try {
       const cmd =
-        op === "update"
-          ? "repo_submodule_update"
-          : op === "remote"
-            ? "repo_submodule_update_remote"
-            : "repo_submodule_sync";
+        op === "update" ? "repo_submodule_update" : "repo_submodule_sync";
       await invoke(cmd, { path, subPath: repo.subRelPath });
       await refresh();
     } catch (e) {
@@ -403,22 +398,24 @@
     }
   }
 
-  // ── 主仓库远程操作 ──
-  async function doFetch(repoPath: string) {
-    operating = true;
+  // ── 远程操作 ──
+  // 全部更新:主仓库 update + 各子仓库 update --remote。
+  function openUpdateAll() {
+    updateIncludesSubs = true;
     error = "";
     opMessage = "";
-    try {
-      await invoke("repo_fetch", { path: repoPath });
-      opMessage = "已拉取远程更新（fetch）";
-      await refresh();
-    } catch (e) {
-      error = String(e);
-    } finally {
-      operating = false;
-    }
+    showUpdate = true;
   }
 
+  // 仅更新主仓库(弹层不带子仓库)。
+  function openUpdateMain() {
+    updateIncludesSubs = false;
+    error = "";
+    opMessage = "";
+    showUpdate = true;
+  }
+
+  // 推送单个仓库(主仓库组的独立「推送」)。
   async function doPush(repoPath: string) {
     operating = true;
     error = "";
@@ -432,6 +429,26 @@
     } finally {
       operating = false;
     }
+  }
+
+  // 全部推送:遍历主仓库 + 各子仓库,各自 push,逐个汇总(无 upstream / 失败不中断)。
+  async function doPushAll() {
+    if (repos.length === 0) return;
+    operating = true;
+    error = "";
+    opMessage = "";
+    const lines: string[] = [];
+    for (const r of repos) {
+      try {
+        const msg = await invoke<string>("repo_push", { path: r.path });
+        lines.push(`${r.label}：${msg}`);
+      } catch (e) {
+        lines.push(`${r.label}：${String(e)}`);
+      }
+    }
+    opMessage = lines.join("\n");
+    operating = false;
+    await refresh();
   }
 
   // ── hunk / 行级操作(作用于当前选中文件所属仓库) ──
@@ -538,11 +555,11 @@
     <div class="path-bar">
       {#if status}
         <button
-          class="btn-pick"
+          class="current-path"
           onclick={toggleProjectPicker}
-          disabled={loading}>切换项目</button
+          disabled={loading}
+          title="点击切换项目 · {path}">{repoLabel(path)}</button
         >
-        <span class="current-path" title={path}>{repoLabel(path)}</span>
         <button
           class="btn-refresh"
           onclick={refresh}
@@ -550,11 +567,10 @@
           title="刷新所有仓库（含子仓库的外部改动）">↻</button
         >
       {:else}
-        <span class="current-path-empty">未选择项目</span>
         <button
-          class="btn-pick"
+          class="current-path-empty"
           onclick={toggleProjectPicker}
-          disabled={loading}>选择项目</button
+          disabled={loading}>选择项目…</button
         >
       {/if}
     </div>
@@ -564,6 +580,20 @@
         >{/if}
       {#if status.behind > 0}<span class="badge behind">↓{status.behind}</span
         >{/if}
+      <div class="remote-actions">
+        <button
+          class="btn-remote"
+          disabled={loading || operating}
+          title="更新主仓库，并把各子仓库拉取到各自远程最新"
+          onclick={openUpdateAll}>全部更新</button
+        >
+        <button
+          class="btn-remote"
+          disabled={loading || operating}
+          title="推送主仓库及各子仓库到各自远程"
+          onclick={doPushAll}>全部推送</button
+        >
+      </div>
     {/if}
   </header>
 
@@ -575,13 +605,6 @@
       onclick={() => (tab = "changes")}
     >
       Changes
-    </button>
-    <button
-      class="tab-btn"
-      class:tab-active={tab === "update"}
-      onclick={() => (tab = "update")}
-    >
-      Update
     </button>
     <button
       class="tab-btn"
@@ -632,19 +655,13 @@
                       <button
                         class="sub-btn"
                         disabled={operating}
-                        title="合并远程改动:走 Update 流程,可处理冲突"
-                        onclick={() => (tab = "update")}>更新</button
+                        title="更新主仓库:走 update 流程,可处理冲突"
+                        onclick={openUpdateMain}>更新</button
                       >
                       <button
                         class="sub-btn"
                         disabled={operating}
-                        title="拉取远程(fetch:只下载不合并,无冲突)"
-                        onclick={() => doFetch(repo.path)}>拉取</button
-                      >
-                      <button
-                        class="sub-btn"
-                        disabled={operating}
-                        title="推送当前分支到远程"
+                        title="推送主仓库当前分支到远程"
                         onclick={() => doPush(repo.path)}>推送</button
                       >
                     </div>
@@ -658,13 +675,6 @@
                         >更新</button
                       >
                       {#if repo.subStatus !== "Uninitialized"}
-                        <button
-                          class="sub-btn"
-                          disabled={operating}
-                          title="拉取远程分支最新提交（update --remote）"
-                          onclick={() => submoduleAction(repo, "remote")}
-                          >拉取</button
-                        >
                         <button
                           class="sub-btn"
                           disabled={operating}
@@ -794,10 +804,23 @@
     {#if !status && !error && !loading}
       <p class="hint">打开一个 Git 仓库以查看 Changes</p>
     {/if}
-  {:else if tab === "update"}
-    <UpdateView {path} onRefresh={refresh} />
   {:else if tab === "history"}
     <HistoryView {path} />
+  {/if}
+
+  <!-- ── 全部更新弹层(主仓库 update + 各子仓库 update --remote) ── -->
+  {#if showUpdate && status}
+    <div class="update-overlay">
+      <div class="update-modal">
+        <UpdateView
+          {path}
+          submodules={updateIncludesSubs ? status.submodules : []}
+          title={updateIncludesSubs ? "全部更新" : "更新主仓库"}
+          onRefresh={refresh}
+          onClose={() => (showUpdate = false)}
+        />
+      </div>
+    </div>
   {/if}
 </main>
 
@@ -865,23 +888,37 @@
   .current-path {
     flex: 1;
     max-width: 360px;
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: #2a2a2a !important;
+    border: 1px solid #444 !important;
     border-radius: 6px;
-    color: #e4e4e4;
-    padding: 6px 10px;
+    color: #e4e4e4 !important;
+    padding: 6px 10px !important;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: left;
+    cursor: pointer;
+  }
+  .current-path:hover:not(:disabled) {
+    border-color: #0e639c !important;
+    background: #303030 !important;
   }
   .current-path-empty {
     flex: 1;
     max-width: 360px;
-    color: #666;
-    padding: 6px 10px;
+    background: #2a2a2a !important;
+    border: 1px dashed #555 !important;
+    border-radius: 6px;
+    color: #999 !important;
+    padding: 6px 10px !important;
     font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .current-path-empty:hover:not(:disabled) {
+    border-color: #0e639c !important;
   }
   .path-bar button {
     background: #0e639c;
@@ -895,12 +932,6 @@
   .path-bar button:disabled {
     opacity: 0.5;
     cursor: default;
-  }
-  .btn-pick {
-    background: #2a2a2a !important;
-    border: 1px solid #444 !important;
-    color: #e4e4e4 !important;
-    flex-shrink: 0;
   }
   .btn-refresh {
     background: #2a2a2a !important;
@@ -933,6 +964,26 @@
     overflow-y: auto;
   }
 
+  /* ── 全部更新弹层 ── */
+  .update-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .update-modal {
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 8px;
+    width: 540px;
+    max-width: 92%;
+    max-height: 90%;
+    overflow-y: auto;
+  }
+
   .branch {
     font-weight: 600;
     font-size: 13px;
@@ -949,6 +1000,30 @@
   .behind {
     background: #1d2b3a;
     color: #7ab8e2;
+  }
+  .remote-actions {
+    display: flex;
+    gap: 6px;
+    margin-left: 4px;
+    flex-shrink: 0;
+  }
+  .btn-remote {
+    background: #2a2a2a;
+    border: 1px solid #0e639c;
+    border-radius: 6px;
+    color: #9ecbff;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 5px 12px;
+    white-space: nowrap;
+  }
+  .btn-remote:hover:not(:disabled) {
+    background: #0e639c;
+    color: #fff;
+  }
+  .btn-remote:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   /* ── 错误 ── */
@@ -968,6 +1043,7 @@
     color: #7ee29a;
     font-size: 12px;
     margin: 0;
+    white-space: pre-wrap;
   }
 
   /* ── 分栏 ── */
