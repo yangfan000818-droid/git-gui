@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import DiffView from "./DiffView.svelte";
 
   interface BlameLine {
     sha: string;
@@ -9,6 +10,23 @@
     time: number;
     line_no: number;
     content: string;
+  }
+  interface DiffLine {
+    kind: "Context" | "Added" | "Removed";
+    content: string;
+  }
+  interface Hunk {
+    old_start: number;
+    new_start: number;
+    heading: string;
+    lines: DiffLine[];
+    raw: string;
+  }
+  interface FileDiff {
+    path: string;
+    binary: boolean;
+    hunks: Hunk[];
+    header_raw: string;
   }
 
   let {
@@ -40,16 +58,59 @@
     if (!time) return "";
     return new Date(time * 1000).toLocaleDateString();
   }
+
+  // 点 sha → 显示该提交详情(message + 改动文件 diff);返回回到 blame 列表。
+  let detailSha = $state<string | null>(null);
+  let detailMsg = $state("");
+  let detailDiffs = $state<FileDiff[]>([]);
+  let detailLoading = $state(false);
+
+  async function showDetail(sha: string) {
+    detailSha = sha;
+    detailLoading = true;
+    detailMsg = "";
+    detailDiffs = [];
+    try {
+      const [msg, diffs] = await Promise.all([
+        invoke<string>("repo_commit_message", { path, sha }),
+        invoke<FileDiff[]>("repo_commit_files", { path, sha }),
+      ]);
+      detailMsg = msg;
+      detailDiffs = diffs;
+    } catch (e) {
+      error = String(e);
+    } finally {
+      detailLoading = false;
+    }
+  }
 </script>
 
 <div class="overlay" role="dialog" aria-label="blame">
   <div class="panel">
     <div class="header">
-      <h2>blame: {filePath}</h2>
+      <div class="header-left">
+        {#if detailSha}
+          <button class="back-btn" onclick={() => (detailSha = null)}
+            >← 返回</button
+          >
+          <h2>{detailSha.slice(0, 8)}</h2>
+        {:else}
+          <h2>blame: {filePath}</h2>
+        {/if}
+      </div>
       <button class="close-btn" onclick={onClose} aria-label="关闭">✕</button>
     </div>
     <div class="content">
-      {#if loading}
+      {#if detailSha}
+        {#if detailLoading}
+          <p class="placeholder">加载提交详情…</p>
+        {:else}
+          {#if detailMsg}
+            <pre class="detail-msg">{detailMsg}</pre>
+          {/if}
+          <DiffView files={detailDiffs} />
+        {/if}
+      {:else if loading}
         <p class="placeholder">加载中…</p>
       {:else if error}
         <p class="error">{error}</p>
@@ -59,9 +120,13 @@
         {#each lines as line, i (line.line_no)}
           {@const showAnno = i === 0 || lines[i - 1].full_sha !== line.full_sha}
           <div class="blame-row">
-            <span class="blame-anno" title={line.full_sha}>
+            <span class="blame-anno">
               {#if showAnno}
-                <span class="anno-sha">{line.sha}</span>
+                <button
+                  class="anno-sha"
+                  title={line.full_sha}
+                  onclick={() => showDetail(line.full_sha)}>{line.sha}</button
+                >
                 <span class="anno-author">{line.author}</span>
                 <span class="anno-date">{fmtDate(line.time)}</span>
               {/if}
@@ -103,11 +168,28 @@
     border-bottom: 1px solid #383838;
     background: #252525;
   }
+  .header-left {
+    display: flex;
+    align-items: center;
+  }
   .header h2 {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
     color: #ddd;
+  }
+  .back-btn {
+    background: #333;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #ddd;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 3px 10px;
+    margin-right: 10px;
+  }
+  .back-btn:hover {
+    background: #3a3a3a;
   }
   .close-btn {
     background: transparent;
@@ -127,6 +209,15 @@
     padding: 8px 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
+  }
+  .detail-msg {
+    margin: 0 0 12px;
+    padding: 10px 14px;
+    background: #222;
+    border-radius: 4px;
+    color: #ddd;
+    font-size: 12px;
+    white-space: pre-wrap;
   }
   .blame-row {
     display: grid;
@@ -148,6 +239,14 @@
   .anno-sha {
     color: #cc8899;
     flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+  }
+  .anno-sha:hover {
+    text-decoration: underline;
   }
   .anno-author {
     color: #888;
