@@ -938,7 +938,13 @@
       <p class="hint">打开一个 Git 仓库以查看 Changes</p>
     {/if}
   {:else if tab === "history"}
-    <HistoryView {path} />
+    <HistoryView
+      {path}
+      onFileHistory={(filePath) => {
+        fileHistoryPath = filePath;
+        showFileHistory = true;
+      }}
+    />
   {/if}
 
   <!-- ── 全部更新弹层(主仓库 update + 各子仓库 update --remote) ── -->

@@ -73,7 +73,10 @@
   }
 
   // ── Props ──
-  let { path }: { path: string } = $props();
+  let {
+    path,
+    onFileHistory,
+  }: { path: string; onFileHistory?: (filePath: string) => void } = $props();
 
   // ── 状态 ──
   let commits = $state<GraphCommit[]>([]);
@@ -479,7 +482,7 @@
           <p class="muted">无文件改动</p>
         {:else}
           <div class="diff-list">
-            <DiffView files={commitDiffs} />
+            <DiffView files={commitDiffs} {onFileHistory} />
           </div>
         {/if}
       {:else}
