@@ -150,11 +150,38 @@ pub(crate) fn run_streaming(
         buf
     });
 
-    // stderr:进度以 \r 刷新、\n 收尾,故按这两个分隔逐段切;每段间隙轮询取消。
-    let mut reader = BufReader::new(child.stderr.take().expect("stderr piped"));
-    let mut stderr_buf = String::new();
-    let mut seg = Vec::<u8>::new();
-    let mut one = [0u8; 1];
+    // stderr 也单独起线程读:阻塞读 stderr 不能拖住主线程的取消轮询
+    // (fetch 卡在联网阶段时 stderr 长时间无输出,留在主线程会让取消失灵)。
+    // 进度以 \r 刷新、\n 收尾,按这两个分隔逐段切,解析后经 channel 回传
+    // (on_progress 不能跨线程);线程结束时返回完整 stderr 文本供错误信息复用。
+    let mut stderr_pipe = BufReader::new(child.stderr.take().expect("stderr piped"));
+    let (tx, rx) = std::sync::mpsc::channel::<Progress>();
+    let stderr_handle = std::thread::spawn(move || {
+        let mut stderr_buf = String::new();
+        let mut seg = Vec::<u8>::new();
+        let mut one = [0u8; 1];
+        loop {
+            match stderr_pipe.read(&mut one) {
+                Ok(0) => break, // EOF
+                Ok(_) => {
+                    let b = one[0];
+                    if b == b'\r' || b == b'\n' {
+                        flush_segment(&mut seg, &mut stderr_buf, &tx);
+                        stderr_buf.push(b as char);
+                    } else {
+                        seg.push(b);
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+        // 末段可能没有尾分隔符。
+        flush_segment(&mut seg, &mut stderr_buf, &tx);
+        stderr_buf
+    });
+
+    // 主线程只轮询取消(置位即 kill,不等阻塞读)+ 把进度交给 on_progress。
     let mut cancelled = false;
     loop {
         if cancel.is_cancelled() {
@@ -162,29 +189,32 @@ pub(crate) fn run_streaming(
             let _ = child.kill();
             break;
         }
-        match reader.read(&mut one) {
-            Ok(0) => break, // EOF
-            Ok(_) => {
-                let b = one[0];
-                if b == b'\r' || b == b'\n' {
-                    flush_segment(&mut seg, &mut stderr_buf, on_progress);
-                    stderr_buf.push(b as char);
-                } else {
-                    seg.push(b);
-                }
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(Error::Io(e)),
+        while let Ok(p) = rx.try_recv() {
+            on_progress(p);
         }
+        match child.try_wait() {
+            Ok(Some(_)) => break, // 子进程已退出
+            Ok(None) => {}
+            Err(_) => break, // 罕见,交给后面的 wait() 收尾
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    // 末段可能没有尾分隔符。
-    flush_segment(&mut seg, &mut stderr_buf, on_progress);
 
+    // 取消路径:git 主进程已 kill,但它 fork 的 helper(git-remote-https 等)
+    // 可能仍持有 stderr/stdout 写端,join 读线程会一直阻塞。故收尸主进程后立即返回,
+    // 不 join(两个读线程随管道最终 EOF 自行结束),确保取消即时生效不卡死。
+    if cancelled {
+        let _ = child.wait();
+        return Err(Error::Cancelled);
+    }
+
+    // 正常结束:git 已退出,管道会 EOF,join 安全。
     let status = child.wait()?;
     let stdout = stdout_handle.join().unwrap_or_default();
-
-    if cancelled {
-        return Err(Error::Cancelled);
+    let stderr_buf = stderr_handle.join().unwrap_or_default();
+    // 线程已结束(tx 已 drop),抽干 channel 里残留的进度。
+    while let Ok(p) = rx.try_recv() {
+        on_progress(p);
     }
     Ok(Output {
         success: status.success(),
@@ -194,18 +224,18 @@ pub(crate) fn run_streaming(
     })
 }
 
-// 把累积的一段 stderr 解析为进度并清空;原文一并追加进 stderr_buf 供错误信息复用。
+// 把累积的一段 stderr 解析为进度并经 channel 发出;原文一并追加进 stderr_buf 供错误信息复用。
 fn flush_segment(
     seg: &mut Vec<u8>,
     stderr_buf: &mut String,
-    on_progress: &mut dyn FnMut(Progress),
+    tx: &std::sync::mpsc::Sender<Progress>,
 ) {
     if seg.is_empty() {
         return;
     }
     let line = String::from_utf8_lossy(seg).into_owned();
     if let Some(p) = parse_progress(&line) {
-        on_progress(p);
+        let _ = tx.send(p);
     }
     stderr_buf.push_str(&line);
     seg.clear();
