@@ -16,7 +16,8 @@
 # 全程使用隔离的 GIT_CONFIG_GLOBAL,**不改动你的全局 git 配置**。
 set -euo pipefail
 
-QA="${TMPDIR:-/tmp}/gg-qa-submodule"
+# 放在主目录,文件选择框里好找(临时目录 /var/folders 在 GUI picker 里难导航)。
+QA="$HOME/gg-qa-submodule"
 
 if [[ "${1:-}" == "clean" ]]; then
   rm -rf "$QA"
