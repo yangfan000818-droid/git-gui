@@ -126,7 +126,7 @@
   // SubmoduleUpdate: 外部 tagged 枚举(同 UpdateOutcome)
   type SubmoduleUpdate =
     | "UpToDate"
-    | "SkippedDetached"
+    | "SyncedToRecorded"
     | "SkippedNoUpstream"
     | "Conflict"
     | { Updated: { commits: number } };
@@ -150,8 +150,8 @@
     switch (r) {
       case "UpToDate":
         return { status: "ok", detail: "已是最新" };
-      case "SkippedDetached":
-        return { status: "warn", detail: "跳过:detached(未在分支上)" };
+      case "SyncedToRecorded":
+        return { status: "ok", detail: "detached,已同步到记录提交" };
       case "SkippedNoUpstream":
         return { status: "warn", detail: "跳过:无上游分支" };
       case "Conflict":

@@ -78,8 +78,8 @@ pub enum SubmoduleUpdate {
     UpToDate,
     /// 在当前分支上整合了 N 个提交(快进或合并/变基)。
     Updated { commits: u32 },
-    /// 跳过:子仓处于 detached HEAD,没有分支可留。
-    SkippedDetached,
+    /// 子仓处于 detached HEAD:无分支可更新,改为同步到父仓记录的 commit(对标 WebStorm)。
+    SyncedToRecorded,
     /// 跳过:子仓当前分支没有 upstream,无拉取目标。
     SkippedNoUpstream,
     /// 更新产生冲突,已回退到更新前(不留半合并状态),需手动在该子仓解决。
@@ -412,7 +412,8 @@ fn update_submodules(repo: &Repo) -> Result<(), Error> {
 /// 把子仓更新到它当前分支的 upstream,并**留在当前分支**(对标 WebStorm)。
 /// 不同于 `git submodule update --remote`(会 detach 到具体 commit):这里把子仓当独立仓库,
 /// 在其当前分支上 pull(复用 `execute_update` 的 fetch + 整合 + autostash)。
-/// detached / 无 upstream 的子仓跳过;冲突则回退,不留半合并状态。
+/// detached 子仓没有分支可留,改为同步到父仓记录的 commit(对标 WebStorm);
+/// 无 upstream 的子仓跳过;冲突则回退,不留半合并状态。
 pub(crate) fn update_submodule_on_branch(
     main_repo: &Repo,
     sub_path: &std::path::Path,
@@ -421,10 +422,12 @@ pub(crate) fn update_submodule_on_branch(
     let abs = main_repo.workdir().join(sub_path);
     let sub = Repo::open(&abs)?;
 
-    // detached HEAD → 没有分支可留,跳过(回退用旧 submodule update 会再次 detach,违背初衷)。
+    // detached HEAD → 无分支可更新;同步到父仓记录的 commit(对标 WebStorm)。
+    // git submodule update 是超级仓库命令,从主仓执行;子仓脏会失败 → 作为错误上抛。
     let head = sub.git(&["rev-parse", "--abbrev-ref", "HEAD"])?;
     if head.trim() == "HEAD" {
-        return Ok(SubmoduleUpdate::SkippedDetached);
+        crate::submodule::update_submodule(main_repo, sub_path)?;
+        return Ok(SubmoduleUpdate::SyncedToRecorded);
     }
     // 当前分支无 upstream → 无拉取目标,跳过。
     let has_upstream = sub
