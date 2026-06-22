@@ -45,7 +45,6 @@ pub use submodule::{Submodule, SubmoduleStatus};
 pub use topology::{GraphCommit, GraphEdge};
 pub use update::{
     IntegrationStrategy, PendingConflicts, SubmoduleUpdate, UpdateOptions, UpdateOutcome,
-    UpdatePlan,
 };
 
 /// 一个 git 工作区的句柄;所有操作相对它执行。
@@ -72,21 +71,6 @@ impl Repo {
     /// 读取当前状态(分支 / upstream / ahead-behind / dirty / 冲突)。
     pub fn status(&self) -> Result<RepoStatus, Error> {
         status::status(self)
-    }
-
-    /// 预检 + fetch + 计算将发生什么,不改动工作区。
-    pub fn plan_update(&self, opts: &UpdateOptions) -> Result<UpdatePlan, Error> {
-        update::plan_update(self, opts)
-    }
-
-    /// 同 [`Repo::plan_update`],但 fetch 阶段支持取消(cancel 置位后中止)和进度回调。
-    pub fn plan_update_streaming(
-        &self,
-        opts: &UpdateOptions,
-        on_progress: &mut dyn FnMut(Progress),
-        cancel: &CancelToken,
-    ) -> Result<UpdatePlan, Error> {
-        update::plan_update_streaming(self, opts, on_progress, cancel)
     }
 
     /// 执行完整 Update 流程(autostash → 整合 → restore)。`cancel` 置位可在 fetch

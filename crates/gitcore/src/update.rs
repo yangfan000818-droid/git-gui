@@ -31,19 +31,6 @@ impl Default for UpdateOptions {
     }
 }
 
-/// fetch 之后、整合之前的计划:会发生什么,但还没动手。
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-pub struct UpdatePlan {
-    pub upstream: String,
-    pub behind: u32,
-    pub ahead: u32,
-    /// 本地无领先提交 → 可直接快进。
-    pub can_fast_forward: bool,
-    /// 工作区脏 → 整合前会自动 stash。
-    pub will_autostash: bool,
-}
-
 /// Update 状态机的终态。
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
@@ -91,33 +78,6 @@ pub enum SubmoduleUpdate {
     },
     /// 整合成功但 autostash 还原时冲突(工作树有冲突标记,非合并进行中),提示手动处理。
     StashConflict,
-}
-
-/// 预检 + fetch + 计算计划,不改动工作区。
-pub(crate) fn plan_update(repo: &Repo, _opts: &UpdateOptions) -> Result<UpdatePlan, Error> {
-    let mut ignore = |_p: Progress| {};
-    plan_update_streaming(repo, _opts, &mut ignore, &CancelToken::default())
-}
-
-/// 同 [`plan_update`],但 fetch 阶段支持取消(cancel 置位后中止)和进度回调。
-pub(crate) fn plan_update_streaming(
-    repo: &Repo,
-    _opts: &UpdateOptions,
-    on_progress: &mut dyn FnMut(Progress),
-    cancel: &CancelToken,
-) -> Result<UpdatePlan, Error> {
-    preflight(repo)?;
-    let upstream = require_upstream(repo)?;
-    // plan 只为看主仓库 ahead/behind,不递归子模块(检查更新要快);子模块同步是 execute 的事。
-    fetch(repo, on_progress, cancel, false)?;
-    let (behind, ahead) = ahead_behind(repo)?;
-    Ok(UpdatePlan {
-        upstream,
-        behind,
-        ahead,
-        can_fast_forward: ahead == 0,
-        will_autostash: is_dirty(repo)?,
-    })
 }
 
 /// 执行完整 Update 流程。
@@ -596,10 +556,6 @@ fn ahead_behind(repo: &Repo) -> Result<(u32, u32), Error> {
             "rev-list --count 输出异常: {counts:?}"
         ))),
     }
-}
-
-fn is_dirty(repo: &Repo) -> Result<bool, Error> {
-    Ok(!repo.git(&["status", "--porcelain"])?.trim().is_empty())
 }
 
 // 返回 Ok(true)=产生冲突,Ok(false)=干净完成。
