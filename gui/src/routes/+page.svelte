@@ -110,6 +110,11 @@
     autostash: StashRef | null;
   }
   let mergeConflict = $state<MergeConflict | null>(null); // 合并/变基产生冲突时的 ConflictView 弹层
+  interface BranchDiff {
+    branch: string;
+    files: FileDiff[];
+  }
+  let branchDiff = $state<BranchDiff | null>(null); // 分支↔工作区差异弹层(Show Diff with Working Tree)
   let subCount = $derived(status?.submodules.length ?? 0); // 子仓库数(顶部「更新子仓库」据此启用)
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
@@ -1134,6 +1139,10 @@
         branchPickerRepo = null;
         mergeConflict = d;
       }}
+      onShowDiff={(d) => {
+        branchPickerRepo = null;
+        branchDiff = d;
+      }}
     />
   {/if}
 
@@ -1188,6 +1197,31 @@
             }
           }}
         />
+      </div>
+    </div>
+  {/if}
+
+  <!-- ── 分支 ↔ 工作区差异弹层(Show Diff with Working Tree) ── -->
+  {#if branchDiff}
+    <div class="update-overlay">
+      <div class="branch-diff-modal">
+        <div class="bd-header">
+          <h2 class="bd-title">
+            <span class="bd-branch">{branchDiff.branch}</span> ↔ 工作区
+          </h2>
+          <button
+            class="bd-close"
+            onclick={() => (branchDiff = null)}
+            title="关闭">✕</button
+          >
+        </div>
+        {#if branchDiff.files.length === 0}
+          <p class="diff-empty">工作区与该分支无差异</p>
+        {:else}
+          <div class="branch-diff-body">
+            <DiffView files={branchDiff.files} />
+          </div>
+        {/if}
       </div>
     </div>
   {/if}
@@ -1351,6 +1385,63 @@
     max-width: 92%;
     max-height: 90%;
     overflow-y: auto;
+  }
+
+  /* ── 分支↔工作区差异弹层 ── */
+  .branch-diff-modal {
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 8px;
+    width: 760px;
+    max-width: 94%;
+    max-height: 88%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .bd-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid #383838;
+    flex-shrink: 0;
+  }
+  .bd-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ccc;
+  }
+  .bd-branch {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #e2c47a;
+  }
+  .bd-close {
+    background: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  .bd-close:hover {
+    background: #383838;
+    color: #e4e4e4;
+  }
+  .branch-diff-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+  }
+  .diff-empty {
+    color: #666;
+    font-size: 12px;
+    text-align: center;
+    padding: 32px 18px;
+    margin: 0;
   }
 
   .branch {

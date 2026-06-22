@@ -296,6 +296,21 @@ pub(crate) fn commit_file_diff(
     Ok(parse(&text).into_iter().next())
 }
 
+/// 某个 ref(分支/标签/commit)与当前工作区的差异(已跟踪文件;不含未跟踪)。
+/// `git diff <rev>`:rev 为旧、工作区为新 → 新增行 = 工作区相对该 ref 多出的内容。
+pub(crate) fn diff_with_workdir(repo: &Repo, rev: &str) -> Result<Vec<FileDiff>, Error> {
+    let text = repo.git(&[
+        "-c",
+        "diff.noprefix=false",
+        "-c",
+        "diff.mnemonicprefix=false",
+        "diff",
+        "--no-color",
+        rev,
+    ])?;
+    Ok(parse(&text))
+}
+
 /// 把一个未跟踪文件构造成"全新增"的 FileDiff(`git diff` 不含未跟踪,需单独补)。
 /// 生成的 patch 是标准 new-file 格式,`git apply --cached` 可直接当 `git add` 用。
 pub(crate) fn untracked_file(repo: &Repo, path: &str) -> Option<FileDiff> {

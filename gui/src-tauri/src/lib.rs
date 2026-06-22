@@ -667,6 +667,13 @@ fn repo_commit_files(path: String, sha: String) -> Result<Vec<FileDiff>, String>
     repo.commit_files(&sha).map_err(|e| e.to_string())
 }
 
+/// 选定分支(或任意 ref)与当前工作区的差异(Show Diff with Working Tree)。
+#[tauri::command]
+fn repo_diff_with_workdir(path: String, rev: String) -> Result<Vec<FileDiff>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.diff_with_workdir(&rev).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn repo_commit_message(path: String, sha: String) -> Result<String, String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
@@ -740,6 +747,7 @@ pub fn run() {
             start_watch,
             check_git,
             repo_commit_files,
+            repo_diff_with_workdir,
             repo_commit_message,
         ])
         .run(tauri::generate_context!())

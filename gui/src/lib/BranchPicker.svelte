@@ -29,6 +29,26 @@
     | { StashRestoreConflict: { files: string[] } }
     | { SubmoduleSyncFailed: { error: string } };
 
+  // Show Diff with Working Tree:选定分支与工作区差异(只读,交给 +page 用 DiffView 展示)
+  type LineKind = "Context" | "Added" | "Removed";
+  interface DiffLine {
+    kind: LineKind;
+    content: string;
+  }
+  interface Hunk {
+    old_start: number;
+    new_start: number;
+    heading: string;
+    lines: DiffLine[];
+    raw: string;
+  }
+  interface FileDiff {
+    path: string;
+    binary: boolean;
+    hunks: Hunk[];
+    header_raw: string;
+  }
+
   interface Props {
     repoPath: string;
     onClose: () => void;
@@ -38,9 +58,11 @@
       files: string[];
       autostash: StashRef | null;
     }) => void;
+    onShowDiff?: (details: { branch: string; files: FileDiff[] }) => void;
   }
 
-  let { repoPath, onClose, onSwitched, onConflict }: Props = $props();
+  let { repoPath, onClose, onSwitched, onConflict, onShowDiff }: Props =
+    $props();
 
   let branches = $state<BranchInfo[]>([]);
   let remoteBranches = $state<BranchInfo[]>([]);
@@ -163,6 +185,23 @@
         return;
       }
       onSwitched();
+      onClose();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      switching = false;
+    }
+  }
+
+  async function showDiff(branch: string) {
+    switching = true;
+    error = "";
+    try {
+      const files = await invoke<FileDiff[]>("repo_diff_with_workdir", {
+        path: repoPath,
+        rev: branch,
+      });
+      onShowDiff?.({ branch, files });
       onClose();
     } catch (e) {
       error = String(e);
@@ -406,6 +445,13 @@
                     title={`当前分支变基到 ${b.name}`}>变基</button
                   >
                   <button
+                    class="bp-diff"
+                    disabled={switching}
+                    onclick={() => showDiff(b.name)}
+                    aria-label="比较 {b.name} 与工作区"
+                    title={`比较 ${b.name} 与工作区`}>差异</button
+                  >
+                  <button
                     class="bp-del"
                     disabled={switching}
                     onclick={() => deleteBranch(b.name)}
@@ -435,6 +481,13 @@
                 <span class="bp-name">{b.name}</span>
                 <span class="bp-checkout">检出</span>
               </button>
+              <button
+                class="bp-diff"
+                disabled={switching}
+                onclick={() => showDiff(b.name)}
+                aria-label="比较 {b.name} 与工作区"
+                title={`比较 ${b.name} 与工作区`}>差异</button
+              >
             </li>
           {/each}
         </ul>
@@ -765,6 +818,28 @@
   }
   .bp-merge:disabled,
   .bp-rebase:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  /* 与工作区比较 */
+  .bp-diff {
+    background: transparent;
+    border: 1px solid #444;
+    border-radius: 3px;
+    color: #999;
+    cursor: pointer;
+    font-size: 10px;
+    padding: 2px 6px;
+    line-height: 1.4;
+    flex-shrink: 0;
+  }
+  .bp-diff:hover:not(:disabled) {
+    background: #3a331d;
+    border-color: #7a6a3a;
+    color: #e2c47a;
+  }
+  .bp-diff:disabled {
     opacity: 0.3;
     cursor: default;
   }

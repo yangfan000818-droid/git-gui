@@ -382,6 +382,11 @@ impl Repo {
         hunk::commit_file_diff(self, sha, file_path)
     }
 
+    /// 选定分支(或任意 ref)与当前工作区的差异文件列表(Show Diff with Working Tree)。
+    pub fn diff_with_workdir(&self, rev: &str) -> Result<Vec<FileDiff>, Error> {
+        hunk::diff_with_workdir(self, rev)
+    }
+
     /// 逐行 blame 一个文件(每行的作者/提交)。
     pub fn blame(&self, file_path: &Path) -> Result<Vec<BlameLine>, Error> {
         blame::blame(self, file_path)
