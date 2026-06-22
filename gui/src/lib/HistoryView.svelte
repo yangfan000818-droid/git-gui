@@ -95,11 +95,12 @@
   let grepFilter = $state("");
   let filterTimeout: number | undefined;
 
-  // ── 子模块变更检测(gitlink:diff 行内容为 "Subproject commit <sha>") ──
+  // ── 子模块变更检测 ──
+  // 用 diff header 里的 gitlink mode 160000 判定(普通文件是 100644/100755/120000);
+  // " 160000" 前导空格保证不会误配 blob SHA 子串(SHA 不含空格),比按 "Subproject commit"
+  // 行内容判定更稳——避免普通文档文件含该行被误判为子模块。
   function isSubmoduleChange(f: FileDiff): boolean {
-    return f.hunks.some((h) =>
-      h.lines.some((l) => l.content.startsWith("Subproject commit ")),
-    );
+    return f.header_raw.includes(" 160000");
   }
   function subRange(f: FileDiff): { old: string; new: string } {
     let oldSha = "";
@@ -163,7 +164,7 @@
       ]);
       commitMsg = msg;
       commitDiffs = diffs;
-      void loadSubmoduleRanges(diffs);
+      void loadSubmoduleRanges(entry.full_sha, diffs);
     } catch (e) {
       detailError = String(e);
     } finally {
@@ -172,7 +173,8 @@
   }
 
   // 对该提交里的每个子模块指针变化,取其 old..new 区间的子仓提交(失败则只显示指针)。
-  async function loadSubmoduleRanges(diffs: FileDiff[]) {
+  // 传入 sha 守卫:慢请求返回时若已切到别的提交,丢弃结果避免写入过期区间。
+  async function loadSubmoduleRanges(sha: string, diffs: FileDiff[]) {
     for (const f of diffs) {
       if (!isSubmoduleChange(f)) continue;
       const { old, new: newSha } = subRange(f);
@@ -184,9 +186,12 @@
           oldSha: old,
           newSha,
         });
+        if (selectedCommit?.full_sha !== sha) return; // 已切换,丢弃
         submoduleRanges = { ...submoduleRanges, [f.path]: commits };
       } catch {
-        // 子仓未拉取该区间或为回退,跳过(只展示指针变化)
+        // 子仓未拉取该区间或为回退:存空数组,表示"已尝试但无结果"(区别于尚在加载)
+        if (selectedCommit?.full_sha !== sha) return;
+        submoduleRanges = { ...submoduleRanges, [f.path]: [] };
       }
     }
   }
@@ -550,7 +555,11 @@
                         : "（移除）"}
                     </span>
                   </div>
-                  {#if submoduleRanges[f.path]?.length}
+                  {#if submoduleRanges[f.path] === undefined}
+                    {#if r.old && r.new}
+                      <p class="sub-none">加载区间提交…</p>
+                    {/if}
+                  {:else if submoduleRanges[f.path].length}
                     <ul class="sub-commit-list">
                       {#each submoduleRanges[f.path] as c (c.full_sha)}
                         <li class="sub-commit">
@@ -560,7 +569,7 @@
                         </li>
                       {/each}
                     </ul>
-                  {:else if r.old && r.new}
+                  {:else}
                     <p class="sub-none">
                       无法列出区间提交（子仓未拉取或为回退）
                     </p>
