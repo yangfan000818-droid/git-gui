@@ -770,7 +770,15 @@
       <pre class="error">{error}</pre>
     {/if}
     {#if opMessage}
-      <p class="op-message">{opMessage}</p>
+      <div class="op-message">
+        <span class="op-message-text">{opMessage}</span>
+        <button
+          class="op-message-close"
+          onclick={() => (opMessage = "")}
+          aria-label="关闭提示"
+          title="关闭">×</button
+        >
+      </div>
     {/if}
 
     {#if status}
@@ -1302,13 +1310,34 @@
     margin: 0;
   }
   .op-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
     background: #1d3a24;
     border-bottom: 1px solid #2b6a3b;
     padding: 8px 14px;
+    margin: 0;
+  }
+  .op-message-text {
+    flex: 1;
     color: #7ee29a;
     font-size: 12px;
-    margin: 0;
     white-space: pre-wrap;
+    min-width: 0;
+  }
+  .op-message-close {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: #7ee29a;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    opacity: 0.7;
+  }
+  .op-message-close:hover {
+    opacity: 1;
   }
 
   /* ── 分栏 ── */
