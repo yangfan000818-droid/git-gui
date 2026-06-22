@@ -34,7 +34,7 @@ pub use diff::DiffOptions;
 pub use error::Error;
 pub use git::{CancelToken, Progress};
 pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
-pub use log::{GraphRow, LogEntry, LogOptions};
+pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions};
 pub use push::PushOutcome;
 pub use resolve::{
     parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment,
@@ -237,6 +237,11 @@ impl Repo {
         opts: &LogOptions,
     ) -> Result<Vec<LogEntry>, Error> {
         log::file_history(self, file_path, opts)
+    }
+
+    /// 比较选定分支(或任意 ref)与当前 HEAD 的双向独有提交(Compare with Current)。
+    pub fn compare_commits(&self, other: &str) -> Result<BranchComparison, Error> {
+        log::compare_commits(self, other)
     }
 
     /// 检查 git 是否在 PATH 中可用。不可用返回友好错误供 UI 展示。

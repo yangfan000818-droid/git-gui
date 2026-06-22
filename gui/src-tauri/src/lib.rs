@@ -6,8 +6,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use gitcore::{
-    BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk, PendingConflicts, Progress,
-    Repo, RepoStatus, Segment, StashRef, SubmoduleUpdate, UpdateOptions, UpdateOutcome, UpdatePlan,
+    BranchComparison, BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk,
+    PendingConflicts, Progress, Repo, RepoStatus, Segment, StashRef, SubmoduleUpdate,
+    UpdateOptions, UpdateOutcome, UpdatePlan,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -674,6 +675,13 @@ fn repo_diff_with_workdir(path: String, rev: String) -> Result<Vec<FileDiff>, St
     repo.diff_with_workdir(&rev).map_err(|e| e.to_string())
 }
 
+/// 选定分支与当前 HEAD 的双向独有提交(Compare with Current)。
+#[tauri::command]
+fn repo_compare_commits(path: String, other: String) -> Result<BranchComparison, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.compare_commits(&other).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn repo_commit_message(path: String, sha: String) -> Result<String, String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
@@ -748,6 +756,7 @@ pub fn run() {
             check_git,
             repo_commit_files,
             repo_diff_with_workdir,
+            repo_compare_commits,
             repo_commit_message,
         ])
         .run(tauri::generate_context!())

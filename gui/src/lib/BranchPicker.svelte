@@ -49,6 +49,15 @@
     header_raw: string;
   }
 
+  // Compare with Current:选定分支与当前 HEAD 的双向独有提交
+  interface LogEntry {
+    sha: string;
+    full_sha: string;
+    message: string;
+    author: string;
+    date: string;
+  }
+
   interface Props {
     repoPath: string;
     onClose: () => void;
@@ -59,10 +68,21 @@
       autostash: StashRef | null;
     }) => void;
     onShowDiff?: (details: { branch: string; files: FileDiff[] }) => void;
+    onCompare?: (details: {
+      branch: string;
+      incoming: LogEntry[];
+      outgoing: LogEntry[];
+    }) => void;
   }
 
-  let { repoPath, onClose, onSwitched, onConflict, onShowDiff }: Props =
-    $props();
+  let {
+    repoPath,
+    onClose,
+    onSwitched,
+    onConflict,
+    onShowDiff,
+    onCompare,
+  }: Props = $props();
 
   let branches = $state<BranchInfo[]>([]);
   let remoteBranches = $state<BranchInfo[]>([]);
@@ -202,6 +222,23 @@
         rev: branch,
       });
       onShowDiff?.({ branch, files });
+      onClose();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      switching = false;
+    }
+  }
+
+  async function compareWith(branch: string) {
+    switching = true;
+    error = "";
+    try {
+      const cmp = await invoke<{ incoming: LogEntry[]; outgoing: LogEntry[] }>(
+        "repo_compare_commits",
+        { path: repoPath, other: branch },
+      );
+      onCompare?.({ branch, incoming: cmp.incoming, outgoing: cmp.outgoing });
       onClose();
     } catch (e) {
       error = String(e);
@@ -452,6 +489,13 @@
                     title={`比较 ${b.name} 与工作区`}>差异</button
                   >
                   <button
+                    class="bp-compare"
+                    disabled={switching}
+                    onclick={() => compareWith(b.name)}
+                    aria-label="对比 {b.name} 与当前分支的提交"
+                    title={`对比 ${b.name} ↔ 当前分支的独有提交`}>比较</button
+                  >
+                  <button
                     class="bp-del"
                     disabled={switching}
                     onclick={() => deleteBranch(b.name)}
@@ -487,6 +531,13 @@
                 onclick={() => showDiff(b.name)}
                 aria-label="比较 {b.name} 与工作区"
                 title={`比较 ${b.name} 与工作区`}>差异</button
+              >
+              <button
+                class="bp-compare"
+                disabled={switching}
+                onclick={() => compareWith(b.name)}
+                aria-label="对比 {b.name} 与当前分支的提交"
+                title={`对比 ${b.name} ↔ 当前分支的独有提交`}>比较</button
               >
             </li>
           {/each}
@@ -840,6 +891,28 @@
     color: #e2c47a;
   }
   .bp-diff:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  /* 与当前分支比较提交 */
+  .bp-compare {
+    background: transparent;
+    border: 1px solid #444;
+    border-radius: 3px;
+    color: #999;
+    cursor: pointer;
+    font-size: 10px;
+    padding: 2px 6px;
+    line-height: 1.4;
+    flex-shrink: 0;
+  }
+  .bp-compare:hover:not(:disabled) {
+    background: #2d1d3a;
+    border-color: #5a3a7a;
+    color: #c49ae2;
+  }
+  .bp-compare:disabled {
     opacity: 0.3;
     cursor: default;
   }

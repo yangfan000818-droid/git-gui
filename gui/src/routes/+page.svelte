@@ -115,6 +115,19 @@
     files: FileDiff[];
   }
   let branchDiff = $state<BranchDiff | null>(null); // 分支↔工作区差异弹层(Show Diff with Working Tree)
+  interface LogEntry {
+    sha: string;
+    full_sha: string;
+    message: string;
+    author: string;
+    date: string;
+  }
+  interface CompareResult {
+    branch: string;
+    incoming: LogEntry[]; // 在所选分支、不在当前(分支领先当前)
+    outgoing: LogEntry[]; // 在当前、不在所选分支(当前领先分支)
+  }
+  let compareResult = $state<CompareResult | null>(null); // 分支↔当前提交对比弹层(Compare with Current)
   let subCount = $derived(status?.submodules.length ?? 0); // 子仓库数(顶部「更新子仓库」据此启用)
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
@@ -1143,6 +1156,10 @@
         branchPickerRepo = null;
         branchDiff = d;
       }}
+      onCompare={(d) => {
+        branchPickerRepo = null;
+        compareResult = d;
+      }}
     />
   {/if}
 
@@ -1222,6 +1239,63 @@
             <DiffView files={branchDiff.files} />
           </div>
         {/if}
+      </div>
+    </div>
+  {/if}
+
+  <!-- ── 分支↔当前提交对比弹层(Compare with Current) ── -->
+  {#if compareResult}
+    <div class="update-overlay">
+      <div class="branch-diff-modal">
+        <div class="bd-header">
+          <h2 class="bd-title">
+            对比 <span class="bd-branch">{compareResult.branch}</span> ↔ 当前分支
+          </h2>
+          <button
+            class="bd-close"
+            onclick={() => (compareResult = null)}
+            title="关闭">✕</button
+          >
+        </div>
+        <div class="branch-diff-body">
+          {#snippet commitList(entries: LogEntry[])}
+            <ul class="cmp-list">
+              {#each entries as c (c.full_sha)}
+                <li class="cmp-row">
+                  <span class="cmp-sha">{c.sha}</span>
+                  <span class="cmp-msg">{c.message}</span>
+                  <span class="cmp-rmeta">{c.author} · {c.date}</span>
+                </li>
+              {/each}
+            </ul>
+          {/snippet}
+          {#if compareResult.incoming.length === 0 && compareResult.outgoing.length === 0}
+            <p class="diff-empty">两分支提交一致,无独有提交</p>
+          {:else}
+            <section class="cmp-section">
+              <h3 class="cmp-head">
+                <span class="cmp-branch">{compareResult.branch}</span> 领先当前
+                <span class="cmp-count">{compareResult.incoming.length}</span>
+              </h3>
+              {#if compareResult.incoming.length === 0}
+                <p class="cmp-none">无</p>
+              {:else}
+                {@render commitList(compareResult.incoming)}
+              {/if}
+            </section>
+            <section class="cmp-section">
+              <h3 class="cmp-head">
+                当前领先 <span class="cmp-branch">{compareResult.branch}</span>
+                <span class="cmp-count">{compareResult.outgoing.length}</span>
+              </h3>
+              {#if compareResult.outgoing.length === 0}
+                <p class="cmp-none">无</p>
+              {:else}
+                {@render commitList(compareResult.outgoing)}
+              {/if}
+            </section>
+          {/if}
+        </div>
       </div>
     </div>
   {/if}
@@ -1442,6 +1516,69 @@
     text-align: center;
     padding: 32px 18px;
     margin: 0;
+  }
+
+  /* ── 提交对比(Compare with Current) ── */
+  .cmp-section {
+    margin-bottom: 18px;
+  }
+  .cmp-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #bbb;
+    border-bottom: 1px solid #383838;
+    padding-bottom: 6px;
+  }
+  .cmp-branch {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #e2c47a;
+  }
+  .cmp-count {
+    background: #2d1d3a;
+    color: #c49ae2;
+    font-size: 11px;
+    border-radius: 10px;
+    padding: 1px 8px;
+  }
+  .cmp-none {
+    color: #666;
+    font-size: 12px;
+    margin: 0 0 4px;
+    padding-left: 2px;
+  }
+  .cmp-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .cmp-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 4px 2px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .cmp-sha {
+    color: #e2c47a;
+    flex-shrink: 0;
+  }
+  .cmp-msg {
+    flex: 1;
+    color: #ddd;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cmp-rmeta {
+    color: #777;
+    flex-shrink: 0;
+    font-size: 11px;
   }
 
   .branch {

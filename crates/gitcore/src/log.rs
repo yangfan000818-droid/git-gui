@@ -89,6 +89,46 @@ pub(crate) fn log(repo: &Repo, opts: &LogOptions) -> Result<Vec<LogEntry>, Error
     Ok(entries)
 }
 
+/// 选定分支与当前 HEAD 的双向独有提交(Compare with Current)。
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct BranchComparison {
+    /// 在 other 但不在当前 HEAD 的提交(`HEAD..other`,= 合并 other 会带进来的)。
+    pub incoming: Vec<LogEntry>,
+    /// 在当前 HEAD 但不在 other 的提交(`other..HEAD`)。
+    pub outgoing: Vec<LogEntry>,
+}
+
+/// 比较选定 ref(分支/远程分支)与当前 HEAD,列出双向各自独有的提交。
+pub(crate) fn compare_commits(repo: &Repo, other: &str) -> Result<BranchComparison, Error> {
+    Ok(BranchComparison {
+        incoming: rev_range(repo, &format!("HEAD..{other}"))?,
+        outgoing: rev_range(repo, &format!("{other}..HEAD"))?,
+    })
+}
+
+/// 取某个 `A..B` 范围的提交列表(newest first)。
+fn rev_range(repo: &Repo, range: &str) -> Result<Vec<LogEntry>, Error> {
+    let output = repo.git(&["log", "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ar", range])?;
+    let entries = output
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split('\0').collect();
+            if parts.len() != 5 {
+                return None;
+            }
+            Some(LogEntry {
+                full_sha: parts[0].to_string(),
+                sha: parts[1].to_string(),
+                message: parts[2].to_string(),
+                author: parts[3].to_string(),
+                date: parts[4].to_string(),
+            })
+        })
+        .collect();
+    Ok(entries)
+}
+
 /// 带分支拓扑图的一行 log:`graph` 是该行的图形前缀(如 `* `、`|\`、`| * `),
 /// `entry` 仅 commit 行有(纯连接行为 None)。
 #[derive(Debug, Clone)]
