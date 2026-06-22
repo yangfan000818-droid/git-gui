@@ -106,7 +106,7 @@ impl BranchView {
                     self.message = "分支名不能为空".into();
                     return Ok(Action::None);
                 }
-                match repo.create_branch(&self.input) {
+                match repo.create_branch(&self.input, None) {
                     Ok(()) => {
                         self.message = format!("已创建分支 {}", self.input);
                         self.mode = Mode::List;

@@ -135,9 +135,13 @@ fn parse_track(track: &str) -> (u32, u32) {
     (ahead, behind)
 }
 
-/// 创建新分支（不切换）。
-pub(crate) fn create_branch(repo: &Repo, name: &str) -> Result<(), Error> {
-    repo.git(&["branch", name])?;
+/// 创建新分支（不切换）。`start` 为 None 时从当前 HEAD 创建,Some 时从指定起点(分支/提交)创建。
+pub(crate) fn create_branch(repo: &Repo, name: &str, start: Option<&str>) -> Result<(), Error> {
+    let mut args = vec!["branch", name];
+    if let Some(s) = start {
+        args.push(s);
+    }
+    repo.git(&args)?;
     Ok(())
 }
 

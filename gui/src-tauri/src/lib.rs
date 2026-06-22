@@ -524,11 +524,16 @@ fn repo_switch_branch(path: String, name: String) -> Result<(), String> {
     repo.switch_branch(&name).map_err(|e| e.to_string())
 }
 
-/// 新建分支(仅创建,不切换)。
+/// 新建分支(仅创建,不切换)。start_point 为 None 时从当前 HEAD,Some 时从指定分支/提交。
 #[tauri::command]
-fn repo_create_branch(path: String, name: String) -> Result<(), String> {
+fn repo_create_branch(
+    path: String,
+    name: String,
+    start_point: Option<String>,
+) -> Result<(), String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.create_branch(&name).map_err(|e| e.to_string())
+    repo.create_branch(&name, start_point.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 /// 删除分支(安全模式:拒删当前分支和未合并分支)。

@@ -446,9 +446,9 @@ impl Repo {
         branch::list_branches(self)
     }
 
-    /// 创建新分支。
-    pub fn create_branch(&self, name: &str) -> Result<(), Error> {
-        branch::create_branch(self, name)
+    /// 创建新分支。`start` 为 None 时从当前 HEAD,Some 时从指定起点(分支/提交)。
+    pub fn create_branch(&self, name: &str, start: Option<&str>) -> Result<(), Error> {
+        branch::create_branch(self, name, start)
     }
 
     /// 切换到指定分支。

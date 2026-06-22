@@ -49,8 +49,9 @@
   let switching = $state(false);
   let fetching = $state(false);
 
-  // 新建分支
+  // 新建分支("" = 从当前 HEAD;否则从所选分支 = New Branch from Selected)
   let newBranchName = $state("");
+  let newBranchStart = $state("");
 
   // 重命名分支(null = 没有在重命名)
   let renamingBranch = $state<string | null>(null);
@@ -190,7 +191,11 @@
     switching = true;
     error = "";
     try {
-      await invoke("repo_create_branch", { path: repoPath, name });
+      await invoke("repo_create_branch", {
+        path: repoPath,
+        name,
+        startPoint: newBranchStart || null,
+      });
       await invoke("repo_switch_branch", { path: repoPath, name });
       newBranchName = "";
       onSwitched();
@@ -295,7 +300,7 @@
       <div class="bp-error">{error}</div>
     {/if}
 
-    <!-- 新建分支 -->
+    <!-- 新建分支(可选起点 = New Branch from Selected) -->
     <div class="bp-create">
       <input
         class="bp-input"
@@ -305,6 +310,17 @@
         disabled={switching}
         onkeydown={handleNewKeydown}
       />
+      <select
+        class="bp-start"
+        bind:value={newBranchStart}
+        disabled={switching}
+        title="新分支起点"
+      >
+        <option value="">起点:当前 HEAD</option>
+        {#each branches as b}
+          <option value={b.name}>起点:{b.name}</option>
+        {/each}
+      </select>
       <button
         class="bp-create-btn"
         disabled={switching || !newBranchName.trim()}
@@ -543,6 +559,19 @@
     min-width: 0;
   }
   .bp-input:disabled {
+    opacity: 0.4;
+  }
+  .bp-start {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #ccc;
+    font-size: 11px;
+    padding: 5px 4px;
+    max-width: 130px;
+    flex-shrink: 0;
+  }
+  .bp-start:disabled {
     opacity: 0.4;
   }
   .bp-create-btn {
