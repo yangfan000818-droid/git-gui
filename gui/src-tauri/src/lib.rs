@@ -533,6 +533,21 @@ fn repo_delete_branch(path: String, name: String) -> Result<(), String> {
     repo.delete_branch(&name).map_err(|e| e.to_string())
 }
 
+/// 列出远程跟踪分支(refs/remotes/,过滤 origin/HEAD)。
+#[tauri::command]
+fn repo_remote_branches(path: String) -> Result<Vec<BranchInfo>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.remote_branches().map_err(|e| e.to_string())
+}
+
+/// 检出远程分支为本地跟踪分支(脏工作区/本地同名已存在时返回错误)。
+#[tauri::command]
+fn repo_checkout_remote(path: String, remote_branch: String) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.checkout_remote(&remote_branch)
+        .map_err(|e| e.to_string())
+}
+
 // ── History 视图命令 ──
 
 #[tauri::command]
@@ -669,6 +684,8 @@ pub fn run() {
             repo_switch_branch,
             repo_create_branch,
             repo_delete_branch,
+            repo_remote_branches,
+            repo_checkout_remote,
             repo_log_graph,
             repo_file_history,
             repo_commit_file_diff,

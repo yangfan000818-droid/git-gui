@@ -7,6 +7,7 @@
     upstream: string | null;
     ahead: number;
     behind: number;
+    is_remote: boolean;
   }
 
   interface Props {
@@ -18,9 +19,11 @@
   let { repoPath, onClose, onSwitched }: Props = $props();
 
   let branches = $state<BranchInfo[]>([]);
+  let remoteBranches = $state<BranchInfo[]>([]);
   let loading = $state(true);
   let error = $state("");
   let switching = $state(false);
+  let fetching = $state(false);
 
   // 新建分支
   let newBranchName = $state("");
@@ -32,10 +35,43 @@
       branches = await invoke<BranchInfo[]>("repo_branches", {
         path: repoPath,
       });
+      remoteBranches = await invoke<BranchInfo[]>("repo_remote_branches", {
+        path: repoPath,
+      });
     } catch (e) {
       error = String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function doFetch() {
+    fetching = true;
+    error = "";
+    try {
+      await invoke("repo_fetch", { path: repoPath });
+      await load();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      fetching = false;
+    }
+  }
+
+  async function checkoutRemote(remoteBranch: string) {
+    switching = true;
+    error = "";
+    try {
+      await invoke("repo_checkout_remote", {
+        path: repoPath,
+        remoteBranch,
+      });
+      onSwitched();
+      onClose();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      switching = false;
     }
   }
 
@@ -113,6 +149,14 @@
   <div class="bp-panel" onclick={(e) => e.stopPropagation()}>
     <div class="bp-header">
       <h3>分支</h3>
+      <button
+        class="bp-fetch"
+        disabled={fetching || switching}
+        onclick={doFetch}
+        title="git fetch --prune,刷新远程分支"
+      >
+        {fetching ? "拉取中…" : "⟳ Fetch"}
+      </button>
       <button class="bp-close" onclick={onClose} aria-label="关闭">×</button>
     </div>
 
@@ -141,45 +185,67 @@
 
     {#if loading}
       <p class="bp-muted">加载中…</p>
-    {:else if branches.length === 0}
-      <p class="bp-muted">没有本地分支</p>
     {:else}
-      <ul class="bp-list">
-        {#each branches as b}
-          <li class="bp-item" class:bp-current={b.is_current}>
-            <button
-              class="bp-btn"
-              disabled={switching || b.is_current}
-              onclick={() => switchTo(b.name)}
-            >
-              <span class="bp-name">{b.name}</span>
-              {#if b.is_current}
-                <span class="bp-check">✓</span>
-              {/if}
-              {#if b.upstream}
-                <span class="bp-upstream">{b.upstream}</span>
-              {/if}
-              <span class="bp-stats">
-                {#if b.ahead > 0}<span class="badge ahead">↑{b.ahead}</span
-                  >{/if}
-                {#if b.behind > 0}<span class="badge behind">↓{b.behind}</span
-                  >{/if}
-              </span>
-            </button>
-            {#if !b.is_current}
+      <p class="bp-group-label">本地分支</p>
+      {#if branches.length === 0}
+        <p class="bp-muted">没有本地分支</p>
+      {:else}
+        <ul class="bp-list">
+          {#each branches as b}
+            <li class="bp-item" class:bp-current={b.is_current}>
               <button
-                class="bp-del"
-                disabled={switching}
-                onclick={() => deleteBranch(b.name)}
-                aria-label="删除分支 {b.name}"
-                title="删除分支"
+                class="bp-btn"
+                disabled={switching || b.is_current}
+                onclick={() => switchTo(b.name)}
               >
-                ×
+                <span class="bp-name">{b.name}</span>
+                {#if b.is_current}
+                  <span class="bp-check">✓</span>
+                {/if}
+                {#if b.upstream}
+                  <span class="bp-upstream">{b.upstream}</span>
+                {/if}
+                <span class="bp-stats">
+                  {#if b.ahead > 0}<span class="badge ahead">↑{b.ahead}</span
+                    >{/if}
+                  {#if b.behind > 0}<span class="badge behind">↓{b.behind}</span
+                    >{/if}
+                </span>
               </button>
-            {/if}
-          </li>
-        {/each}
-      </ul>
+              {#if !b.is_current}
+                <button
+                  class="bp-del"
+                  disabled={switching}
+                  onclick={() => deleteBranch(b.name)}
+                  aria-label="删除分支 {b.name}"
+                  title="删除分支"
+                >
+                  ×
+                </button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      {#if remoteBranches.length > 0}
+        <p class="bp-group-label">远程分支</p>
+        <ul class="bp-list">
+          {#each remoteBranches as b}
+            <li class="bp-item">
+              <button
+                class="bp-btn"
+                disabled={switching}
+                onclick={() => checkoutRemote(b.name)}
+                title="检出为本地跟踪分支"
+              >
+                <span class="bp-name">{b.name}</span>
+                <span class="bp-checkout">检出</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
   </div>
 </div>
@@ -218,6 +284,26 @@
     color: #e4e4e4;
     margin: 0;
   }
+  .bp-fetch {
+    margin-left: auto;
+    margin-right: 8px;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 3px 9px;
+    white-space: nowrap;
+  }
+  .bp-fetch:hover:not(:disabled) {
+    background: #333;
+    color: #e4e4e4;
+  }
+  .bp-fetch:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
   .bp-close {
     background: transparent;
     border: none;
@@ -229,6 +315,21 @@
   }
   .bp-close:hover {
     color: #e4e4e4;
+  }
+  .bp-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 8px 0 2px;
+    padding: 0 18px;
+  }
+  .bp-checkout {
+    font-size: 11px;
+    color: #0e639c;
+    flex-shrink: 0;
+    margin-left: auto;
   }
   .bp-error {
     background: #3a1d1d;

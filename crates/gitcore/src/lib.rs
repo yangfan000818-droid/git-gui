@@ -440,6 +440,16 @@ impl Repo {
         branch::delete_branch(self, name)
     }
 
+    /// 列出所有远程跟踪分支(refs/remotes/,过滤 origin/HEAD)。
+    pub fn remote_branches(&self) -> Result<Vec<BranchInfo>, Error> {
+        branch::list_remote_branches(self)
+    }
+
+    /// 检出远程分支为本地跟踪分支(脏工作区/本地同名已存在时报错)。
+    pub fn checkout_remote(&self, remote_branch: &str) -> Result<(), Error> {
+        branch::checkout_remote(self, remote_branch)
+    }
+
     // 跑一个必须成功的 git 子命令,非零退出 → Err。
     pub(crate) fn git(&self, args: &[&str]) -> Result<String, Error> {
         git::run(&self.workdir, args)
