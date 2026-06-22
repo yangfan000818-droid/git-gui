@@ -10,6 +10,7 @@
   import FileHistory from "$lib/FileHistory.svelte";
   import BlameView from "$lib/BlameView.svelte";
   import BranchPicker from "$lib/BranchPicker.svelte";
+  import CommonBranchPicker from "$lib/CommonBranchPicker.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -95,6 +96,7 @@
   let showBlame = $state(false); // blame 弹窗
   let blamePath = $state(""); // blame 查看的文件路径
   let branchPickerRepo = $state<string | null>(null); // 哪个仓库的分支选择面板打开(null=关闭)
+  let showCommonBranchPicker = $state(false); // 多仓库统一切换面板
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
   let commitMessage = $state("");
@@ -735,6 +737,12 @@
           title="推送主仓库及各子仓库到各自远程"
           onclick={doPushAll}>全部推送</button
         >
+        <button
+          class="btn-remote"
+          disabled={loading || operating || repos.length === 0}
+          title="列出各仓库同名分支，一键全部切换"
+          onclick={() => (showCommonBranchPicker = true)}>全部切换</button
+        >
       </div>
     {/if}
   </header>
@@ -1068,6 +1076,14 @@
     <BranchPicker
       repoPath={branchPickerRepo}
       onClose={() => (branchPickerRepo = null)}
+      onSwitched={refresh}
+    />
+  {/if}
+
+  {#if showCommonBranchPicker}
+    <CommonBranchPicker
+      {repos}
+      onClose={() => (showCommonBranchPicker = false)}
       onSwitched={refresh}
     />
   {/if}
