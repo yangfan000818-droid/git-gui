@@ -267,24 +267,24 @@
   });
 
   async function refresh() {
-    selectedLines = new Map();
     await reload();
     await reconcileSelection();
   }
 
   // 刷新后保持原选中文件并重新懒加载其 diff;若它已消失则清空选中。
+  // keepStale:重载同一文件,保留旧 diff 不闪占位符,行选择由 loadDiff 按内容是否变决定。
   async function reconcileSelection() {
     if (selectedRepoPath && selectedFilePath) {
       const repo = repos.find((r) => r.path === selectedRepoPath);
       if (repo) {
         if (repo.unstaged.find((f) => f.path === selectedFilePath)) {
           activeList = "unstaged";
-          await loadDiff(selectedRepoPath, selectedFilePath, "unstaged");
+          await loadDiff(selectedRepoPath, selectedFilePath, "unstaged", true);
           return;
         }
         if (repo.staged.find((f) => f.path === selectedFilePath)) {
           activeList = "staged";
-          await loadDiff(selectedRepoPath, selectedFilePath, "staged");
+          await loadDiff(selectedRepoPath, selectedFilePath, "staged", true);
           return;
         }
       }
@@ -292,6 +292,7 @@
     selectedRepoPath = null;
     selectedFilePath = null;
     selectedFile = null;
+    selectedLines = new Map();
   }
 
   async function selectFile(
@@ -307,27 +308,42 @@
   }
 
   // 懒加载选中文件的完整 diff(列表只有路径/状态,内容点开才拉)。
+  // keepStale:重载当前已选中文件时(刷新/操作后)保留旧 diff,不闪"加载中"占位符,
+  // 拿到新内容再原地替换;且仅当内容真变了(stage 致 hunk 重编号/外部改动)才清行选择,
+  // 没变则保留——避免偶发刷新打扰用户正在进行的行级勾选。
   async function loadDiff(
     repoPath: string,
     filePath: string,
     list: "unstaged" | "staged",
+    keepStale = false,
   ) {
-    diffLoading = true;
+    const prev = keepStale ? selectedFile : null;
+    if (!keepStale) diffLoading = true;
     try {
       const cmd =
         list === "unstaged"
           ? "repo_file_unstaged_diff"
           : "repo_file_staged_diff";
-      selectedFile = await invoke<FileDiff | null>(cmd, {
+      const next = await invoke<FileDiff | null>(cmd, {
         path: repoPath,
         file: filePath,
       });
+      selectedFile = next;
+      if (keepStale && !sameDiff(prev, next)) selectedLines = new Map();
     } catch (e) {
       error = String(e);
       selectedFile = null;
     } finally {
-      diffLoading = false;
+      if (!keepStale) diffLoading = false;
     }
+  }
+
+  // 两个 diff 是否内容相同(按 hunk 原始文本逐段比较;null 安全)。
+  function sameDiff(a: FileDiff | null, b: FileDiff | null): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (a.hunks.length !== b.hunks.length) return false;
+    return a.hunks.every((h, i) => h.raw === b.hunks[i].raw);
   }
 
   function isActive(repo: RepoView, list: "unstaged" | "staged"): boolean {

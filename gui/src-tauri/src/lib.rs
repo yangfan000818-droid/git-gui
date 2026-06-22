@@ -156,6 +156,19 @@ fn start_watch(app: AppHandle, path: String, state: State<'_, WatchState>) -> Re
             if event.kind.is_access() {
                 return;
             }
+            // git 每次读操作(status/diff)都会瞬时创建/删除 .git/index.lock 等锁文件;
+            // 递归监视 .git 会把这些纯锁文件事件当成"仓库变更" → 触发 refresh,
+            // refresh 又跑 status/diff 再生成锁文件 → 自激成无限刷新(diff 区一闪一闪)。
+            // 锁文件本身不是有意义的状态变更(真正的变更是锁释放后落盘的目标文件,
+            // 如 index 的 rename 事件路径不含 .lock,仍会被捕获),整事件路径全是 *.lock 时跳过。
+            if !event.paths.is_empty()
+                && event
+                    .paths
+                    .iter()
+                    .all(|p| p.extension().and_then(|e| e.to_str()) == Some("lock"))
+            {
+                return;
+            }
             let _ = tx.send(());
         }
     })
