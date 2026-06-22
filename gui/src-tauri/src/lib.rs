@@ -538,6 +538,14 @@ fn repo_delete_branch(path: String, name: String) -> Result<(), String> {
     repo.delete_branch(&name).map_err(|e| e.to_string())
 }
 
+/// 重命名分支(目标名已存在时返回错误)。
+#[tauri::command]
+fn repo_rename_branch(path: String, old_name: String, new_name: String) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.rename_branch(&old_name, &new_name)
+        .map_err(|e| e.to_string())
+}
+
 /// 列出远程跟踪分支(refs/remotes/,过滤 origin/HEAD)。
 #[tauri::command]
 fn repo_remote_branches(path: String) -> Result<Vec<BranchInfo>, String> {
@@ -689,6 +697,7 @@ pub fn run() {
             repo_switch_branch,
             repo_create_branch,
             repo_delete_branch,
+            repo_rename_branch,
             repo_remote_branches,
             repo_checkout_remote,
             repo_log_graph,

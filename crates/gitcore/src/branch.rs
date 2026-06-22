@@ -165,6 +165,12 @@ pub(crate) fn delete_branch(repo: &Repo, name: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// 重命名分支(git branch -m;目标名已存在时 git 报错)。
+pub(crate) fn rename_branch(repo: &Repo, old: &str, new: &str) -> Result<(), Error> {
+    repo.git(&["branch", "-m", old, new])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

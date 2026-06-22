@@ -447,6 +447,11 @@ impl Repo {
         branch::delete_branch(self, name)
     }
 
+    /// 重命名分支(目标名已存在时报错)。
+    pub fn rename_branch(&self, old: &str, new: &str) -> Result<(), Error> {
+        branch::rename_branch(self, old, new)
+    }
+
     /// 列出所有远程跟踪分支(refs/remotes/,过滤 origin/HEAD)。
     pub fn remote_branches(&self) -> Result<Vec<BranchInfo>, Error> {
         branch::list_remote_branches(self)

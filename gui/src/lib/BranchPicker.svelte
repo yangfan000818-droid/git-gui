@@ -28,6 +28,10 @@
   // 新建分支
   let newBranchName = $state("");
 
+  // 重命名分支(null = 没有在重命名)
+  let renamingBranch = $state<string | null>(null);
+  let renameValue = $state("");
+
   async function load() {
     loading = true;
     error = "";
@@ -122,6 +126,42 @@
     }
   }
 
+  function startRename(name: string) {
+    renamingBranch = name;
+    renameValue = name;
+    error = "";
+  }
+  function cancelRename() {
+    renamingBranch = null;
+  }
+  async function confirmRename() {
+    const oldName = renamingBranch;
+    const newName = renameValue.trim();
+    if (!oldName || !newName || newName === oldName) {
+      cancelRename();
+      return;
+    }
+    switching = true;
+    error = "";
+    try {
+      await invoke("repo_rename_branch", { path: repoPath, oldName, newName });
+      renamingBranch = null;
+      await load();
+      onSwitched(); // 重命名当前分支会改主仓显示的分支名,刷新外部
+    } catch (e) {
+      error = String(e);
+    } finally {
+      switching = false;
+    }
+  }
+  function handleRenameKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") confirmRename();
+    else if (e.key === "Escape") {
+      e.stopPropagation();
+      cancelRename();
+    }
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") onClose();
   }
@@ -193,35 +233,67 @@
         <ul class="bp-list">
           {#each branches as b}
             <li class="bp-item" class:bp-current={b.is_current}>
-              <button
-                class="bp-btn"
-                disabled={switching || b.is_current}
-                onclick={() => switchTo(b.name)}
-              >
-                <span class="bp-name">{b.name}</span>
-                {#if b.is_current}
-                  <span class="bp-check">✓</span>
-                {/if}
-                {#if b.upstream}
-                  <span class="bp-upstream">{b.upstream}</span>
-                {/if}
-                <span class="bp-stats">
-                  {#if b.ahead > 0}<span class="badge ahead">↑{b.ahead}</span
-                    >{/if}
-                  {#if b.behind > 0}<span class="badge behind">↓{b.behind}</span
-                    >{/if}
-                </span>
-              </button>
-              {#if !b.is_current}
-                <button
-                  class="bp-del"
+              {#if renamingBranch === b.name}
+                <!-- svelte-ignore a11y_autofocus -->
+                <input
+                  class="bp-rename-input"
+                  type="text"
+                  bind:value={renameValue}
                   disabled={switching}
-                  onclick={() => deleteBranch(b.name)}
-                  aria-label="删除分支 {b.name}"
-                  title="删除分支"
+                  onkeydown={handleRenameKeydown}
+                  autofocus
+                />
+                <button
+                  class="bp-rename-ok"
+                  disabled={switching || !renameValue.trim()}
+                  onclick={confirmRename}
+                  aria-label="确认重命名">✓</button
                 >
-                  ×
+                <button
+                  class="bp-rename-cancel"
+                  disabled={switching}
+                  onclick={cancelRename}
+                  aria-label="取消重命名">×</button
+                >
+              {:else}
+                <button
+                  class="bp-btn"
+                  disabled={switching || b.is_current}
+                  onclick={() => switchTo(b.name)}
+                >
+                  <span class="bp-name">{b.name}</span>
+                  {#if b.is_current}
+                    <span class="bp-check">✓</span>
+                  {/if}
+                  {#if b.upstream}
+                    <span class="bp-upstream">{b.upstream}</span>
+                  {/if}
+                  <span class="bp-stats">
+                    {#if b.ahead > 0}<span class="badge ahead">↑{b.ahead}</span
+                      >{/if}
+                    {#if b.behind > 0}<span class="badge behind"
+                        >↓{b.behind}</span
+                      >{/if}
+                  </span>
                 </button>
+                <button
+                  class="bp-rename"
+                  disabled={switching}
+                  onclick={() => startRename(b.name)}
+                  aria-label="重命名分支 {b.name}"
+                  title="重命名分支">✎</button
+                >
+                {#if !b.is_current}
+                  <button
+                    class="bp-del"
+                    disabled={switching}
+                    onclick={() => deleteBranch(b.name)}
+                    aria-label="删除分支 {b.name}"
+                    title="删除分支"
+                  >
+                    ×
+                  </button>
+                {/if}
               {/if}
             </li>
           {/each}
@@ -478,6 +550,58 @@
     background: #3a2020;
   }
   .bp-del:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  /* 重命名 */
+  .bp-rename {
+    background: transparent;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 7px 8px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .bp-rename:hover:not(:disabled) {
+    color: #7ab8e2;
+    background: #1d2b3a;
+  }
+  .bp-rename:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+  .bp-rename-input {
+    flex: 1;
+    background: #2a2a2a;
+    border: 1px solid #0e639c;
+    border-radius: 4px;
+    color: #e4e4e4;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    padding: 5px 8px;
+    margin: 2px 0 2px 16px;
+    min-width: 0;
+  }
+  .bp-rename-ok,
+  .bp-rename-cancel {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 15px;
+    padding: 7px 8px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .bp-rename-ok {
+    color: #7ee29a;
+  }
+  .bp-rename-cancel {
+    color: #888;
+  }
+  .bp-rename-ok:disabled {
     opacity: 0.3;
     cursor: default;
   }
