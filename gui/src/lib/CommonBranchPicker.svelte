@@ -54,6 +54,7 @@
   }
 
   async function switchAll(name: string) {
+    if (!confirm(`确定把全部 ${repos.length} 个仓库切换到 "${name}"?`)) return;
     switching = true;
     error = "";
     results = [];
