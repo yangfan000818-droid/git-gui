@@ -82,8 +82,15 @@ pub enum SubmoduleUpdate {
     SyncedToRecorded,
     /// 跳过:子仓当前分支没有 upstream,无拉取目标。
     SkippedNoUpstream,
-    /// 更新产生冲突,已回退到更新前(不留半合并状态),需手动在该子仓解决。
-    Conflict,
+    /// pull 产生冲突,停下交前端进 ConflictView 解决;
+    /// 携带子仓绝对路径(供 continue/abort 定位)+ 冲突文件 + 保留的 autostash。
+    Conflicted {
+        repo_path: PathBuf,
+        files: Vec<PathBuf>,
+        autostash: Option<StashRef>,
+    },
+    /// 整合成功但 autostash 还原时冲突(工作树有冲突标记,非合并进行中),提示手动处理。
+    StashConflict,
 }
 
 /// 预检 + fetch + 计算计划,不改动工作区。
@@ -448,12 +455,13 @@ pub(crate) fn update_submodule_on_branch(
         UpdateOutcome::FastForwarded { commits } => Ok(SubmoduleUpdate::Updated { commits }),
         UpdateOutcome::Integrated { commits, .. } => Ok(SubmoduleUpdate::Updated { commits }),
         UpdateOutcome::Resolved => Ok(SubmoduleUpdate::Updated { commits: 0 }),
-        // 冲突:回退到更新前,不把子仓留在半合并状态(GUI 暂不支持子仓冲突解决)。
-        UpdateOutcome::Conflicted { autostash, .. } => {
-            abort_update(&sub, autostash)?;
-            Ok(SubmoduleUpdate::Conflict)
-        }
-        UpdateOutcome::StashRestoreConflict { .. } => Ok(SubmoduleUpdate::Conflict),
+        // 冲突:停下,把子仓路径 + 冲突文件 + autostash 交回前端进 ConflictView 解决。
+        UpdateOutcome::Conflicted { files, autostash } => Ok(SubmoduleUpdate::Conflicted {
+            repo_path: abs,
+            files,
+            autostash,
+        }),
+        UpdateOutcome::StashRestoreConflict { .. } => Ok(SubmoduleUpdate::StashConflict),
         // 子仓的子仓同步失败:本层已 recurse_submodules=false,不会走到;兜底当作已更新。
         UpdateOutcome::SubmoduleSyncFailed { .. } => Ok(SubmoduleUpdate::Updated { commits: 0 }),
     }

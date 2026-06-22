@@ -121,15 +121,25 @@
   // ── 冲突解决状态 ──
   let conflictFiles = $state<string[]>([]);
   let autostash = $state<StashRef | null>(null);
+  // 正在解决冲突的仓库路径(主仓库 path 或子仓绝对路径);
+  // resolvingSubIndex 非 null = 正在解决第 N 个子仓的冲突,解决/放弃后从 N+1 续跑。
+  let conflictPath = $state("");
+  let resolvingSubIndex = $state<number | null>(null);
 
   // ── 子仓库更新状态(主仓库整合成功后,逐个在各自当前分支 pull) ──
   // SubmoduleUpdate: 外部 tagged 枚举(同 UpdateOutcome)
+  type SubConflictData = {
+    repo_path: string;
+    files: string[];
+    autostash: StashRef | null;
+  };
   type SubmoduleUpdate =
     | "UpToDate"
     | "SyncedToRecorded"
     | "SkippedNoUpstream"
-    | "Conflict"
-    | { Updated: { commits: number } };
+    | "StashConflict"
+    | { Updated: { commits: number } }
+    | { Conflicted: SubConflictData };
 
   interface SubResult {
     label: string;
@@ -139,13 +149,22 @@
   let subResults = $state<SubResult[]>([]);
   let subCurrent = $state(""); // 正在更新的子仓库路径
 
-  // 把 SubmoduleUpdate 结果映射为展示(图标状态 + 文案)。
+  function isSubConflicted(
+    r: SubmoduleUpdate,
+  ): r is { Conflicted: SubConflictData } {
+    return typeof r === "object" && "Conflicted" in r;
+  }
+
+  // 把(非冲突的)SubmoduleUpdate 结果映射为展示(图标状态 + 文案)。
   function describeSub(r: SubmoduleUpdate): {
     status: SubResult["status"];
     detail: string;
   } {
     if (typeof r === "object") {
-      return { status: "ok", detail: `已更新 ${r.Updated.commits} 个提交` };
+      if ("Updated" in r) {
+        return { status: "ok", detail: `已更新 ${r.Updated.commits} 个提交` };
+      }
+      return { status: "warn", detail: "冲突" }; // Conflicted 已在循环里拦截,兜底
     }
     switch (r) {
       case "UpToDate":
@@ -154,10 +173,10 @@
         return { status: "ok", detail: "detached,已同步到记录提交" };
       case "SkippedNoUpstream":
         return { status: "warn", detail: "跳过:无上游分支" };
-      case "Conflict":
+      case "StashConflict":
         return {
           status: "warn",
-          detail: "更新有冲突,已保持原状,请手动更新该子仓",
+          detail: "整合成功但 stash 还原冲突,请手动处理",
         };
     }
   }
@@ -255,12 +274,14 @@
   }
 
   // ── Step 3: 主仓库终态分流 ──
-  // 冲突 → 进冲突解决;其余终态 → 主仓库已完成,继续逐个更新子仓库。
+  // 冲突 → 进冲突解决(主仓库);其余终态 → 主仓库已完成,继续逐个更新子仓库。
   async function handleMainOutcome(o: UpdateOutcome) {
     outcome = o;
     const v = outcomeVariant(o);
     if (v === "Conflicted") {
       const d = outcomeData<ConflictedData>(o)!;
+      conflictPath = path; // 主仓库
+      resolvingSubIndex = null;
       conflictFiles = d.files;
       autostash = d.autostash;
       phase = "conflict_resolution";
@@ -271,21 +292,37 @@
   }
 
   // 主仓库整合完成后,把每个子仓库在**各自当前分支**上更新(pull,留在原分支,不 detach)。
-  // 单个失败不阻断,逐个记录结果,最终在 outcome 汇总。
   async function proceedToSubmodules() {
     if (submodules.length === 0) {
       phase = "outcome";
       return;
     }
-    phase = "submodules_updating";
     subResults = [];
-    for (const sub of submodules) {
+    await processSubmodulesFrom(0);
+  }
+
+  // 从第 start 个子仓起逐个更新;遇冲突则暂停进 ConflictView,解决/放弃后从下一个续跑。
+  // 单个失败不阻断,逐个记录结果,全部处理完进 outcome 汇总。
+  async function processSubmodulesFrom(start: number) {
+    phase = "submodules_updating";
+    for (let i = start; i < submodules.length; i++) {
+      const sub = submodules[i];
       subCurrent = sub.path;
       try {
         const r = await invoke<SubmoduleUpdate>(
           "repo_update_submodule_on_branch",
           { path, subPath: sub.path, options: buildOptions() },
         );
+        if (isSubConflicted(r)) {
+          // 暂停循环:进该子仓的冲突解决(复用 ConflictView),解决/放弃后从 i+1 续跑。
+          subCurrent = "";
+          resolvingSubIndex = i;
+          conflictPath = r.Conflicted.repo_path;
+          conflictFiles = r.Conflicted.files;
+          autostash = r.Conflicted.autostash;
+          phase = "conflict_resolution";
+          return;
+        }
         const { status, detail } = describeSub(r);
         subResults = [...subResults, { label: sub.path, status, detail }];
       } catch (e) {
@@ -299,28 +336,70 @@
     phase = "outcome";
   }
 
+  // 子仓冲突解决/放弃后:记录该子仓结果,从下一个子仓继续。
+  async function resumeAfterSub(status: SubResult["status"], detail: string) {
+    const idx = resolvingSubIndex!;
+    subResults = [
+      ...subResults,
+      { label: submodules[idx].path, status, detail },
+    ];
+    resolvingSubIndex = null;
+    conflictPath = "";
+    conflictFiles = [];
+    autostash = null;
+    await processSubmodulesFrom(idx + 1);
+  }
+
   async function doContinue() {
     error = "";
     try {
       const result = await invoke<UpdateOutcome>("continue_update_cmd", {
-        path,
+        path: conflictPath,
         autostash,
-        recurseSubmodules,
+        recurseSubmodules:
+          resolvingSubIndex === null ? recurseSubmodules : false,
       });
-      await handleMainOutcome(result);
+      if (resolvingSubIndex === null) {
+        await handleMainOutcome(result);
+        return;
+      }
+      // 子仓:仍有冲突 → 留在解决界面;否则记为已解决并续跑剩余子仓。
+      if (outcomeVariant(result) === "Conflicted") {
+        conflictFiles = outcomeData<ConflictedData>(result)!.files;
+        return;
+      }
+      await resumeAfterSub("ok", "冲突已解决");
     } catch (e) {
       error = String(e);
     }
   }
 
   async function doAbort() {
-    if (!confirm("确定放弃本次更新整合？工作区将回到更新前的状态。")) return;
     error = "";
+    if (resolvingSubIndex === null) {
+      // 主仓库:放弃整个更新整合,回到更新前。
+      if (!confirm("确定放弃本次更新整合？工作区将回到更新前的状态。")) return;
+      try {
+        await invoke("abort_update_cmd", { path: conflictPath, autostash });
+        await onRefresh();
+        reset();
+        onClose();
+      } catch (e) {
+        error = String(e);
+      }
+      return;
+    }
+    // 子仓:只放弃该子仓的更新(回到更新前),其余子仓继续。
+    const subLabel = submodules[resolvingSubIndex].path;
+    if (
+      !confirm(
+        `确定放弃子仓「${subLabel}」的更新？它将回到更新前;其余子仓继续。`,
+      )
+    )
+      return;
     try {
-      await invoke("abort_update_cmd", { path, autostash });
-      await onRefresh();
-      reset();
-      onClose();
+      await invoke("abort_update_cmd", { path: conflictPath, autostash });
+      await resumeAfterSub("warn", "已放弃,保持原状");
     } catch (e) {
       error = String(e);
     }
@@ -342,6 +421,8 @@
     progress = null;
     conflictFiles = [];
     autostash = null;
+    conflictPath = "";
+    resolvingSubIndex = null;
     subResults = [];
     subCurrent = "";
     planning = false;
@@ -366,6 +447,8 @@
         { path },
       );
       if (pending && pending.files.length > 0) {
+        conflictPath = path; // 中断的整合是主仓库的
+        resolvingSubIndex = null;
         conflictFiles = pending.files;
         autostash = pending.autostash;
         phase = "conflict_resolution";
@@ -631,8 +714,14 @@
 
   <!-- ── conflict_resolution: 冲突解决（三栏视图） ── -->
   {#if phase === "conflict_resolution"}
+    {#if resolvingSubIndex !== null}
+      <p class="sub-conflict-banner">
+        子仓库「{submodules[resolvingSubIndex].path}」更新冲突 —
+        解决后将继续更新剩余子仓库
+      </p>
+    {/if}
     <ConflictView
-      {path}
+      path={conflictPath}
       {conflictFiles}
       {autostash}
       onContinue={doContinue}
@@ -717,6 +806,15 @@
   }
   .sub-current {
     color: #888 !important;
+  }
+  .sub-conflict-banner {
+    background: #3a2f1d;
+    border: 1px solid #6a542b;
+    border-radius: 6px;
+    color: #e0c178;
+    font-size: 12px;
+    padding: 8px 12px;
+    margin: 0 0 12px;
   }
   .sub-icon {
     flex-shrink: 0;
