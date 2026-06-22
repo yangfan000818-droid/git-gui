@@ -5,12 +5,14 @@
   interface AppSettings {
     update_strategy: "Merge" | "Rebase";
     ignore_whitespace: boolean;
+    skip_hooks: boolean;
   }
 
   let { onClose }: { onClose: () => void } = $props();
 
   let strategy = $state<"Merge" | "Rebase">("Merge");
   let ignoreWhitespace = $state(true);
+  let skipHooks = $state(false);
   let loading = $state(true);
   let saving = $state(false);
   let error = $state("");
@@ -20,6 +22,7 @@
       const s = await invoke<AppSettings>("get_settings");
       strategy = s.update_strategy;
       ignoreWhitespace = s.ignore_whitespace;
+      skipHooks = s.skip_hooks;
     } catch (e) {
       error = String(e);
     } finally {
@@ -35,6 +38,7 @@
         settings: {
           update_strategy: strategy,
           ignore_whitespace: ignoreWhitespace,
+          skip_hooks: skipHooks,
         },
       });
       onClose();
@@ -110,6 +114,17 @@
           <span>
             <b>忽略空白差异</b>
             <small>整合时用 -Xignore-space-change,减少纯空白引起的伪冲突</small>
+          </span>
+        </label>
+
+        <label class="st-check">
+          <input type="checkbox" bind:checked={skipHooks} />
+          <span>
+            <b>提交时跳过 git 钩子</b>
+            <small
+              >勾选则提交用 --no-verify,不运行 pre-commit / commit-msg
+              钩子。默认不跳过。</small
+            >
           </span>
         </label>
       </div>

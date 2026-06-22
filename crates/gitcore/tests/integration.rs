@@ -574,6 +574,7 @@ fn stage_and_commit_advances_head() {
         message: "add b".into(),
         allow_empty: false,
         amend: false,
+        no_verify: false,
     };
     let sha = repo.commit(&opts).unwrap();
     assert_eq!(sha.len(), 8, "SHA 应为 8 位");
@@ -906,6 +907,7 @@ fn commit_empty_staging_fails() {
         message: "empty".into(),
         allow_empty: false,
         amend: false,
+        no_verify: false,
     };
 
     let err = repo.commit(&opts).unwrap_err();
@@ -1114,6 +1116,7 @@ fn commit_amend_rewrites_head_without_new_commit() {
         message: "add b".into(),
         allow_empty: false,
         amend: false,
+        no_verify: false,
     })
     .unwrap();
 
@@ -1132,6 +1135,7 @@ fn commit_amend_rewrites_head_without_new_commit() {
         message: "add b (reworded)".into(),
         allow_empty: false,
         amend: true,
+        no_verify: false,
     })
     .unwrap();
 

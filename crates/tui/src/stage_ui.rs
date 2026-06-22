@@ -129,6 +129,7 @@ impl StageView {
                     message: self.commit_input.clone(),
                     allow_empty: false,
                     amend: false,
+                    no_verify: false,
                 };
                 match repo.commit(&opts) {
                     Ok(sha) => return Ok(Action::Commit(sha)),

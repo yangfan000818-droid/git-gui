@@ -7,6 +7,8 @@ pub struct CommitOptions {
     pub allow_empty: bool,
     /// 修改上一次提交(git commit --amend)而非新建。
     pub amend: bool,
+    /// 跳过 git 钩子(--no-verify):pre-commit / commit-msg 不运行。
+    pub no_verify: bool,
 }
 
 /// 创建提交,返回新提交的 SHA(前 8 位)。
@@ -27,6 +29,9 @@ pub(crate) fn commit(repo: &Repo, opts: &CommitOptions) -> Result<String, Error>
     }
     if opts.allow_empty {
         args.push("--allow-empty");
+    }
+    if opts.no_verify {
+        args.push("--no-verify");
     }
 
     repo.git(&args)?;

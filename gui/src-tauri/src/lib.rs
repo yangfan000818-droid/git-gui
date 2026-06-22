@@ -95,6 +95,9 @@ struct AppSettings {
     update_strategy: String,
     /// 整合时忽略纯空白差异(减少伪冲突)。
     ignore_whitespace: bool,
+    /// 提交时跳过 git 钩子(--no-verify)。默认 false = 不跳过。
+    #[serde(default)]
+    skip_hooks: bool,
 }
 
 impl Default for AppSettings {
@@ -102,6 +105,7 @@ impl Default for AppSettings {
         Self {
             update_strategy: "Merge".into(),
             ignore_whitespace: true,
+            skip_hooks: false,
         }
     }
 }
@@ -342,11 +346,17 @@ fn repo_unstage_lines(
 }
 
 #[tauri::command]
-fn repo_commit(path: String, message: String, amend: bool) -> Result<String, String> {
+fn repo_commit(
+    app: AppHandle,
+    path: String,
+    message: String,
+    amend: bool,
+) -> Result<String, String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
     let opts = CommitOptions {
         message,
         amend,
+        no_verify: AppSettings::load(&app).skip_hooks,
         ..Default::default()
     };
     repo.commit(&opts).map_err(|e| e.to_string())
