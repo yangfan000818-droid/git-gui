@@ -11,6 +11,7 @@
   import BlameView from "$lib/BlameView.svelte";
   import BranchPicker from "$lib/BranchPicker.svelte";
   import ConflictView from "$lib/ConflictView.svelte";
+  import Settings from "$lib/Settings.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -101,6 +102,7 @@
   let showBlame = $state(false); // blame 弹窗
   let blamePath = $state(""); // blame 查看的文件路径
   let branchPickerRepo = $state<string | null>(null); // 哪个仓库的分支选择面板打开(null=关闭)
+  let showSettings = $state(false); // 全局设置弹层
   interface StashRef {
     label: string;
   }
@@ -805,6 +807,12 @@
         >
       </div>
     {/if}
+    <button
+      class="btn-settings"
+      onclick={() => (showSettings = true)}
+      title="设置:更新策略等全局配置"
+      aria-label="设置">⚙</button
+    >
   </header>
 
   <!-- ── 标签栏 ── -->
@@ -1304,6 +1312,11 @@
       </div>
     </div>
   {/if}
+
+  <!-- ── 全局设置 ── -->
+  {#if showSettings}
+    <Settings onClose={() => (showSettings = false)} />
+  {/if}
 </main>
 
 <style>
@@ -1626,6 +1639,22 @@
   .btn-remote:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  .btn-settings {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    font-size: 17px;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .btn-settings:hover {
+    color: #e4e4e4;
+    background: #333;
   }
 
   /* ── 错误 ── */

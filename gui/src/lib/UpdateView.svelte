@@ -14,12 +14,9 @@
     ignore_whitespace: boolean;
     recurse_submodules: boolean;
   }
-  interface UpdatePlan {
-    upstream: string;
-    behind: number;
-    ahead: number;
-    can_fast_forward: boolean;
-    will_autostash: boolean;
+  interface AppSettings {
+    update_strategy: "Merge" | "Rebase";
+    ignore_whitespace: boolean;
   }
   interface Progress {
     phase: string;
@@ -84,7 +81,7 @@
     path: string;
     submodules: { name: string; path: string; status: string }[];
     title?: string;
-    // 仅子仓模式:跳过主仓库 plan/execute,直接逐个在各自当前分支更新子仓库。
+    // 仅子仓模式:跳过主仓库更新,直接逐个在各自当前分支更新子仓库。
     subsOnly?: boolean;
     onRefresh: () => Promise<void>;
     onClose: () => void;
@@ -96,7 +93,7 @@
   );
   let subUpdateCount = $derived(submodules.length - subInitCount);
 
-  // ── 策略选项 ──
+  // ── 整合选项(onMount 从全局设置载入,不再每次弹选) ──
   let strategy = $state<"Merge" | "Rebase">("Merge");
   let ignoreWhitespace = $state(true);
   // 全部更新:主仓库整合时不自动递归子模块,子仓库改为在各自当前分支上 pull(留在原分支,不 detach)。
@@ -110,19 +107,17 @@
     };
   }
 
-  // ── 流程状态机 ──
+  // ── 流程状态机(一键:打开即执行,无策略选择/计划预览) ──
+  // idle 仅作出错重试态;首屏直接进 executing,onMount 自动开跑。
   type Phase =
     | "idle"
-    | "planning"
-    | "plan_shown"
     | "executing"
     | "submodules_updating"
     | "outcome"
     | "conflict_resolution";
-  let phase = $state<Phase>("idle");
+  let phase = $state<Phase>("executing");
   let error = $state("");
   let cancelled = $state(false);
-  let plan = $state<UpdatePlan | null>(null);
   let outcome = $state<UpdateOutcome | null>(null);
   let opId = $state("");
   let progress = $state<Progress | null>(null);
@@ -203,48 +198,16 @@
     }
   }
 
-  // ── Step 1: 计划 ──
-  let planning = $state(false); // 重入防护
-
-  async function doPlan() {
-    if (planning) return;
-    planning = true;
-    phase = "planning";
-    error = "";
-    plan = null;
-    opId = crypto.randomUUID();
-
-    // 注册进度事件(planning 阶段也可收到 fetch 进度)
-    try {
-      unlisten = await listen<Progress>("update-progress", (event) => {
-        progress = event.payload;
-      });
-    } catch {
-      // 监听失败不阻塞
-    }
-
-    try {
-      plan = await invoke<UpdatePlan>("plan_update", {
-        path,
-        opId,
-        options: buildOptions(),
-      });
-      phase = "plan_shown";
-    } catch (e) {
-      if (cancelled) {
-        phase = "idle";
-      } else {
-        error = String(e);
-        phase = "idle";
-      }
-      cancelled = false;
-    } finally {
-      planning = false;
-      cleanup();
+  // ── 一键入口:子仓模式逐个更新子仓,否则直接执行主仓更新(内部已含 fetch) ──
+  async function startUpdate() {
+    if (subsOnly) {
+      await proceedToSubmodules();
+    } else {
+      await doExecute();
     }
   }
 
-  // ── Step 2: 执行 ──
+  // ── 执行 ──
   async function doExecute() {
     phase = "executing";
     error = "";
@@ -441,7 +404,6 @@
     cleanup();
     phase = "idle";
     error = "";
-    plan = null;
     outcome = null;
     progress = null;
     conflictFiles = [];
@@ -450,39 +412,38 @@
     resolvingSubIndex = null;
     subResults = [];
     subCurrent = "";
-    planning = false;
     cancelled = false;
   }
 
-  function cancelPlan() {
-    // planning 阶段:设标志让 doPlan catch 静默处理,不 reset(避免清掉 cancelled)
-    if (phase === "planning") {
-      cancelled = true;
-      if (opId) invoke("cancel_op", { opId });
-      return;
-    }
-    reset();
-  }
-
-  // 检测中断的整合，有则直接进冲突视图
+  // 打开即:载入全局设置 → 检测中断的整合(有则进冲突解决) → 否则一键开跑。
   onMount(async () => {
-    // 仅子仓模式不动主仓库,跳过主仓库未完成整合的检测。
-    if (subsOnly) return;
     try {
-      const pending = await invoke<PendingConflicts | null>(
-        "resume_conflicts",
-        { path },
-      );
-      if (pending && pending.files.length > 0) {
-        conflictPath = path; // 中断的整合是主仓库的
-        resolvingSubIndex = null;
-        conflictFiles = pending.files;
-        autostash = pending.autostash;
-        phase = "conflict_resolution";
-      }
+      const s = await invoke<AppSettings>("get_settings");
+      strategy = s.update_strategy;
+      ignoreWhitespace = s.ignore_whitespace;
     } catch {
-      // 仓库无未完成整合，正常忽略
+      // 读设置失败用默认值(Merge / 忽略空白)
     }
+    // 仅子仓模式不动主仓库,跳过主仓库未完成整合的检测。
+    if (!subsOnly) {
+      try {
+        const pending = await invoke<PendingConflicts | null>(
+          "resume_conflicts",
+          { path },
+        );
+        if (pending && pending.files.length > 0) {
+          conflictPath = path; // 中断的整合是主仓库的
+          resolvingSubIndex = null;
+          conflictFiles = pending.files;
+          autostash = pending.autostash;
+          phase = "conflict_resolution";
+          return; // 先解决中断的冲突,不自动开跑
+        }
+      } catch {
+        // 仓库无未完成整合，正常忽略
+      }
+    }
+    await startUpdate();
   });
 
   function cancelOp() {
@@ -530,9 +491,7 @@
     <button
       class="btn-close"
       onclick={onClose}
-      disabled={phase === "planning" ||
-        phase === "executing" ||
-        phase === "submodules_updating"}
+      disabled={phase === "executing" || phase === "submodules_updating"}
       title="关闭"
     >
       ✕
@@ -543,32 +502,9 @@
     <pre class="update-error">{error}</pre>
   {/if}
 
-  <!-- ── idle: 检查更新入口 ── -->
+  <!-- ── idle: 出错/重试态(首屏由 onMount 自动进入执行,无需手动点) ── -->
   {#if phase === "idle"}
     <div class="update-idle">
-      <div class="strategy-bar">
-        <fieldset class="strategy-group">
-          <legend>整合策略</legend>
-          <label class="radio-label">
-            <input
-              type="radio"
-              name="strategy"
-              value="Merge"
-              bind:group={strategy}
-            />
-            Merge
-          </label>
-          <label class="radio-label">
-            <input
-              type="radio"
-              name="strategy"
-              value="Rebase"
-              bind:group={strategy}
-            />
-            Rebase
-          </label>
-        </fieldset>
-      </div>
       {#if subsOnly}
         <p class="update-scope">
           {#if subInitCount > 0 && subUpdateCount > 0}
@@ -580,90 +516,19 @@
             将把 {subUpdateCount} 个子仓库在各自当前分支上更新（留在原分支）。
           {/if}
         </p>
-        <button
-          class="btn-primary"
-          onclick={proceedToSubmodules}
-          title="在各自当前分支上更新所有子仓库（留在原分支,不 detach）"
-        >
-          开始更新
-        </button>
       {:else}
         <p class="update-scope">
           将更新主仓库{#if submodules.length > 0}，并把 {submodules.length}
             个子仓库在各自当前分支上更新（留在原分支）{/if}。
         </p>
-        <button
-          class="btn-primary"
-          onclick={doPlan}
-          title="fetch 远程并计算领先/落后,先看更新计划再决定是否执行"
-        >
-          检查更新
-        </button>
       {/if}
-    </div>
-  {/if}
-
-  <!-- ── planning: 联网检查(fetch)进度 + 取消 ── -->
-  {#if phase === "planning"}
-    <div class="planning">
-      <div class="progress-bar-wrap">
-        <div
-          class="progress-bar-fill"
-          style="width: {progress?.percent ?? 0}%"
-          role="progressbar"
-          aria-valuenow={progress?.percent ?? 0}
-          aria-valuemin="0"
-          aria-valuemax="100"
-        ></div>
-        <span class="progress-text">
-          {progress?.phase ?? "联网检查中…"}
-          {#if progress?.percent != null}
-            ({progress?.percent}%){/if}
-        </span>
-      </div>
       <button
-        class="btn-danger"
-        style="margin-top:8px"
-        onclick={cancelPlan}
-        title="取消本次检查更新"
+        class="btn-primary"
+        onclick={startUpdate}
+        title="按全局策略更新:fetch → 整合（autostash 兜底）;有冲突会停下逐个解决"
       >
-        取消
+        {error ? "重试" : "更新"}
       </button>
-    </div>
-  {/if}
-
-  <!-- ── plan_shown: 展示计划 ── -->
-  {#if phase === "plan_shown" && plan}
-    <div class="plan-card">
-      <h3>更新计划</h3>
-      <dl class="plan-fields">
-        <dt>upstream</dt>
-        <dd>{plan.upstream}</dd>
-        <dt>落后</dt>
-        <dd>{plan.behind} 个提交</dd>
-        <dt>领先</dt>
-        <dd>{plan.ahead} 个提交</dd>
-        <dt>快进</dt>
-        <dd>{plan.can_fast_forward ? "是 (直接快进)" : "否 (需整合)"}</dd>
-        <dt>自动 stash</dt>
-        <dd>{plan.will_autostash ? "是 (工作区有未保存改动)" : "否"}</dd>
-      </dl>
-      <div class="plan-actions">
-        <button
-          class="btn-primary"
-          onclick={doExecute}
-          title="按计划执行:autostash → 整合（合并/变基）→ 还原;有冲突会停下逐个解决"
-        >
-          确认更新
-        </button>
-        <button
-          class="btn-secondary"
-          onclick={cancelPlan}
-          title="放弃本次更新,不改动工作区"
-        >
-          取消
-        </button>
-      </div>
     </div>
   {/if}
 
@@ -937,31 +802,6 @@
     font-size: 12px;
   }
 
-  /* ── 策略选择 ── */
-  .strategy-bar {
-    margin-bottom: 12px;
-  }
-  .strategy-group {
-    border: 1px solid #444;
-    border-radius: 6px;
-    padding: 6px 12px 8px;
-    display: inline-flex;
-    gap: 12px;
-  }
-  .strategy-group legend {
-    color: #888;
-    font-size: 11px;
-    text-transform: uppercase;
-  }
-  .radio-label {
-    color: #ccc;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 13px;
-  }
-
   /* ── 按钮 ── */
   .btn-primary {
     background: #0e639c;
@@ -979,18 +819,6 @@
     opacity: 0.5;
     cursor: default;
   }
-  .btn-secondary {
-    background: #383838;
-    border: 1px solid #555;
-    border-radius: 6px;
-    color: #ccc;
-    padding: 6px 16px;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-secondary:hover {
-    background: #444;
-  }
   .btn-danger {
     background: #8b2a2a;
     border: none;
@@ -1003,42 +831,7 @@
   .btn-danger:hover {
     background: #a33;
   }
-  /* ── 计划卡片 ── */
-  .plan-card {
-    background: #252525;
-    border: 1px solid #383838;
-    border-radius: 8px;
-    padding: 14px 18px;
-    margin-bottom: 12px;
-    max-width: 480px;
-  }
-  .plan-card h3 {
-    margin: 0 0 10px;
-    font-size: 14px;
-  }
-  .plan-fields {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 16px;
-    margin: 0 0 14px;
-  }
-  .plan-fields dt {
-    color: #888;
-    font-size: 12px;
-  }
-  .plan-fields dd {
-    color: #e4e4e4;
-    margin: 0;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-  }
-  .plan-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  /* ── 进度条(planning / executing 共用) ── */
-  .planning,
+  /* ── 进度条(executing) ── */
   .executing {
     max-width: 480px;
   }

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use gitcore::{
     BranchComparison, BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk,
     PendingConflicts, Progress, Repo, RepoStatus, Segment, StashRef, SubmoduleUpdate,
-    SwitchOutcome, UpdateOptions, UpdateOutcome, UpdatePlan,
+    SwitchOutcome, UpdateOptions, UpdateOutcome,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -85,6 +85,62 @@ fn remove_recent_project(app: AppHandle, path: String) -> Result<(), String> {
         history.last_project = history.recent_projects.first().cloned();
     }
     history.save(&app)
+}
+
+// ── 全局设置(settings.json):更新策略等,一次配置全局生效,更新时不再逐次弹选 ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AppSettings {
+    /// 整合策略:"Merge" | "Rebase"。
+    update_strategy: String,
+    /// 整合时忽略纯空白差异(减少伪冲突)。
+    ignore_whitespace: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            update_strategy: "Merge".into(),
+            ignore_whitespace: true,
+        }
+    }
+}
+
+impl AppSettings {
+    fn load(app: &AppHandle) -> Self {
+        let path = Self::config_path(app);
+        if let Ok(content) = fs::read_to_string(&path) {
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            Self::default()
+        }
+    }
+
+    fn save(&self, app: &AppHandle) -> Result<(), String> {
+        let path = Self::config_path(app);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let content = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        fs::write(&path, content).map_err(|e| e.to_string())
+    }
+
+    fn config_path(app: &AppHandle) -> PathBuf {
+        app.path()
+            .app_data_dir()
+            .expect("无法获取应用数据目录")
+            .join("settings.json")
+    }
+}
+
+#[tauri::command]
+fn get_settings(app: AppHandle) -> AppSettings {
+    AppSettings::load(&app)
+}
+
+#[tauri::command]
+fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    settings.save(&app)
 }
 
 // ── 取消注册表:op_id → CancelToken,供前端取消长操作 ──
@@ -371,33 +427,6 @@ async fn repo_push(path: String) -> Result<String, String> {
 }
 
 // ── Update 视图命令 ──
-
-/// 预检 + fetch + 计算计划,不改动工作区。fetch 阶段可取消。
-#[tauri::command]
-async fn plan_update(
-    app: AppHandle,
-    path: String,
-    op_id: String,
-    options: UpdateOptions,
-    state: State<'_, CancelRegistry>,
-) -> Result<UpdatePlan, String> {
-    let cancel = CancelToken::default();
-    state.insert(op_id.clone(), cancel.clone());
-
-    let res = tauri::async_runtime::spawn_blocking(move || -> Result<UpdatePlan, String> {
-        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-        let mut on_progress = |p: Progress| {
-            let _ = app.emit("update-progress", p);
-        };
-        repo.plan_update_streaming(&options, &mut on_progress, &cancel)
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-
-    state.remove(&op_id);
-    res
-}
 
 /// 执行完整 Update 流程(autostash → 整合 → restore)。
 /// 长操作:async + spawn_blocking,进度经 "update-progress" 事件推送,取消走 CancelRegistry。
@@ -716,6 +745,8 @@ pub fn run() {
             get_recent_projects,
             add_recent_project,
             remove_recent_project,
+            get_settings,
+            save_settings,
             repo_status,
             repo_unstaged_diff,
             repo_staged_diff,
@@ -734,7 +765,6 @@ pub fn run() {
             repo_submodule_sync,
             repo_fetch,
             repo_push,
-            plan_update,
             execute_update,
             cancel_op,
             read_repo_file,
