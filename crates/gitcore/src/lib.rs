@@ -15,6 +15,7 @@ mod git;
 mod hunk;
 mod log;
 mod push;
+mod reset;
 mod resolve;
 mod stage;
 mod stash;
@@ -36,6 +37,7 @@ pub use git::{CancelToken, Progress};
 pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
 pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions};
 pub use push::PushOutcome;
+pub use reset::ResetMode;
 pub use resolve::{
     parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment,
 };
@@ -130,6 +132,11 @@ impl Repo {
     /// Revert 一个提交(生成反向提交)。
     pub fn revert(&self, sha: &str) -> Result<UpdateOutcome, Error> {
         update::revert(self, sha)
+    }
+
+    /// 把当前分支重置到指定提交(soft/mixed/hard)。
+    pub fn reset(&self, sha: &str, mode: ResetMode) -> Result<(), Error> {
+        reset::reset(self, sha, mode)
     }
 
     /// 把另一个分支合并到当前分支(对标 WebStorm "Merge into current")。

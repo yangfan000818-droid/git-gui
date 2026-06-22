@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use gitcore::{
     BranchComparison, BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk,
-    PendingConflicts, PopResult, Progress, Repo, RepoStatus, Segment, StashEntry, StashRef,
-    SubmoduleUpdate, SwitchOutcome, UpdateOptions, UpdateOutcome,
+    PendingConflicts, PopResult, Progress, Repo, RepoStatus, ResetMode, Segment, StashEntry,
+    StashRef, SubmoduleUpdate, SwitchOutcome, UpdateOptions, UpdateOutcome,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -587,6 +587,13 @@ fn repo_revert(path: String, sha: String) -> Result<UpdateOutcome, String> {
     repo.revert(&sha).map_err(|e| e.to_string())
 }
 
+/// 把当前分支重置到指定提交(soft/mixed/hard,对标 WebStorm Reset Current Branch to Here)。
+#[tauri::command]
+fn repo_reset(path: String, sha: String, mode: ResetMode) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.reset(&sha, mode).map_err(|e| e.to_string())
+}
+
 /// 列出仓库所有本地分支。
 #[tauri::command]
 fn repo_branches(path: String) -> Result<Vec<BranchInfo>, String> {
@@ -841,6 +848,7 @@ pub fn run() {
             resume_conflicts,
             repo_cherry_pick,
             repo_revert,
+            repo_reset,
             repo_branches,
             repo_switch_branch,
             repo_switch_branch_autostash,

@@ -121,6 +121,9 @@
   // ── Cherry-pick / Revert 状态 ──
   let operationInProgress = $state(false);
   let operationError = $state("");
+  // 重置到此:展开模式选择面板 + 选定模式
+  let resetting = $state(false);
+  let resetMode = $state<"Soft" | "Mixed" | "Hard">("Mixed");
   let conflictFiles = $state<string[]>([]);
   let autostash = $state<StashRef | null>(null);
   let inConflictResolution = $state(false);
@@ -157,6 +160,7 @@
     commitDiffs = [];
     submoduleRanges = {};
     copied = false;
+    resetting = false;
     try {
       const [msg, diffs] = await Promise.all([
         invoke<string>("repo_commit_message", { path, sha: entry.full_sha }),
@@ -235,6 +239,35 @@
       } else {
         await load();
       }
+    } catch (e) {
+      operationError = String(e);
+    } finally {
+      operationInProgress = false;
+    }
+  }
+
+  // ── 重置到此(Reset Current Branch to Here) ──
+  async function doReset() {
+    if (!selectedCommit || operationInProgress) return;
+    // 硬重置会丢弃工作区改动,额外二次确认。
+    if (
+      resetMode === "Hard" &&
+      !confirm(
+        `硬重置到 ${selectedCommit.sha}：将丢弃工作区与暂存区的所有未提交改动,且当前分支会回退到该提交。此操作不可恢复,确定?`,
+      )
+    ) {
+      return;
+    }
+    operationInProgress = true;
+    operationError = "";
+    try {
+      await invoke("repo_reset", {
+        path,
+        sha: selectedCommit.full_sha,
+        mode: resetMode,
+      });
+      resetting = false;
+      await load();
     } catch (e) {
       operationError = String(e);
     } finally {
@@ -508,6 +541,13 @@
                 >Revert</button
               >
               <button
+                class="btn-action btn-reset"
+                class:active={resetting}
+                disabled={operationInProgress}
+                onclick={() => (resetting = !resetting)}
+                title="把当前分支重置到该提交（git reset）">重置到此</button
+              >
+              <button
                 class="btn-copy"
                 onclick={copySha}
                 title="复制该提交的完整 SHA"
@@ -523,6 +563,65 @@
             <span class="meta-date">{selectedCommit.date}</span>
           </div>
         </div>
+
+        {#if resetting}
+          <div class="reset-panel">
+            <p class="reset-title">
+              把当前分支重置到 <code>{selectedCommit.sha}</code>：
+            </p>
+            <label class="reset-mode">
+              <input
+                type="radio"
+                name="resetmode"
+                value="Mixed"
+                bind:group={resetMode}
+              />
+              <span>
+                <b>混合（默认）</b>
+                <small>移动分支指针，改动退回工作区（未暂存），不丢失</small>
+              </span>
+            </label>
+            <label class="reset-mode">
+              <input
+                type="radio"
+                name="resetmode"
+                value="Soft"
+                bind:group={resetMode}
+              />
+              <span>
+                <b>软</b>
+                <small>移动分支指针，改动保留在暂存区</small>
+              </span>
+            </label>
+            <label class="reset-mode">
+              <input
+                type="radio"
+                name="resetmode"
+                value="Hard"
+                bind:group={resetMode}
+              />
+              <span>
+                <b>硬</b>
+                <small class="reset-danger"
+                  >移动分支指针，丢弃工作区与暂存区改动（不可恢复）</small
+                >
+              </span>
+            </label>
+            <div class="reset-actions">
+              <button
+                class="btn-reset-confirm"
+                class:danger={resetMode === "Hard"}
+                disabled={operationInProgress}
+                onclick={doReset}>确认重置</button
+              >
+              <button
+                class="btn-reset-cancel"
+                disabled={operationInProgress}
+                onclick={() => (resetting = false)}>取消</button
+              >
+            </div>
+          </div>
+        {/if}
 
         {#if operationError}
           <pre class="error">{operationError}</pre>
@@ -782,6 +881,102 @@
   .btn-action:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .btn-reset {
+    background: #5a4a1d;
+    border-color: #7a6a3a;
+  }
+  .btn-reset:hover:not(:disabled) {
+    background: #6a5a2d;
+  }
+  .btn-reset.active {
+    background: #7a6a3a;
+  }
+
+  /* ── 重置面板 ── */
+  .reset-panel {
+    background: #252525;
+    border: 1px solid #5a4a2a;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+  .reset-title {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: #ccc;
+  }
+  .reset-title code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #e2c47a;
+  }
+  .reset-mode {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 5px 0;
+    cursor: pointer;
+  }
+  .reset-mode input {
+    margin-top: 3px;
+    flex-shrink: 0;
+  }
+  .reset-mode span {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .reset-mode b {
+    font-size: 12px;
+    color: #e4e4e4;
+    font-weight: 600;
+  }
+  .reset-mode small {
+    font-size: 11px;
+    color: #888;
+  }
+  .reset-mode .reset-danger {
+    color: #e0a0a0;
+  }
+  .reset-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .btn-reset-confirm {
+    background: #5a4a1d;
+    border: 1px solid #7a6a3a;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 5px 14px;
+  }
+  .btn-reset-confirm:hover:not(:disabled) {
+    background: #6a5a2d;
+  }
+  .btn-reset-confirm.danger {
+    background: #8b2a2a;
+    border-color: #a33;
+  }
+  .btn-reset-confirm.danger:hover:not(:disabled) {
+    background: #a33;
+  }
+  .btn-reset-confirm:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .btn-reset-cancel {
+    background: #383838;
+    border: 1px solid #555;
+    border-radius: 4px;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 5px 14px;
+  }
+  .btn-reset-cancel:hover:not(:disabled) {
+    background: #444;
   }
   .btn-copy {
     flex-shrink: 0;

@@ -1305,3 +1305,45 @@ fn stash_push_list_apply_drop_roundtrip() {
 
     cleanup(&[&dir]);
 }
+
+#[test]
+fn reset_mixed_keeps_worktree_hard_discards() {
+    use gitcore::ResetMode;
+    let dir = init_repo("reset");
+    write(&dir, "a.txt", "v1\n");
+    commit_all(&dir, "c1");
+    let c1 = String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    write(&dir, "a.txt", "v2\n");
+    commit_all(&dir, "c2");
+
+    let repo = Repo::open(&dir).unwrap();
+    // mixed:HEAD 回到 c1,工作区文件仍是 c2 内容(v2)→ 相对 c1 为脏
+    repo.reset(&c1, ResetMode::Mixed).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "v2\n",
+        "mixed 不动工作区"
+    );
+    assert!(repo.status().unwrap().dirty, "mixed 后工作区应为脏");
+
+    // hard:回到 c1 并丢弃工作区改动 → 文件变回 v1,干净
+    repo.reset(&c1, ResetMode::Hard).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "v1\n",
+        "hard 丢弃改动回到 c1"
+    );
+    assert!(!repo.status().unwrap().dirty, "hard 后工作区干净");
+
+    cleanup(&[&dir]);
+}
