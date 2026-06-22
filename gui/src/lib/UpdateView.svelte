@@ -77,15 +77,24 @@
     path,
     submodules = [],
     title = "全部更新",
+    subsOnly = false,
     onRefresh,
     onClose,
   }: {
     path: string;
     submodules: { name: string; path: string; status: string }[];
     title?: string;
+    // 仅子仓模式:跳过主仓库 plan/execute,直接逐个在各自当前分支更新子仓库。
+    subsOnly?: boolean;
     onRefresh: () => Promise<void>;
     onClose: () => void;
   } = $props();
+
+  // 仅子仓模式的范围提示:未初始化的将 init,其余 on-branch 更新。
+  let subInitCount = $derived(
+    submodules.filter((s) => s.status === "Uninitialized").length,
+  );
+  let subUpdateCount = $derived(submodules.length - subInitCount);
 
   // ── 策略选项 ──
   let strategy = $state<"Merge" | "Rebase">("Merge");
@@ -308,6 +317,22 @@
     for (let i = start; i < submodules.length; i++) {
       const sub = submodules[i];
       subCurrent = sub.path;
+      // 未初始化子仓:只做 init(无冲突可能),不走 on-branch 更新。
+      if (sub.status === "Uninitialized") {
+        try {
+          await invoke("repo_submodule_update", { path, subPath: sub.path });
+          subResults = [
+            ...subResults,
+            { label: sub.path, status: "ok", detail: "已初始化" },
+          ];
+        } catch (e) {
+          subResults = [
+            ...subResults,
+            { label: sub.path, status: "fail", detail: String(e) },
+          ];
+        }
+        continue;
+      }
       try {
         const r = await invoke<SubmoduleUpdate>(
           "repo_update_submodule_on_branch",
@@ -441,6 +466,8 @@
 
   // 检测中断的整合，有则直接进冲突视图
   onMount(async () => {
+    // 仅子仓模式不动主仓库,跳过主仓库未完成整合的检测。
+    if (subsOnly) return;
     try {
       const pending = await invoke<PendingConflicts | null>(
         "resume_conflicts",
@@ -542,11 +569,27 @@
           </label>
         </fieldset>
       </div>
-      <p class="update-scope">
-        将更新主仓库{#if submodules.length > 0}，并把 {submodules.length}
-          个子仓库在各自当前分支上更新（留在原分支）{/if}。
-      </p>
-      <button class="btn-primary" onclick={doPlan}> 检查更新 </button>
+      {#if subsOnly}
+        <p class="update-scope">
+          {#if subInitCount > 0 && subUpdateCount > 0}
+            将初始化 {subInitCount} 个、并把 {subUpdateCount}
+            个子仓库在各自当前分支上更新（留在原分支）。
+          {:else if subInitCount > 0}
+            将初始化 {subInitCount} 个子仓库（拉到父仓库记录的提交）。
+          {:else}
+            将把 {subUpdateCount} 个子仓库在各自当前分支上更新（留在原分支）。
+          {/if}
+        </p>
+        <button class="btn-primary" onclick={proceedToSubmodules}>
+          开始更新
+        </button>
+      {:else}
+        <p class="update-scope">
+          将更新主仓库{#if submodules.length > 0}，并把 {submodules.length}
+            个子仓库在各自当前分支上更新（留在原分支）{/if}。
+        </p>
+        <button class="btn-primary" onclick={doPlan}> 检查更新 </button>
+      {/if}
     </div>
   {/if}
 

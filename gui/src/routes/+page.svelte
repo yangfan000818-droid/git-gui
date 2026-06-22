@@ -10,7 +10,6 @@
   import FileHistory from "$lib/FileHistory.svelte";
   import BlameView from "$lib/BlameView.svelte";
   import BranchPicker from "$lib/BranchPicker.svelte";
-  import CommonBranchPicker from "$lib/CommonBranchPicker.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -90,13 +89,18 @@
   let tab = $state<"changes" | "history">("changes");
   let showProjectPicker = $state(false);
   let showUpdate = $state(false); // 更新弹层
-  let updateIncludesSubs = $state(true); // 弹层是否同时更新子仓库
+  // 更新弹层入参:子仓列表 / 标题 / 是否仅子仓(跳过主仓库整合)。
+  let updateSubmodules = $state<
+    { name: string; path: string; status: string }[]
+  >([]);
+  let updateTitle = $state("全部更新");
+  let updateSubsOnly = $state(false);
   let showFileHistory = $state(false); // 文件历史弹窗
   let fileHistoryPath = $state(""); // 文件历史查看的文件路径
   let showBlame = $state(false); // blame 弹窗
   let blamePath = $state(""); // blame 查看的文件路径
   let branchPickerRepo = $state<string | null>(null); // 哪个仓库的分支选择面板打开(null=关闭)
-  let showCommonBranchPicker = $state(false); // 多仓库统一切换面板
+  let subCount = $derived(status?.submodules.length ?? 0); // 子仓库数(顶部「更新子仓库」据此启用)
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
   let commitMessage = $state("");
@@ -526,14 +530,13 @@
   }
 
   // ── 子仓库管理(在主仓库执行 git submodule ...) ──
-  async function submoduleAction(repo: RepoView, op: "update" | "sync") {
+  // 同步子仓库 URL 配置(git submodule sync)。
+  async function syncSubmodule(repo: RepoView) {
     if (!repo.subRelPath) return;
     operating = true;
     error = "";
     try {
-      const cmd =
-        op === "update" ? "repo_submodule_update" : "repo_submodule_sync";
-      await invoke(cmd, { path, subPath: repo.subRelPath });
+      await invoke("repo_submodule_sync", { path, subPath: repo.subRelPath });
       await refresh();
     } catch (e) {
       error = String(e);
@@ -543,9 +546,12 @@
   }
 
   // ── 远程操作 ──
-  // 全部更新:主仓库 update + 各子仓库 update --remote。
+  // 全部更新:主仓库整合 + 各子仓库在各自当前分支更新。
   function openUpdateAll() {
-    updateIncludesSubs = true;
+    if (!status) return;
+    updateSubmodules = status.submodules;
+    updateTitle = "全部更新";
+    updateSubsOnly = false;
     error = "";
     opMessage = "";
     showUpdate = true;
@@ -553,7 +559,33 @@
 
   // 仅更新主仓库(弹层不带子仓库)。
   function openUpdateMain() {
-    updateIncludesSubs = false;
+    updateSubmodules = [];
+    updateTitle = "更新主仓库";
+    updateSubsOnly = false;
+    error = "";
+    opMessage = "";
+    showUpdate = true;
+  }
+
+  // 顶部「更新子仓库」:对所有子仓库按状态自动分流(未初始化→init,已初始化→on-branch 更新),不动主仓。
+  function openUpdateSubs() {
+    if (!status) return;
+    updateSubmodules = status.submodules;
+    updateTitle = "更新子仓库";
+    updateSubsOnly = true;
+    error = "";
+    opMessage = "";
+    showUpdate = true;
+  }
+
+  // 行内「更新」:单个子仓在当前分支更新,复用 UpdateView 冲突流程。
+  function openUpdateSub(repo: RepoView) {
+    if (!status || !repo.subRelPath) return;
+    const sub = status.submodules.find((s) => s.path === repo.subRelPath);
+    if (!sub) return;
+    updateSubmodules = [sub];
+    updateTitle = `更新子仓库 · ${repo.label}`;
+    updateSubsOnly = true;
     error = "";
     opMessage = "";
     showUpdate = true;
@@ -739,9 +771,9 @@
         >
         <button
           class="btn-remote"
-          disabled={loading || operating || repos.length === 0}
-          title="列出各仓库同名分支，一键全部切换"
-          onclick={() => (showCommonBranchPicker = true)}>全部切换</button
+          disabled={loading || operating || subCount === 0}
+          title="未初始化的子仓库执行 init，已初始化的在各自当前分支更新（留在原分支）"
+          onclick={openUpdateSubs}>更新子仓库</button
         >
       </div>
     {/if}
@@ -846,28 +878,30 @@
                         onclick={() => doPush(repo.path)}>推送</button
                       >
                     </div>
-                  {:else}
+                  {:else if repo.subStatus !== "Uninitialized"}
                     <div class="repo-manage">
                       <button
                         class="sub-btn"
                         disabled={operating}
-                        title="初始化 / 更新到父仓库记录的提交（update --init）"
-                        onclick={() => submoduleAction(repo, "update")}
-                        >更新</button
+                        title="在当前分支上更新（留在原分支）"
+                        onclick={() => openUpdateSub(repo)}>更新</button
                       >
-                      {#if repo.subStatus !== "Uninitialized"}
-                        <button
-                          class="sub-btn"
-                          disabled={operating}
-                          title="同步子仓库 URL 配置（sync）"
-                          onclick={() => submoduleAction(repo, "sync")}
-                          >同步</button
-                        >
-                      {/if}
+                      <button
+                        class="sub-btn"
+                        disabled={operating}
+                        title="推送子仓库当前分支到远程"
+                        onclick={() => doPush(repo.path)}>推送</button
+                      >
+                      <button
+                        class="sub-btn"
+                        disabled={operating}
+                        title="同步子仓库 URL 配置（sync）"
+                        onclick={() => syncSubmodule(repo)}>同步</button
+                      >
                     </div>
                   {/if}
                   {#if repo.subStatus === "Uninitialized"}
-                    <p class="muted">未初始化 — 点"更新"执行 init</p>
+                    <p class="muted">未初始化 — 点顶部「更新子仓库」</p>
                   {:else if repo.unstaged.length === 0}
                     <p class="muted">无改动</p>
                   {:else}
@@ -1054,8 +1088,9 @@
       <div class="update-modal">
         <UpdateView
           {path}
-          submodules={updateIncludesSubs ? status.submodules : []}
-          title={updateIncludesSubs ? "全部更新" : "更新主仓库"}
+          submodules={updateSubmodules}
+          title={updateTitle}
+          subsOnly={updateSubsOnly}
           onRefresh={refresh}
           onClose={() => (showUpdate = false)}
         />
@@ -1084,14 +1119,6 @@
     <BranchPicker
       repoPath={branchPickerRepo}
       onClose={() => (branchPickerRepo = null)}
-      onSwitched={refresh}
-    />
-  {/if}
-
-  {#if showCommonBranchPicker}
-    <CommonBranchPicker
-      {repos}
-      onClose={() => (showCommonBranchPicker = false)}
       onSwitched={refresh}
     />
   {/if}
