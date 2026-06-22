@@ -124,6 +124,10 @@
   // 重置到此:展开模式选择面板 + 选定模式
   let resetting = $state(false);
   let resetMode = $state<"Soft" | "Mixed" | "Hard">("Mixed");
+  // 打 Tag:展开输入面板 + 名称/注释
+  let tagging = $state(false);
+  let tagName = $state("");
+  let tagMessage = $state("");
   let conflictFiles = $state<string[]>([]);
   let autostash = $state<StashRef | null>(null);
   let inConflictResolution = $state(false);
@@ -161,6 +165,7 @@
     submoduleRanges = {};
     copied = false;
     resetting = false;
+    tagging = false;
     try {
       const [msg, diffs] = await Promise.all([
         invoke<string>("repo_commit_message", { path, sha: entry.full_sha }),
@@ -268,6 +273,30 @@
       });
       resetting = false;
       await load();
+    } catch (e) {
+      operationError = String(e);
+    } finally {
+      operationInProgress = false;
+    }
+  }
+
+  // ── 在该提交打 Tag ──
+  async function doTag() {
+    if (!selectedCommit || operationInProgress) return;
+    const name = tagName.trim();
+    if (!name) return;
+    operationInProgress = true;
+    operationError = "";
+    try {
+      await invoke("repo_create_tag", {
+        path,
+        name,
+        target: selectedCommit.full_sha,
+        message: tagMessage.trim() || null,
+      });
+      tagging = false;
+      tagName = "";
+      tagMessage = "";
     } catch (e) {
       operationError = String(e);
     } finally {
@@ -548,6 +577,13 @@
                 title="把当前分支重置到该提交（git reset）">重置到此</button
               >
               <button
+                class="btn-action btn-tag"
+                class:active={tagging}
+                disabled={operationInProgress}
+                onclick={() => (tagging = !tagging)}
+                title="在该提交创建 tag（git tag）">打 Tag</button
+              >
+              <button
                 class="btn-copy"
                 onclick={copySha}
                 title="复制该提交的完整 SHA"
@@ -618,6 +654,43 @@
                 class="btn-reset-cancel"
                 disabled={operationInProgress}
                 onclick={() => (resetting = false)}>取消</button
+              >
+            </div>
+          </div>
+        {/if}
+
+        {#if tagging}
+          <div class="tag-panel">
+            <p class="tag-title">
+              在 <code>{selectedCommit.sha}</code> 创建 tag：
+            </p>
+            <div class="tag-inputs">
+              <input
+                class="tag-name"
+                type="text"
+                bind:value={tagName}
+                placeholder="tag 名称"
+                disabled={operationInProgress}
+              />
+              <input
+                class="tag-msg"
+                type="text"
+                bind:value={tagMessage}
+                placeholder="注释(可选,留空为轻量标签)"
+                disabled={operationInProgress}
+                onkeydown={(e) => e.key === "Enter" && doTag()}
+              />
+            </div>
+            <div class="tag-actions">
+              <button
+                class="btn-tag-confirm"
+                disabled={operationInProgress || !tagName.trim()}
+                onclick={doTag}>创建</button
+              >
+              <button
+                class="btn-tag-cancel"
+                disabled={operationInProgress}
+                onclick={() => (tagging = false)}>取消</button
               >
             </div>
           </div>
@@ -976,6 +1049,91 @@
     padding: 5px 14px;
   }
   .btn-reset-cancel:hover:not(:disabled) {
+    background: #444;
+  }
+  .btn-tag {
+    background: #1d4a3a;
+    border-color: #2a6a52;
+  }
+  .btn-tag:hover:not(:disabled) {
+    background: #245a48;
+  }
+  .btn-tag.active {
+    background: #2a6a52;
+  }
+
+  /* ── 打 Tag 面板 ── */
+  .tag-panel {
+    background: #252525;
+    border: 1px solid #2a5a48;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+  .tag-title {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: #ccc;
+  }
+  .tag-title code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #e2c47a;
+  }
+  .tag-inputs {
+    display: flex;
+    gap: 8px;
+  }
+  .tag-name,
+  .tag-msg {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #e4e4e4;
+    font-size: 12px;
+    padding: 5px 8px;
+    min-width: 0;
+  }
+  .tag-name {
+    flex: 0 0 140px;
+  }
+  .tag-msg {
+    flex: 1;
+  }
+  .tag-name:disabled,
+  .tag-msg:disabled {
+    opacity: 0.5;
+  }
+  .tag-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .btn-tag-confirm {
+    background: #1d5a1d;
+    border: 1px solid #3a7a3a;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 5px 14px;
+  }
+  .btn-tag-confirm:hover:not(:disabled) {
+    background: #256a25;
+  }
+  .btn-tag-confirm:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .btn-tag-cancel {
+    background: #383838;
+    border: 1px solid #555;
+    border-radius: 4px;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 5px 14px;
+  }
+  .btn-tag-cancel:hover:not(:disabled) {
     background: #444;
   }
   .btn-copy {

@@ -13,6 +13,7 @@
   import ConflictView from "$lib/ConflictView.svelte";
   import Settings from "$lib/Settings.svelte";
   import StashView from "$lib/StashView.svelte";
+  import TagView from "$lib/TagView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -105,6 +106,7 @@
   let branchPickerRepo = $state<string | null>(null); // 哪个仓库的分支选择面板打开(null=关闭)
   let showSettings = $state(false); // 全局设置弹层
   let showStash = $state(false); // Stash 储藏管理弹层
+  let showTags = $state(false); // Tag 管理弹层
   interface StashRef {
     label: string;
   }
@@ -813,6 +815,12 @@
           title="储藏管理：把工作区改动暂存起来，或应用/弹出/丢弃已有储藏（git stash）"
           onclick={() => (showStash = true)}>Stash</button
         >
+        <button
+          class="btn-remote"
+          disabled={loading || operating}
+          title="标签管理：列出/删除 tag，或在 HEAD 创建 tag（git tag）"
+          onclick={() => (showTags = true)}>Tags</button
+        >
       </div>
     {/if}
     <button
@@ -1346,6 +1354,11 @@
       onClose={() => (showStash = false)}
       onChanged={refresh}
     />
+  {/if}
+
+  <!-- ── Tag 管理 ── -->
+  {#if showTags && status}
+    <TagView {path} onClose={() => (showTags = false)} onChanged={refresh} />
   {/if}
 </main>
 

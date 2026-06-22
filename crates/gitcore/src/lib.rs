@@ -21,6 +21,7 @@ mod stage;
 mod stash;
 mod status;
 mod submodule;
+mod tags;
 mod topology;
 mod update;
 
@@ -44,6 +45,7 @@ pub use resolve::{
 pub use stash::{PopResult, StashEntry, StashRef};
 pub use status::{FileState, FileStatus, RepoStatus};
 pub use submodule::{Submodule, SubmoduleStatus};
+pub use tags::TagInfo;
 pub use topology::{GraphCommit, GraphEdge};
 pub use update::{
     IntegrationStrategy, PendingConflicts, SubmoduleUpdate, UpdateOptions, UpdateOutcome,
@@ -137,6 +139,26 @@ impl Repo {
     /// 把当前分支重置到指定提交(soft/mixed/hard)。
     pub fn reset(&self, sha: &str, mode: ResetMode) -> Result<(), Error> {
         reset::reset(self, sha, mode)
+    }
+
+    /// 列出所有 tag。
+    pub fn tags(&self) -> Result<Vec<TagInfo>, Error> {
+        tags::list_tags(self)
+    }
+
+    /// 创建 tag。target 为 None 时打在 HEAD;message 为 Some 时为注释标签。
+    pub fn create_tag(
+        &self,
+        name: &str,
+        target: Option<&str>,
+        message: Option<&str>,
+    ) -> Result<(), Error> {
+        tags::create_tag(self, name, target, message)
+    }
+
+    /// 删除 tag。
+    pub fn delete_tag(&self, name: &str) -> Result<(), Error> {
+        tags::delete_tag(self, name)
     }
 
     /// 把另一个分支合并到当前分支(对标 WebStorm "Merge into current")。

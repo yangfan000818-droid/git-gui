@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use gitcore::{
     BranchComparison, BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk,
     PendingConflicts, PopResult, Progress, Repo, RepoStatus, ResetMode, Segment, StashEntry,
-    StashRef, SubmoduleUpdate, SwitchOutcome, UpdateOptions, UpdateOutcome,
+    StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions, UpdateOutcome,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -594,6 +594,37 @@ fn repo_reset(path: String, sha: String, mode: ResetMode) -> Result<(), String> 
     repo.reset(&sha, mode).map_err(|e| e.to_string())
 }
 
+// ── Tag 管理命令 ──
+
+#[tauri::command]
+fn repo_tags(path: String) -> Result<Vec<TagInfo>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.tags().map_err(|e| e.to_string())
+}
+
+/// 创建 tag。target 为 None 打在 HEAD;message 非空则为注释标签。
+#[tauri::command]
+fn repo_create_tag(
+    path: String,
+    name: String,
+    target: Option<String>,
+    message: Option<String>,
+) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.create_tag(
+        &name,
+        target.as_deref(),
+        message.as_deref().filter(|m| !m.is_empty()),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn repo_delete_tag(path: String, name: String) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.delete_tag(&name).map_err(|e| e.to_string())
+}
+
 /// 列出仓库所有本地分支。
 #[tauri::command]
 fn repo_branches(path: String) -> Result<Vec<BranchInfo>, String> {
@@ -849,6 +880,9 @@ pub fn run() {
             repo_cherry_pick,
             repo_revert,
             repo_reset,
+            repo_tags,
+            repo_create_tag,
+            repo_delete_tag,
             repo_branches,
             repo_switch_branch,
             repo_switch_branch_autostash,

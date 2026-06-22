@@ -1347,3 +1347,41 @@ fn reset_mixed_keeps_worktree_hard_discards() {
 
     cleanup(&[&dir]);
 }
+
+#[test]
+fn tag_create_list_delete_roundtrip() {
+    let dir = init_repo("tag");
+    write(&dir, "a.txt", "v1\n");
+    commit_all(&dir, "c1");
+
+    let repo = Repo::open(&dir).unwrap();
+    // 轻量标签(在 HEAD)
+    repo.create_tag("v1.0", None, None).unwrap();
+    // 注释标签(指定提交 = HEAD)
+    let head = String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    repo.create_tag("v1.0-ann", Some(&head), Some("release one"))
+        .unwrap();
+
+    let tags = repo.tags().unwrap();
+    assert_eq!(tags.len(), 2, "应有 2 个 tag");
+    let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
+    assert!(names.contains(&"v1.0"), "含轻量标签");
+    assert!(names.contains(&"v1.0-ann"), "含注释标签");
+    let ann = tags.iter().find(|t| t.name == "v1.0-ann").unwrap();
+    assert_eq!(ann.message, "release one", "注释标签 message 为注释主题");
+
+    repo.delete_tag("v1.0").unwrap();
+    assert_eq!(repo.tags().unwrap().len(), 1, "删除后剩 1 个");
+
+    cleanup(&[&dir]);
+}
