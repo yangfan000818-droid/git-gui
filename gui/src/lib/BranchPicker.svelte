@@ -102,6 +102,12 @@
   let renamingBranch = $state<string | null>(null);
   let renameValue = $state("");
 
+  // ⋯ 更多操作菜单:当前展开的分支名(null = 全部收起)
+  let openMenu = $state<string | null>(null);
+  function toggleMenu(name: string) {
+    openMenu = openMenu === name ? null : name;
+  }
+
   async function load() {
     loading = true;
     error = "";
@@ -339,6 +345,7 @@
     renamingBranch = name;
     renameValue = name;
     error = "";
+    openMenu = null;
   }
   function cancelRename() {
     renamingBranch = null;
@@ -372,7 +379,11 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") onClose();
+    if (e.key === "Escape") {
+      // 先收菜单,再关面板
+      if (openMenu !== null) openMenu = null;
+      else onClose();
+    }
   }
 
   function handleNewKeydown(e: KeyboardEvent) {
@@ -454,93 +465,106 @@
           {#each branches as b}
             <li class="bp-item" class:bp-current={b.is_current}>
               {#if renamingBranch === b.name}
-                <!-- svelte-ignore a11y_autofocus -->
-                <input
-                  class="bp-rename-input"
-                  type="text"
-                  bind:value={renameValue}
-                  disabled={switching}
-                  onkeydown={handleRenameKeydown}
-                  autofocus
-                />
-                <button
-                  class="bp-rename-ok"
-                  disabled={switching || !renameValue.trim()}
-                  onclick={confirmRename}
-                  aria-label="确认重命名">✓</button
-                >
-                <button
-                  class="bp-rename-cancel"
-                  disabled={switching}
-                  onclick={cancelRename}
-                  aria-label="取消重命名">×</button
-                >
+                <div class="bp-row">
+                  <!-- svelte-ignore a11y_autofocus -->
+                  <input
+                    class="bp-rename-input"
+                    type="text"
+                    bind:value={renameValue}
+                    disabled={switching}
+                    onkeydown={handleRenameKeydown}
+                    autofocus
+                  />
+                  <button
+                    class="bp-rename-ok"
+                    disabled={switching || !renameValue.trim()}
+                    onclick={confirmRename}
+                    aria-label="确认重命名">✓</button
+                  >
+                  <button
+                    class="bp-rename-cancel"
+                    disabled={switching}
+                    onclick={cancelRename}
+                    aria-label="取消重命名">×</button
+                  >
+                </div>
               {:else}
-                <button
-                  class="bp-btn"
-                  disabled={switching || b.is_current}
-                  onclick={() => switchTo(b.name)}
-                >
-                  <span class="bp-name">{b.name}</span>
-                  {#if b.is_current}
-                    <span class="bp-check">✓</span>
-                  {/if}
-                  {#if b.upstream}
-                    <span class="bp-upstream">{b.upstream}</span>
-                  {/if}
-                  <span class="bp-stats">
-                    {#if b.ahead > 0}<span class="badge ahead">↑{b.ahead}</span
-                      >{/if}
-                    {#if b.behind > 0}<span class="badge behind"
-                        >↓{b.behind}</span
-                      >{/if}
-                  </span>
-                </button>
-                <button
-                  class="bp-rename"
-                  disabled={switching}
-                  onclick={() => startRename(b.name)}
-                  aria-label="重命名分支 {b.name}"
-                  title="重命名分支">✎</button
-                >
-                {#if !b.is_current}
+                <div class="bp-row">
                   <button
-                    class="bp-merge"
-                    disabled={switching}
-                    onclick={() => mergeInto(b.name)}
-                    aria-label="合并 {b.name} 到当前分支"
-                    title={`合并 ${b.name} → 当前分支`}>合并</button
+                    class="bp-btn"
+                    disabled={switching || b.is_current}
+                    onclick={() => switchTo(b.name)}
                   >
-                  <button
-                    class="bp-rebase"
-                    disabled={switching}
-                    onclick={() => rebaseOnto(b.name)}
-                    aria-label="当前分支变基到 {b.name}"
-                    title={`当前分支变基到 ${b.name}`}>变基</button
-                  >
-                  <button
-                    class="bp-diff"
-                    disabled={switching}
-                    onclick={() => showDiff(b.name)}
-                    aria-label="比较 {b.name} 与工作区"
-                    title={`比较 ${b.name} 与工作区`}>差异</button
-                  >
-                  <button
-                    class="bp-compare"
-                    disabled={switching}
-                    onclick={() => compareWith(b.name)}
-                    aria-label="对比 {b.name} 与当前分支的提交"
-                    title={`对比 ${b.name} ↔ 当前分支的独有提交`}>比较</button
-                  >
-                  <button
-                    class="bp-del"
-                    disabled={switching}
-                    onclick={() => deleteBranch(b.name)}
-                    aria-label="删除分支 {b.name}"
-                    title="删除分支"
-                  >
-                    ×
+                    <span class="bp-name">{b.name}</span>
+                    {#if b.is_current}
+                      <span class="bp-check">✓</span>
+                    {/if}
+                    {#if b.upstream}
+                      <span class="bp-upstream">{b.upstream}</span>
+                    {/if}
+                    <span class="bp-stats">
+                      {#if b.ahead > 0}<span class="badge ahead"
+                          >↑{b.ahead}</span
+                        >{/if}
+                      {#if b.behind > 0}<span class="badge behind"
+                          >↓{b.behind}</span
+                        >{/if}
+                    </span>
                   </button>
+                  <button
+                    class="bp-more"
+                    disabled={switching}
+                    onclick={() => toggleMenu(b.name)}
+                    aria-haspopup="true"
+                    aria-expanded={openMenu === b.name}
+                    aria-label="更多操作 {b.name}"
+                    title="更多操作">⋯</button
+                  >
+                </div>
+                {#if openMenu === b.name}
+                  <div class="bp-menu">
+                    <button
+                      class="bp-menu-item"
+                      onclick={() => startRename(b.name)}>重命名…</button
+                    >
+                    {#if !b.is_current}
+                      <button
+                        class="bp-menu-item"
+                        onclick={() => {
+                          openMenu = null;
+                          mergeInto(b.name);
+                        }}>合并到当前分支</button
+                      >
+                      <button
+                        class="bp-menu-item"
+                        onclick={() => {
+                          openMenu = null;
+                          rebaseOnto(b.name);
+                        }}>变基到当前分支</button
+                      >
+                      <button
+                        class="bp-menu-item"
+                        onclick={() => {
+                          openMenu = null;
+                          showDiff(b.name);
+                        }}>与工作区比较</button
+                      >
+                      <button
+                        class="bp-menu-item"
+                        onclick={() => {
+                          openMenu = null;
+                          compareWith(b.name);
+                        }}>与当前分支比较</button
+                      >
+                      <button
+                        class="bp-menu-item bp-menu-danger"
+                        onclick={() => {
+                          openMenu = null;
+                          deleteBranch(b.name);
+                        }}>删除分支</button
+                      >
+                    {/if}
+                  </div>
                 {/if}
               {/if}
             </li>
@@ -553,29 +577,44 @@
         <ul class="bp-list">
           {#each remoteBranches as b}
             <li class="bp-item">
-              <button
-                class="bp-btn"
-                disabled={switching}
-                onclick={() => checkoutRemote(b.name)}
-                title="检出为本地跟踪分支"
-              >
-                <span class="bp-name">{b.name}</span>
-                <span class="bp-checkout">检出</span>
-              </button>
-              <button
-                class="bp-diff"
-                disabled={switching}
-                onclick={() => showDiff(b.name)}
-                aria-label="比较 {b.name} 与工作区"
-                title={`比较 ${b.name} 与工作区`}>差异</button
-              >
-              <button
-                class="bp-compare"
-                disabled={switching}
-                onclick={() => compareWith(b.name)}
-                aria-label="对比 {b.name} 与当前分支的提交"
-                title={`对比 ${b.name} ↔ 当前分支的独有提交`}>比较</button
-              >
+              <div class="bp-row">
+                <button
+                  class="bp-btn"
+                  disabled={switching}
+                  onclick={() => checkoutRemote(b.name)}
+                  title="检出为本地跟踪分支"
+                >
+                  <span class="bp-name">{b.name}</span>
+                  <span class="bp-checkout">检出</span>
+                </button>
+                <button
+                  class="bp-more"
+                  disabled={switching}
+                  onclick={() => toggleMenu(b.name)}
+                  aria-haspopup="true"
+                  aria-expanded={openMenu === b.name}
+                  aria-label="更多操作 {b.name}"
+                  title="更多操作">⋯</button
+                >
+              </div>
+              {#if openMenu === b.name}
+                <div class="bp-menu">
+                  <button
+                    class="bp-menu-item"
+                    onclick={() => {
+                      openMenu = null;
+                      showDiff(b.name);
+                    }}>与工作区比较</button
+                  >
+                  <button
+                    class="bp-menu-item"
+                    onclick={() => {
+                      openMenu = null;
+                      compareWith(b.name);
+                    }}>与当前分支比较</button
+                  >
+                </div>
+              {/if}
             </li>
           {/each}
         </ul>
@@ -741,8 +780,30 @@
     padding: 6px 0 12px;
   }
   .bp-item {
-    display: flex;
     margin: 0;
+  }
+  .bp-row {
+    display: flex;
+    align-items: center;
+  }
+  .bp-more {
+    background: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 7px 14px;
+    flex-shrink: 0;
+  }
+  .bp-more:hover:not(:disabled),
+  .bp-more[aria-expanded="true"] {
+    color: #e4e4e4;
+    background: #2a2a2a;
+  }
+  .bp-more:disabled {
+    opacity: 0.3;
+    cursor: default;
   }
   .bp-btn {
     display: flex;
@@ -809,45 +870,7 @@
     color: #7ab8e2;
   }
 
-  /* 删除按钮 */
-  .bp-del {
-    background: transparent;
-    border: none;
-    color: #666;
-    cursor: pointer;
-    font-size: 16px;
-    padding: 7px 12px;
-    line-height: 1;
-    flex-shrink: 0;
-  }
-  .bp-del:hover:not(:disabled) {
-    color: #f88;
-    background: #3a2020;
-  }
-  .bp-del:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  /* 重命名 */
-  .bp-rename {
-    background: transparent;
-    border: none;
-    color: #666;
-    cursor: pointer;
-    font-size: 13px;
-    padding: 7px 8px;
-    line-height: 1;
-    flex-shrink: 0;
-  }
-  .bp-rename:hover:not(:disabled) {
-    color: #7ab8e2;
-    background: #1d2b3a;
-  }
-  .bp-rename:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
+  /* 重命名输入 */
   .bp-rename-input {
     flex: 1;
     background: #2a2a2a;
@@ -881,76 +904,30 @@
     cursor: default;
   }
 
-  /* 合并/变基 */
-  .bp-merge,
-  .bp-rebase {
+  /* ⋯ 更多操作菜单 */
+  .bp-menu {
+    display: flex;
+    flex-direction: column;
+    background: #252525;
+    border-top: 1px solid #333;
+    border-bottom: 1px solid #333;
+    padding: 4px 0;
+  }
+  .bp-menu-item {
     background: transparent;
-    border: 1px solid #444;
-    border-radius: 3px;
-    color: #999;
+    border: none;
+    color: #ccc;
     cursor: pointer;
-    font-size: 10px;
-    padding: 2px 6px;
-    line-height: 1.4;
-    flex-shrink: 0;
+    font-size: 12px;
+    text-align: left;
+    padding: 7px 18px 7px 30px;
   }
-  .bp-merge:hover:not(:disabled) {
-    background: #1d3a24;
-    border-color: #3a7a3a;
-    color: #7ee29a;
+  .bp-menu-item:hover {
+    background: #2f2f2f;
+    color: #fff;
   }
-  .bp-rebase:hover:not(:disabled) {
-    background: #1d2b3a;
-    border-color: #2b5a7a;
-    color: #7ab8e2;
-  }
-  .bp-merge:disabled,
-  .bp-rebase:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  /* 与工作区比较 */
-  .bp-diff {
-    background: transparent;
-    border: 1px solid #444;
-    border-radius: 3px;
-    color: #999;
-    cursor: pointer;
-    font-size: 10px;
-    padding: 2px 6px;
-    line-height: 1.4;
-    flex-shrink: 0;
-  }
-  .bp-diff:hover:not(:disabled) {
-    background: #3a331d;
-    border-color: #7a6a3a;
-    color: #e2c47a;
-  }
-  .bp-diff:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  /* 与当前分支比较提交 */
-  .bp-compare {
-    background: transparent;
-    border: 1px solid #444;
-    border-radius: 3px;
-    color: #999;
-    cursor: pointer;
-    font-size: 10px;
-    padding: 2px 6px;
-    line-height: 1.4;
-    flex-shrink: 0;
-  }
-  .bp-compare:hover:not(:disabled) {
-    background: #2d1d3a;
-    border-color: #5a3a7a;
-    color: #c49ae2;
-  }
-  .bp-compare:disabled {
-    opacity: 0.3;
-    cursor: default;
+  .bp-menu-danger:hover {
+    background: #3a2020;
+    color: #f88;
   }
 </style>
