@@ -10,6 +10,7 @@
   import FileHistory from "$lib/FileHistory.svelte";
   import BlameView from "$lib/BlameView.svelte";
   import BranchPicker from "$lib/BranchPicker.svelte";
+  import ConflictView from "$lib/ConflictView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -100,6 +101,15 @@
   let showBlame = $state(false); // blame 弹窗
   let blamePath = $state(""); // blame 查看的文件路径
   let branchPickerRepo = $state<string | null>(null); // 哪个仓库的分支选择面板打开(null=关闭)
+  interface StashRef {
+    label: string;
+  }
+  interface MergeConflict {
+    repoPath: string;
+    files: string[];
+    autostash: StashRef | null;
+  }
+  let mergeConflict = $state<MergeConflict | null>(null); // 合并/变基产生冲突时的 ConflictView 弹层
   let subCount = $derived(status?.submodules.length ?? 0); // 子仓库数(顶部「更新子仓库」据此启用)
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
@@ -1120,7 +1130,66 @@
       repoPath={branchPickerRepo}
       onClose={() => (branchPickerRepo = null)}
       onSwitched={refresh}
+      onConflict={(d) => {
+        branchPickerRepo = null;
+        mergeConflict = d;
+      }}
     />
+  {/if}
+
+  <!-- ── 合并/变基冲突弹层 ── -->
+  {#if mergeConflict}
+    <div class="update-overlay">
+      <div class="update-modal">
+        <div class="update-header">
+          <h2 class="update-title">解决冲突</h2>
+          <button
+            class="btn-close"
+            onclick={() => {
+              mergeConflict = null;
+              refresh();
+            }}
+            title="关闭"
+          >
+            ✕
+          </button>
+        </div>
+        <ConflictView
+          path={mergeConflict.repoPath}
+          conflictFiles={mergeConflict.files}
+          autostash={mergeConflict.autostash}
+          onContinue={async () => {
+            const mc = mergeConflict!;
+            try {
+              await invoke("continue_update_cmd", {
+                path: mc.repoPath,
+                autostash: mc.autostash,
+                recurseSubmodules: false,
+              });
+              mergeConflict = null;
+              await refresh();
+            } catch (e) {
+              error = String(e);
+            }
+          }}
+          onAbort={async () => {
+            if (!confirm("确定放弃本次整合？工作区将回到整合前的状态。"))
+              return;
+            const mc = mergeConflict!;
+            try {
+              await invoke("abort_update_cmd", {
+                path: mc.repoPath,
+                autostash: mc.autostash,
+              });
+              mergeConflict = null;
+              await refresh();
+            } catch (e) {
+              error = String(e);
+            }
+          }}
+        />
+      </div>
+    </div>
   {/if}
 </main>
 

@@ -651,6 +651,102 @@ fn rebase(repo: &Repo, ignore_whitespace: bool) -> Result<bool, Error> {
     finish_integration(repo, out, &args)
 }
 
+// ── 分支间合并/变基(对标 WebStorm "Merge into current" / "Rebase current onto") ──
+
+fn merge_into(repo: &Repo, branch: &str, ignore_whitespace: bool) -> Result<bool, Error> {
+    let mut args = vec![
+        "-c",
+        "rerere.enabled=true",
+        "-c",
+        "merge.conflictStyle=zdiff3",
+        "merge",
+        "--no-edit",
+    ];
+    if ignore_whitespace {
+        args.push("-Xignore-space-change");
+    }
+    args.push(branch);
+    let out = repo.git_checked(&args)?;
+    finish_integration(repo, out, &args)
+}
+
+fn rebase_onto(repo: &Repo, branch: &str, ignore_whitespace: bool) -> Result<bool, Error> {
+    let mut args = vec![
+        "-c",
+        "rerere.enabled=true",
+        "-c",
+        "merge.conflictStyle=zdiff3",
+        "rebase",
+    ];
+    if ignore_whitespace {
+        args.push("-Xignore-space-change");
+    }
+    args.push(branch);
+    let out = repo.git_checked(&args)?;
+    finish_integration(repo, out, &args)
+}
+
+/// 把另一个分支合并到当前分支(对标 WebStorm "Merge into current")。
+/// 脏工作区自动 stash → merge → restore;冲突进 ConflictView 解决。
+pub(crate) fn merge_branch(
+    repo: &Repo,
+    branch: &str,
+    opts: &UpdateOptions,
+) -> Result<UpdateOutcome, Error> {
+    preflight(repo)?;
+    let autostash = autostash_snapshot(repo)?;
+    integrate_branch(repo, branch, opts, autostash, false)
+}
+
+/// 把当前分支变基到另一个分支上(对标 WebStorm "Rebase current onto")。
+pub(crate) fn rebase_branch(
+    repo: &Repo,
+    branch: &str,
+    opts: &UpdateOptions,
+) -> Result<UpdateOutcome, Error> {
+    preflight(repo)?;
+    let autostash = autostash_snapshot(repo)?;
+    integrate_branch(repo, branch, opts, autostash, true)
+}
+
+fn autostash_snapshot(repo: &Repo) -> Result<Option<StashRef>, Error> {
+    let dirty = !repo.git(&["status", "--porcelain"])?.trim().is_empty();
+    if dirty {
+        let label = stash::autostash_label();
+        stash::autostash_push(repo, &label)
+    } else {
+        Ok(None)
+    }
+}
+
+fn integrate_branch(
+    repo: &Repo,
+    branch: &str,
+    opts: &UpdateOptions,
+    autostash: Option<StashRef>,
+    rebase: bool,
+) -> Result<UpdateOutcome, Error> {
+    let conflicted = if rebase {
+        rebase_onto(repo, branch, opts.ignore_whitespace)?
+    } else {
+        merge_into(repo, branch, opts.ignore_whitespace)?
+    };
+    if conflicted {
+        auto_resolve_rerere(repo)?;
+        let files = crate::conflict::conflicted_files(repo)?;
+        if files.is_empty() {
+            return continue_update(repo, autostash, false);
+        }
+        return Ok(UpdateOutcome::Conflicted { files, autostash });
+    }
+    if let Some(stash) = autostash {
+        if let PopResult::Conflict(files) = stash::autostash_pop(repo, &stash)? {
+            return Ok(UpdateOutcome::StashRestoreConflict { files });
+        }
+    }
+    Ok(UpdateOutcome::Resolved)
+}
+
 // 整合命令收尾:成功=false,有冲突文件=true,否则视为真失败=Err。
 fn finish_integration(repo: &Repo, out: crate::git::Output, args: &[&str]) -> Result<bool, Error> {
     if out.success {

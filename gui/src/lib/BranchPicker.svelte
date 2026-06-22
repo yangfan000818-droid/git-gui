@@ -10,13 +10,37 @@
     is_remote: boolean;
   }
 
+  // 合并/变基到当前分支需要的类型
+  interface StashRef {
+    label: string;
+  }
+  interface UpdateOptions {
+    strategy: "Merge" | "Rebase";
+    ignore_whitespace: boolean;
+    recurse_submodules: boolean;
+  }
+  // UpdateOutcome: externally tagged
+  type UpdateOutcome =
+    | "AlreadyUpToDate"
+    | "Resolved"
+    | { FastForwarded: { commits: number } }
+    | { Integrated: { commits: number; strategy: "Merge" | "Rebase" } }
+    | { Conflicted: { files: string[]; autostash: StashRef | null } }
+    | { StashRestoreConflict: { files: string[] } }
+    | { SubmoduleSyncFailed: { error: string } };
+
   interface Props {
     repoPath: string;
     onClose: () => void;
     onSwitched: () => void;
+    onConflict?: (details: {
+      repoPath: string;
+      files: string[];
+      autostash: StashRef | null;
+    }) => void;
   }
 
-  let { repoPath, onClose, onSwitched }: Props = $props();
+  let { repoPath, onClose, onSwitched, onConflict }: Props = $props();
 
   let branches = $state<BranchInfo[]>([]);
   let remoteBranches = $state<BranchInfo[]>([]);
@@ -70,6 +94,73 @@
         path: repoPath,
         remoteBranch,
       });
+      onSwitched();
+      onClose();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      switching = false;
+    }
+  }
+
+  function mergeOptions(strategy: "Merge" | "Rebase"): UpdateOptions {
+    return { strategy, ignore_whitespace: true, recurse_submodules: false };
+  }
+
+  function outcomeVariant(o: UpdateOutcome): string {
+    if (typeof o === "string") return o;
+    return Object.keys(o)[0];
+  }
+  function outcomeData<T>(o: UpdateOutcome, key: string): T | undefined {
+    if (typeof o === "string") return undefined;
+    return (o as unknown as Record<string, T>)[key];
+  }
+
+  async function mergeInto(branch: string) {
+    switching = true;
+    error = "";
+    try {
+      const r = await invoke<UpdateOutcome>("repo_merge_branch", {
+        path: repoPath,
+        branch,
+        options: mergeOptions("Merge"),
+      });
+      if (outcomeVariant(r) === "Conflicted") {
+        const d = outcomeData<{ files: string[]; autostash: StashRef | null }>(
+          r,
+          "Conflicted",
+        )!;
+        onConflict?.({ repoPath, files: d.files, autostash: d.autostash });
+        onClose();
+        return;
+      }
+      onSwitched();
+      onClose();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      switching = false;
+    }
+  }
+
+  async function rebaseOnto(branch: string) {
+    switching = true;
+    error = "";
+    try {
+      const r = await invoke<UpdateOutcome>("repo_rebase_branch", {
+        path: repoPath,
+        branch,
+        options: mergeOptions("Rebase"),
+      });
+      if (outcomeVariant(r) === "Conflicted") {
+        const d = outcomeData<{ files: string[]; autostash: StashRef | null }>(
+          r,
+          "Conflicted",
+        )!;
+        onConflict?.({ repoPath, files: d.files, autostash: d.autostash });
+        onClose();
+        return;
+      }
       onSwitched();
       onClose();
     } catch (e) {
@@ -284,6 +375,20 @@
                   title="重命名分支">✎</button
                 >
                 {#if !b.is_current}
+                  <button
+                    class="bp-merge"
+                    disabled={switching}
+                    onclick={() => mergeInto(b.name)}
+                    aria-label="合并 {b.name} 到当前分支"
+                    title={`合并 ${b.name} → 当前分支`}>合并</button
+                  >
+                  <button
+                    class="bp-rebase"
+                    disabled={switching}
+                    onclick={() => rebaseOnto(b.name)}
+                    aria-label="当前分支变基到 {b.name}"
+                    title={`当前分支变基到 ${b.name}`}>变基</button
+                  >
                   <button
                     class="bp-del"
                     disabled={switching}
@@ -602,6 +707,35 @@
     color: #888;
   }
   .bp-rename-ok:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  /* 合并/变基 */
+  .bp-merge,
+  .bp-rebase {
+    background: transparent;
+    border: 1px solid #444;
+    border-radius: 3px;
+    color: #999;
+    cursor: pointer;
+    font-size: 10px;
+    padding: 2px 6px;
+    line-height: 1.4;
+    flex-shrink: 0;
+  }
+  .bp-merge:hover:not(:disabled) {
+    background: #1d3a24;
+    border-color: #3a7a3a;
+    color: #7ee29a;
+  }
+  .bp-rebase:hover:not(:disabled) {
+    background: #1d2b3a;
+    border-color: #2b5a7a;
+    color: #7ab8e2;
+  }
+  .bp-merge:disabled,
+  .bp-rebase:disabled {
     opacity: 0.3;
     cursor: default;
   }

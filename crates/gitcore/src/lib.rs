@@ -148,6 +148,20 @@ impl Repo {
         update::revert(self, sha)
     }
 
+    /// 把另一个分支合并到当前分支(对标 WebStorm "Merge into current")。
+    pub fn merge_branch(&self, branch: &str, opts: &UpdateOptions) -> Result<UpdateOutcome, Error> {
+        update::merge_branch(self, branch, opts)
+    }
+
+    /// 把当前分支变基到另一个分支上(对标 WebStorm "Rebase current onto")。
+    pub fn rebase_branch(
+        &self,
+        branch: &str,
+        opts: &UpdateOptions,
+    ) -> Result<UpdateOutcome, Error> {
+        update::rebase_branch(self, branch, opts)
+    }
+
     /// 暂存指定文件。
     pub fn stage(&self, paths: &[&Path]) -> Result<(), Error> {
         stage::stage_files(self, paths)

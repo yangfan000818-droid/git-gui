@@ -553,6 +553,31 @@ fn repo_remote_branches(path: String) -> Result<Vec<BranchInfo>, String> {
     repo.remote_branches().map_err(|e| e.to_string())
 }
 
+/// 把另一个分支合并到当前分支(git merge <branch>;脏工作区自动 autostash)。
+/// 返回 UpdateOutcome:Resolved/FastForwarded/Integrated 表示干净完成,Conflicted 需进 ConflictView。
+#[tauri::command]
+fn repo_merge_branch(
+    path: String,
+    branch: String,
+    options: UpdateOptions,
+) -> Result<UpdateOutcome, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.merge_branch(&branch, &options)
+        .map_err(|e| e.to_string())
+}
+
+/// 把当前分支变基到另一个分支(git rebase <branch>;脏工作区自动 autostash)。
+#[tauri::command]
+fn repo_rebase_branch(
+    path: String,
+    branch: String,
+    options: UpdateOptions,
+) -> Result<UpdateOutcome, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.rebase_branch(&branch, &options)
+        .map_err(|e| e.to_string())
+}
+
 /// 检出远程分支为本地跟踪分支(脏工作区/本地同名已存在时返回错误)。
 #[tauri::command]
 fn repo_checkout_remote(path: String, remote_branch: String) -> Result<(), String> {
@@ -700,6 +725,8 @@ pub fn run() {
             repo_rename_branch,
             repo_remote_branches,
             repo_checkout_remote,
+            repo_merge_branch,
+            repo_rebase_branch,
             repo_log_graph,
             repo_file_history,
             repo_commit_file_diff,
