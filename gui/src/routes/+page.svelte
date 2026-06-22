@@ -1041,6 +1041,18 @@
             </label>
             {#if totalStaged === 0 && !amendMode}
               <p class="muted">暂存文件以创建提交</p>
+              {#if repos.some((r) => r.ahead > 0)}
+                <div class="commit-bar">
+                  <button
+                    class="btn-commit"
+                    disabled={operating}
+                    onclick={doPushAll}
+                    title="推送各仓库当前分支领先远程的提交（无需先提交）"
+                  >
+                    推送到远程
+                  </button>
+                </div>
+              {/if}
             {:else}
               <textarea
                 bind:value={commitMessage}

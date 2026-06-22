@@ -211,6 +211,7 @@
   async function doExecute() {
     phase = "executing";
     error = "";
+    cancelled = false;
     outcome = null;
     progress = null;
     opId = crypto.randomUUID();
@@ -233,13 +234,14 @@
       await handleMainOutcome(result);
     } catch (e) {
       if (cancelled) {
-        // 取消是主动行为，不显示为红色 error
-        phase = "idle";
-      } else {
-        error = String(e);
-        phase = "idle";
+        // 取消是主动行为:直接关闭弹层,不停在 idle(避免"取消了还留个弹窗")。
+        cancelled = false;
+        cleanup();
+        onClose();
+        return;
       }
-      cancelled = false;
+      error = String(e);
+      phase = "idle";
     } finally {
       cleanup();
     }
