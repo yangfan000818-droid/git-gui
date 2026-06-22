@@ -323,8 +323,11 @@
     <aside class="commit-list">
       <div class="list-header">
         <span class="list-title">提交历史 ({commits.length})</span>
-        <button class="btn-load-more" disabled={loading} onclick={loadMore}
-          >加载更多</button
+        <button
+          class="btn-load-more"
+          disabled={loading}
+          onclick={loadMore}
+          title="再加载 50 条更早的提交">加载更多</button
         >
       </div>
 
@@ -443,14 +446,20 @@
                 class="btn-action"
                 disabled={operationInProgress}
                 onclick={() => doOperation("repo_cherry_pick")}
+                title="把该提交拣选应用到当前分支（git cherry-pick）"
                 >Cherry-pick</button
               >
               <button
                 class="btn-action"
                 disabled={operationInProgress}
-                onclick={() => doOperation("repo_revert")}>Revert</button
+                onclick={() => doOperation("repo_revert")}
+                title="生成一个撤销该提交改动的新提交（git revert）"
+                >Revert</button
               >
-              <button class="btn-copy" onclick={copySha}
+              <button
+                class="btn-copy"
+                onclick={copySha}
+                title="复制该提交的完整 SHA"
                 >{copied ? "已复制 ✓" : "复制 SHA"}</button
               >
             </div>

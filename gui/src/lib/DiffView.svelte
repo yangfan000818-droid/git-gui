@@ -250,6 +250,7 @@
           class="history-btn"
           onclick={() => onFileHistory?.(file.path)}
           aria-label="查看文件历史"
+          title="查看该文件的提交历史（git log --follow,跟踪重命名）"
         >
           历史
         </button>
@@ -259,6 +260,7 @@
           class="history-btn"
           onclick={() => onBlame?.(file.path)}
           aria-label="查看 blame"
+          title="逐行查看该文件每行的最后修改提交（git blame）"
         >
           blame
         </button>

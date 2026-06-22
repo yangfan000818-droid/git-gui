@@ -288,6 +288,7 @@
             class="btn-primary"
             disabled={currentFile.written}
             onclick={writeCurrentFile}
+            title="把所选版本写回该文件并标记为已解决（git add）"
           >
             {currentFile.written ? "已写入" : "写入: " + currentFile.path}
           </button>
@@ -438,6 +439,7 @@
               class="btn-choice"
               class:btn-choice-active={currentChoice === "Ours"}
               onclick={() => setChoice("Ours")}
+              title="本块采用本地版本（ours,当前分支的改动）"
             >
               Ours
             </button>
@@ -445,6 +447,7 @@
               class="btn-choice"
               class:btn-choice-active={currentChoice === "Base"}
               onclick={() => setChoice("Base")}
+              title="本块采用共同祖先版本（base,两边改动前的原始内容）"
             >
               Base
             </button>
@@ -452,6 +455,7 @@
               class="btn-choice"
               class:btn-choice-active={currentChoice === "Theirs"}
               onclick={() => setChoice("Theirs")}
+              title="本块采用对方版本（theirs,合入分支的改动）"
             >
               Theirs
             </button>
@@ -480,6 +484,7 @@
             class="btn-primary"
             disabled={currentFile.written}
             onclick={writeCurrentFile}
+            title="把所选版本写回该文件并标记为已解决（git add）"
           >
             {currentFile.written ? "已写入 ✓" : "写入: " + currentFile.path}
           </button>
@@ -489,10 +494,21 @@
 
     <!-- ── 底部操作 ── -->
     <div class="bottom-actions">
-      <button class="btn-primary" disabled={!allWritten} onclick={onContinue}>
+      <button
+        class="btn-primary"
+        disabled={!allWritten}
+        onclick={onContinue}
+        title="所有冲突文件已写回后,完成本次整合（merge/rebase --continue）"
+      >
         继续整合
       </button>
-      <button class="btn-danger" onclick={onAbort}> 放弃整合 (abort) </button>
+      <button
+        class="btn-danger"
+        onclick={onAbort}
+        title="放弃整合,回到整合前的状态（merge/rebase --abort）"
+      >
+        放弃整合 (abort)
+      </button>
     </div>
     {#if !allWritten && !loading}
       <p class="hint">

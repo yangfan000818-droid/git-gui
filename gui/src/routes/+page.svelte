@@ -813,6 +813,7 @@
       class="tab-btn"
       class:tab-active={tab === "changes"}
       onclick={() => (tab = "changes")}
+      title="Changes:查看各仓库工作区改动,暂存/丢弃文件并统一提交"
     >
       Changes
     </button>
@@ -820,6 +821,7 @@
       class="tab-btn"
       class:tab-active={tab === "history"}
       onclick={() => (tab = "history")}
+      title="History:浏览提交历史与分支图,查看每个提交的文件改动"
     >
       History
     </button>
@@ -1049,6 +1051,9 @@
                   class="btn-commit"
                   disabled={operating || !commitMessage.trim()}
                   onclick={amendMode ? doAmend : doCommit}
+                  title={amendMode
+                    ? "用当前消息修改主仓库的上次提交（git commit --amend）"
+                    : "把暂存的改动提交到所有有暂存内容的仓库（统一提交）"}
                   >{amendMode
                     ? "修改主仓库上次提交"
                     : `提交（${totalStaged} 个文件）`}</button

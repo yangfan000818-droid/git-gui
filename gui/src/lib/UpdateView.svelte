@@ -580,7 +580,11 @@
             将把 {subUpdateCount} 个子仓库在各自当前分支上更新（留在原分支）。
           {/if}
         </p>
-        <button class="btn-primary" onclick={proceedToSubmodules}>
+        <button
+          class="btn-primary"
+          onclick={proceedToSubmodules}
+          title="在各自当前分支上更新所有子仓库（留在原分支,不 detach）"
+        >
           开始更新
         </button>
       {:else}
@@ -588,7 +592,13 @@
           将更新主仓库{#if submodules.length > 0}，并把 {submodules.length}
             个子仓库在各自当前分支上更新（留在原分支）{/if}。
         </p>
-        <button class="btn-primary" onclick={doPlan}> 检查更新 </button>
+        <button
+          class="btn-primary"
+          onclick={doPlan}
+          title="fetch 远程并计算领先/落后,先看更新计划再决定是否执行"
+        >
+          检查更新
+        </button>
       {/if}
     </div>
   {/if}
@@ -611,7 +621,12 @@
             ({progress?.percent}%){/if}
         </span>
       </div>
-      <button class="btn-danger" style="margin-top:8px" onclick={cancelPlan}>
+      <button
+        class="btn-danger"
+        style="margin-top:8px"
+        onclick={cancelPlan}
+        title="取消本次检查更新"
+      >
         取消
       </button>
     </div>
@@ -634,8 +649,20 @@
         <dd>{plan.will_autostash ? "是 (工作区有未保存改动)" : "否"}</dd>
       </dl>
       <div class="plan-actions">
-        <button class="btn-primary" onclick={doExecute}> 确认更新 </button>
-        <button class="btn-secondary" onclick={cancelPlan}> 取消 </button>
+        <button
+          class="btn-primary"
+          onclick={doExecute}
+          title="按计划执行:autostash → 整合（合并/变基）→ 还原;有冲突会停下逐个解决"
+        >
+          确认更新
+        </button>
+        <button
+          class="btn-secondary"
+          onclick={cancelPlan}
+          title="放弃本次更新,不改动工作区"
+        >
+          取消
+        </button>
       </div>
     </div>
   {/if}
@@ -661,7 +688,13 @@
       {#if progress?.raw}
         <pre class="progress-raw">{progress.raw}</pre>
       {/if}
-      <button class="btn-danger" onclick={cancelOp}> 取消 </button>
+      <button
+        class="btn-danger"
+        onclick={cancelOp}
+        title="取消正在进行的更新（fetch/整合）"
+      >
+        取消
+      </button>
     </div>
   {/if}
 
@@ -751,7 +784,13 @@
         </div>
       {/if}
 
-      <button class="btn-primary" onclick={finishAndRefresh}> 刷新 </button>
+      <button
+        class="btn-primary"
+        onclick={finishAndRefresh}
+        title="完成,刷新仓库状态"
+      >
+        刷新
+      </button>
     </div>
   {/if}
 
