@@ -6,8 +6,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use gitcore::{
-    CancelToken, Choice, CommitOptions, FileDiff, Hunk, PendingConflicts, Progress, Repo,
-    RepoStatus, Segment, StashRef, UpdateOptions, UpdateOutcome, UpdatePlan,
+    BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk, PendingConflicts, Progress,
+    Repo, RepoStatus, Segment, StashRef, UpdateOptions, UpdateOutcome, UpdatePlan,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -505,6 +505,34 @@ fn repo_revert(path: String, sha: String) -> Result<UpdateOutcome, String> {
     repo.revert(&sha).map_err(|e| e.to_string())
 }
 
+/// 列出仓库所有本地分支。
+#[tauri::command]
+fn repo_branches(path: String) -> Result<Vec<BranchInfo>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.branches().map_err(|e| e.to_string())
+}
+
+/// 切换到指定分支(工作区脏时返回错误,引导先提交/暂存)。
+#[tauri::command]
+fn repo_switch_branch(path: String, name: String) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.switch_branch(&name).map_err(|e| e.to_string())
+}
+
+/// 新建分支(仅创建,不切换)。
+#[tauri::command]
+fn repo_create_branch(path: String, name: String) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.create_branch(&name).map_err(|e| e.to_string())
+}
+
+/// 删除分支(安全模式:拒删当前分支和未合并分支)。
+#[tauri::command]
+fn repo_delete_branch(path: String, name: String) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.delete_branch(&name).map_err(|e| e.to_string())
+}
+
 // ── History 视图命令 ──
 
 #[tauri::command]
@@ -637,6 +665,10 @@ pub fn run() {
             resume_conflicts,
             repo_cherry_pick,
             repo_revert,
+            repo_branches,
+            repo_switch_branch,
+            repo_create_branch,
+            repo_delete_branch,
             repo_log_graph,
             repo_file_history,
             repo_commit_file_diff,

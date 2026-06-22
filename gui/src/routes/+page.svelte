@@ -9,6 +9,7 @@
   import ProjectPicker from "$lib/ProjectPicker.svelte";
   import FileHistory from "$lib/FileHistory.svelte";
   import BlameView from "$lib/BlameView.svelte";
+  import BranchPicker from "$lib/BranchPicker.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -59,6 +60,9 @@
     isMain: boolean;
     subRelPath: string | null; // 子仓库相对主仓库的路径（管理操作用），主仓库为 null
     subStatus: SubStatus | null; // 子仓库状态徽章，主仓库为 null
+    branch: string | null; // 当前分支，detached HEAD 时为 null
+    ahead: number;
+    behind: number;
     unstaged: FileEntry[];
     staged: FileEntry[];
   }
@@ -90,6 +94,7 @@
   let fileHistoryPath = $state(""); // 文件历史查看的文件路径
   let showBlame = $state(false); // blame 弹窗
   let blamePath = $state(""); // blame 查看的文件路径
+  let branchPickerRepo = $state<string | null>(null); // 哪个仓库的分支选择面板打开(null=关闭)
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
   let commitMessage = $state("");
@@ -150,6 +155,9 @@
     isMain: boolean,
     subRelPath: string | null,
     subStatus: SubStatus | null,
+    branch: string | null,
+    ahead: number,
+    behind: number,
     files: FileStatus[],
   ): RepoView {
     const unstaged = files
@@ -169,6 +177,9 @@
       isMain,
       subRelPath,
       subStatus,
+      branch,
+      ahead,
+      behind,
       unstaged,
       staged,
     };
@@ -184,11 +195,17 @@
       true,
       null,
       null,
+      s.branch,
+      s.ahead,
+      s.behind,
       s.files,
     );
     const subs = await Promise.all(
       s.submodules.map(async (sub) => {
         let files: FileStatus[] = [];
+        let branch: string | null = null;
+        let ahead = 0;
+        let behind = 0;
         // 未初始化的子仓库没有 .git,无法读状态。
         if (sub.status !== "Uninitialized") {
           try {
@@ -196,6 +213,9 @@
               path: joinPath(path, sub.path),
             });
             files = ss.files;
+            branch = ss.branch;
+            ahead = ss.ahead;
+            behind = ss.behind;
           } catch {
             // 子仓库读取失败(损坏等)时留空,不阻塞整体加载。
           }
@@ -206,6 +226,9 @@
           false,
           sub.path,
           sub.status,
+          branch,
+          ahead,
+          behind,
           files,
         );
       }),
@@ -768,6 +791,29 @@
                           : ""}</span
                       >
                     {/if}
+                    {#if repo.branch != null}
+                      <button
+                        class="repo-branch-btn"
+                        onclick={() => (branchPickerRepo = repo.path)}
+                        title="点击切换分支"
+                      >
+                        <span class="repo-branch">{repo.branch}</span>
+                        {#if repo.ahead > 0}<span class="badge ahead"
+                            >↑{repo.ahead}</span
+                          >{/if}
+                        {#if repo.behind > 0}<span class="badge behind"
+                            >↓{repo.behind}</span
+                          >{/if}
+                      </button>
+                    {:else if repo.subStatus !== "Uninitialized"}
+                      <button
+                        class="repo-branch-btn"
+                        onclick={() => (branchPickerRepo = repo.path)}
+                        title="点击切换分支"
+                      >
+                        <span class="repo-branch detached">(detached)</span>
+                      </button>
+                    {/if}
                   </div>
                   {#if repo.isMain}
                     <div class="repo-manage">
@@ -840,6 +886,29 @@
                           <span class="repo-title" title={repo.path}
                             >{repo.label}</span
                           >
+                        {/if}
+                        {#if repo.branch != null}
+                          <button
+                            class="repo-branch-btn"
+                            onclick={() => (branchPickerRepo = repo.path)}
+                            title="点击切换分支"
+                          >
+                            <span class="repo-branch">{repo.branch}</span>
+                            {#if repo.ahead > 0}<span class="badge ahead"
+                                >↑{repo.ahead}</span
+                              >{/if}
+                            {#if repo.behind > 0}<span class="badge behind"
+                                >↓{repo.behind}</span
+                              >{/if}
+                          </button>
+                        {:else if repo.subStatus !== "Uninitialized"}
+                          <button
+                            class="repo-branch-btn"
+                            onclick={() => (branchPickerRepo = repo.path)}
+                            title="点击切换分支"
+                          >
+                            <span class="repo-branch detached">(detached)</span>
+                          </button>
                         {/if}
                       </div>
                       <FileTree
@@ -992,6 +1061,14 @@
       {path}
       filePath={blamePath}
       onClose={() => (showBlame = false)}
+    />
+  {/if}
+
+  {#if branchPickerRepo}
+    <BranchPicker
+      repoPath={branchPickerRepo}
+      onClose={() => (branchPickerRepo = null)}
+      onSwitched={refresh}
     />
   {/if}
 </main>
@@ -1303,6 +1380,33 @@
   }
   .repo-title.main {
     color: #9ecbff;
+  }
+  .repo-branch {
+    font-size: 11px;
+    color: #aaa;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    flex-shrink: 0;
+  }
+  .repo-branch.detached {
+    color: #f3b4b4;
+    font-style: italic;
+  }
+  .repo-branch-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 1px 6px;
+    margin-left: 4px;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  .repo-branch-btn:hover {
+    background: #333;
+    border-color: #0e639c;
   }
   .repo-manage {
     display: flex;

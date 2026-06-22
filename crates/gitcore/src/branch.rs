@@ -2,6 +2,7 @@ use crate::{Error, Repo};
 
 /// 分支信息。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BranchInfo {
     /// 分支名称。
     pub name: String,
