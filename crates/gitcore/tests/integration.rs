@@ -2,7 +2,8 @@
 //! 每个测试自建临时 repo、用完即删。
 
 use gitcore::{
-    CancelToken, IntegrationStrategy, PendingConflicts, Repo, UpdateOptions, UpdateOutcome,
+    CancelToken, IntegrationStrategy, PendingConflicts, Repo, SwitchOutcome, UpdateOptions,
+    UpdateOutcome,
 };
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -1172,6 +1173,91 @@ fn blame_attributes_lines_to_commits() {
     assert_ne!(blame[0].full_sha, blame[1].full_sha, "两行应来自不同提交");
     assert!(!blame[0].author.is_empty(), "应解析出作者");
     assert!(blame[0].time > 0, "应解析出时间戳");
+
+    cleanup(&[&dir]);
+}
+
+// ── smart checkout(脏工作区智能切换)──
+
+fn head_branch(dir: &PathBuf) -> String {
+    Repo::open(dir).unwrap().status().unwrap().branch.unwrap()
+}
+
+#[test]
+fn smart_switch_clean_worktree_switches() {
+    let dir = init_repo("sc-clean");
+    write(&dir, "a.txt", "base");
+    commit_all(&dir, "init");
+    git(&dir, &["branch", "feat"]);
+
+    let r = Repo::open(&dir).unwrap().switch_branch_autostash("feat");
+    assert!(matches!(r, Ok(SwitchOutcome::Switched)), "干净应直接切换");
+    assert_eq!(head_branch(&dir), "feat");
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn smart_switch_dirty_nonconflicting_carries_change() {
+    // a.txt 两分支相同、b.txt 不同;脏改动落在 a.txt → 贴回不冲突。
+    let dir = init_repo("sc-carry");
+    write(&dir, "a.txt", "base");
+    write(&dir, "b.txt", "b-main");
+    commit_all(&dir, "init");
+    git(&dir, &["checkout", "-q", "-b", "feat"]);
+    write(&dir, "b.txt", "b-feat");
+    commit_all(&dir, "feat changes b");
+    git(&dir, &["checkout", "-q", "main"]);
+    write(&dir, "a.txt", "dirty-a"); // 脏:改 a.txt(两分支一致,贴回安全)
+
+    let r = Repo::open(&dir).unwrap().switch_branch_autostash("feat");
+    assert!(
+        matches!(r, Ok(SwitchOutcome::Switched)),
+        "无冲突应 Switched,实际 {r:?}"
+    );
+    assert_eq!(head_branch(&dir), "feat");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "dirty-a",
+        "脏改动应贴回新分支"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("b.txt")).unwrap(),
+        "b-feat",
+        "新分支自身的内容应生效"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn smart_switch_dirty_conflicting_reports_stash_conflict() {
+    // a.txt 在 feat 与脏改动各不相同 → 贴回冲突。
+    let dir = init_repo("sc-conflict");
+    write(&dir, "a.txt", "base");
+    commit_all(&dir, "init");
+    git(&dir, &["checkout", "-q", "-b", "feat"]);
+    write(&dir, "a.txt", "feat-version");
+    commit_all(&dir, "feat changes a");
+    git(&dir, &["checkout", "-q", "main"]);
+    write(&dir, "a.txt", "my-dirty"); // 脏:与 feat 的 a.txt 冲突
+
+    let r = Repo::open(&dir).unwrap().switch_branch_autostash("feat");
+    match r {
+        Ok(SwitchOutcome::StashConflict { files }) => {
+            assert!(
+                files.iter().any(|f| f.ends_with("a.txt")),
+                "冲突文件应含 a.txt,实际 {files:?}"
+            );
+        }
+        other => panic!("贴回应冲突,实际 {other:?}"),
+    }
+    assert_eq!(head_branch(&dir), "feat", "已切到 feat(checkout 成功)");
+    let content = std::fs::read_to_string(dir.join("a.txt")).unwrap();
+    assert!(content.contains("<<<<<<<"), "a.txt 应留有冲突标记");
+    // stash 仍保留(贴回失败不丢改动)
+    let stash_list = Repo::open(&dir).unwrap().stashes().unwrap();
+    assert!(!stash_list.is_empty(), "贴回冲突时 stash 应保留");
 
     cleanup(&[&dir]);
 }

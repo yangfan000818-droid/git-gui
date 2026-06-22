@@ -1,4 +1,6 @@
+use crate::stash::{self, PopResult};
 use crate::{Error, Repo};
+use std::path::PathBuf;
 
 /// 分支信息。
 #[derive(Debug, Clone)]
@@ -156,6 +158,49 @@ pub(crate) fn switch_branch(repo: &Repo, name: &str) -> Result<(), Error> {
     }
     repo.git(&["checkout", name])?;
     Ok(())
+}
+
+/// 脏工作区切换(smart checkout)的结果。
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum SwitchOutcome {
+    /// 干净切换(原本干净,或暂存的改动已无冲突贴回新分支)。
+    Switched,
+    /// 已暂存改动并切到新分支,但贴回时冲突:改动带冲突标记留在工作区,
+    /// stash 仍保留;需在改动列表中解决。
+    StashConflict { files: Vec<PathBuf> },
+}
+
+/// 脏工作区智能切换(对标 WebStorm「Smart Checkout」):自动 stash → checkout → 贴回。
+/// 工作区干净时等同普通切换。贴回冲突时改动安全留在工作区 + stash,交前端提示解决,
+/// 不进合并 continue/abort 流(这并非合并进行中态)。
+pub(crate) fn switch_branch_autostash(repo: &Repo, name: &str) -> Result<SwitchOutcome, Error> {
+    // 干净 → None(不 stash);脏 → stash(含 untracked)后返回 Some,工作区随即清空。
+    let label = stash::autostash_label();
+    let stash = stash::autostash_push(repo, &label)?;
+
+    // 工作区已清空,checkout 不会因「改动会被覆盖」而失败。
+    let out = repo.git_checked(&["checkout", name])?;
+    if !out.success {
+        // 罕见失败:把改动贴回原分支,绝不把 stash 遗弃。
+        if let Some(s) = &stash {
+            let _ = stash::autostash_pop(repo, s);
+        }
+        return Err(Error::Git {
+            args: vec!["checkout".into(), name.into()],
+            code: out.code,
+            stderr: out.stderr,
+        });
+    }
+
+    // 已在新分支:贴回暂存的改动。
+    match stash {
+        None => Ok(SwitchOutcome::Switched),
+        Some(s) => match stash::autostash_pop(repo, &s)? {
+            PopResult::Clean => Ok(SwitchOutcome::Switched),
+            PopResult::Conflict(files) => Ok(SwitchOutcome::StashConflict { files }),
+        },
+    }
 }
 
 /// 删除分支（安全模式：不删除未合并的分支）。

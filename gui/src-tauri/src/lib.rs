@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use gitcore::{
     BranchComparison, BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk,
     PendingConflicts, Progress, Repo, RepoStatus, Segment, StashRef, SubmoduleUpdate,
-    UpdateOptions, UpdateOutcome, UpdatePlan,
+    SwitchOutcome, UpdateOptions, UpdateOutcome, UpdatePlan,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -525,6 +525,14 @@ fn repo_switch_branch(path: String, name: String) -> Result<(), String> {
     repo.switch_branch(&name).map_err(|e| e.to_string())
 }
 
+/// 脏工作区智能切换(smart checkout):自动 stash → checkout → 贴回。
+#[tauri::command]
+fn repo_switch_branch_autostash(path: String, name: String) -> Result<SwitchOutcome, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.switch_branch_autostash(&name)
+        .map_err(|e| e.to_string())
+}
+
 /// 新建分支(仅创建,不切换)。start_point 为 None 时从当前 HEAD,Some 时从指定分支/提交。
 #[tauri::command]
 fn repo_create_branch(
@@ -740,6 +748,7 @@ pub fn run() {
             repo_revert,
             repo_branches,
             repo_switch_branch,
+            repo_switch_branch_autostash,
             repo_create_branch,
             repo_delete_branch,
             repo_rename_branch,

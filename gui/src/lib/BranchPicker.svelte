@@ -58,6 +58,9 @@
     date: string;
   }
 
+  // smart checkout 结果(externally tagged)
+  type SwitchOutcome = "Switched" | { StashConflict: { files: string[] } };
+
   interface Props {
     repoPath: string;
     onClose: () => void;
@@ -252,6 +255,40 @@
     error = "";
     try {
       await invoke("repo_switch_branch", { path: repoPath, name });
+      onSwitched();
+      onClose();
+    } catch (e) {
+      const msg = String(e);
+      // 工作区脏被拒 → 提供 smart checkout(对标 WebStorm:切换被挡时才提示)
+      if (
+        msg.includes("未提交改动") &&
+        confirm(
+          `工作区有未提交改动。暂存后切换到 "${name}"(smart checkout)?\n改动会在切换后自动贴回新分支。`,
+        )
+      ) {
+        await smartSwitch(name);
+        return;
+      }
+      error = msg;
+    } finally {
+      switching = false;
+    }
+  }
+
+  // smart checkout:自动 stash → checkout → 贴回;贴回冲突时提示去改动列表解决。
+  async function smartSwitch(name: string) {
+    switching = true;
+    error = "";
+    try {
+      const r = await invoke<SwitchOutcome>("repo_switch_branch_autostash", {
+        path: repoPath,
+        name,
+      });
+      if (typeof r === "object" && "StashConflict" in r) {
+        alert(
+          `已暂存改动并切换到 "${name}",但贴回时有冲突。\n请在改动列表中解决冲突;原改动仍保留在 stash 中。`,
+        );
+      }
       onSwitched();
       onClose();
     } catch (e) {

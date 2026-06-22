@@ -26,7 +26,7 @@ mod update;
 use std::path::{Path, PathBuf};
 
 pub use blame::BlameLine;
-pub use branch::BranchInfo;
+pub use branch::{BranchInfo, SwitchOutcome};
 pub use commit::CommitOptions;
 pub use config::{parse_repos_config, RepoConfig};
 pub use conflict::{conflicted_files, three_versions, ThreeVersions};
@@ -464,6 +464,11 @@ impl Repo {
     /// 切换到指定分支。
     pub fn switch_branch(&self, name: &str) -> Result<(), Error> {
         branch::switch_branch(self, name)
+    }
+
+    /// 脏工作区智能切换(smart checkout):自动 stash → checkout → 贴回。
+    pub fn switch_branch_autostash(&self, name: &str) -> Result<SwitchOutcome, Error> {
+        branch::switch_branch_autostash(self, name)
     }
 
     /// 删除分支(安全模式)。
