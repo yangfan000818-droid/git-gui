@@ -228,6 +228,16 @@ impl Repo {
         log::compare_commits(self, other)
     }
 
+    /// 列出子仓库在 `old..new` 区间的提交(父仓 commit 详情展开子模块变化)。
+    pub fn submodule_commits(
+        &self,
+        sub_path: &Path,
+        old: &str,
+        new: &str,
+    ) -> Result<Vec<LogEntry>, Error> {
+        log::submodule_commits(self, sub_path, old, new)
+    }
+
     /// 检查 git 是否在 PATH 中可用。不可用返回友好错误供 UI 展示。
     pub fn check_git() -> Result<(), Error> {
         git::check_available()

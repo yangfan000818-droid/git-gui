@@ -86,12 +86,36 @@
   let selectedCommit = $state<LogEntry | null>(null);
   let commitMsg = $state("");
   let commitDiffs = $state<FileDiff[]>([]);
+  // 子模块变更 → 该 old..new 区间的子仓提交(父仓 commit 展开子模块,对标 WebStorm)
+  let submoduleRanges = $state<Record<string, LogEntry[]>>({});
   let detailLoading = $state(false);
   let detailError = $state("");
   let copied = $state(false);
   let authorFilter = $state("");
   let grepFilter = $state("");
   let filterTimeout: number | undefined;
+
+  // ── 子模块变更检测(gitlink:diff 行内容为 "Subproject commit <sha>") ──
+  function isSubmoduleChange(f: FileDiff): boolean {
+    return f.hunks.some((h) =>
+      h.lines.some((l) => l.content.startsWith("Subproject commit ")),
+    );
+  }
+  function subRange(f: FileDiff): { old: string; new: string } {
+    let oldSha = "";
+    let newSha = "";
+    for (const h of f.hunks) {
+      for (const l of h.lines) {
+        const m = l.content.match(/^Subproject commit ([0-9a-f]+)/);
+        if (!m) continue;
+        if (l.kind === "Removed") oldSha = m[1];
+        else if (l.kind === "Added") newSha = m[1];
+      }
+    }
+    return { old: oldSha, new: newSha };
+  }
+  let submoduleDiffs = $derived(commitDiffs.filter(isSubmoduleChange));
+  let normalDiffs = $derived(commitDiffs.filter((f) => !isSubmoduleChange(f)));
 
   // ── Cherry-pick / Revert 状态 ──
   let operationInProgress = $state(false);
@@ -130,6 +154,7 @@
     detailError = "";
     commitMsg = "";
     commitDiffs = [];
+    submoduleRanges = {};
     copied = false;
     try {
       const [msg, diffs] = await Promise.all([
@@ -138,10 +163,31 @@
       ]);
       commitMsg = msg;
       commitDiffs = diffs;
+      void loadSubmoduleRanges(diffs);
     } catch (e) {
       detailError = String(e);
     } finally {
       detailLoading = false;
+    }
+  }
+
+  // 对该提交里的每个子模块指针变化,取其 old..new 区间的子仓提交(失败则只显示指针)。
+  async function loadSubmoduleRanges(diffs: FileDiff[]) {
+    for (const f of diffs) {
+      if (!isSubmoduleChange(f)) continue;
+      const { old, new: newSha } = subRange(f);
+      if (!old || !newSha) continue; // 仅指针变更(modify)才有区间
+      try {
+        const commits = await invoke<LogEntry[]>("repo_submodule_commits", {
+          path,
+          subPath: f.path,
+          oldSha: old,
+          newSha,
+        });
+        submoduleRanges = { ...submoduleRanges, [f.path]: commits };
+      } catch {
+        // 子仓未拉取该区间或为回退,跳过(只展示指针变化)
+      }
     }
   }
 
@@ -490,9 +536,44 @@
         {:else if commitDiffs.length === 0}
           <p class="muted">无文件改动</p>
         {:else}
-          <div class="diff-list">
-            <DiffView files={commitDiffs} {onFileHistory} />
-          </div>
+          {#if submoduleDiffs.length > 0}
+            <div class="sub-changes">
+              {#each submoduleDiffs as f (f.path)}
+                {@const r = subRange(f)}
+                <div class="sub-change">
+                  <div class="sub-change-head">
+                    <span class="sub-tag">子模块</span>
+                    <span class="sub-path">{f.path}</span>
+                    <span class="sub-range">
+                      {r.old ? r.old.slice(0, 8) : "（新增）"} → {r.new
+                        ? r.new.slice(0, 8)
+                        : "（移除）"}
+                    </span>
+                  </div>
+                  {#if submoduleRanges[f.path]?.length}
+                    <ul class="sub-commit-list">
+                      {#each submoduleRanges[f.path] as c (c.full_sha)}
+                        <li class="sub-commit">
+                          <span class="sub-c-sha">{c.sha}</span>
+                          <span class="sub-c-msg">{c.message}</span>
+                          <span class="sub-c-meta">{c.author} · {c.date}</span>
+                        </li>
+                      {/each}
+                    </ul>
+                  {:else if r.old && r.new}
+                    <p class="sub-none">
+                      无法列出区间提交（子仓未拉取或为回退）
+                    </p>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+          {#if normalDiffs.length > 0}
+            <div class="diff-list">
+              <DiffView files={normalDiffs} {onFileHistory} />
+            </div>
+          {/if}
         {/if}
       {:else}
         <p class="muted placeholder">← 选择左侧提交查看详情</p>
@@ -728,6 +809,85 @@
     color: #ccc;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  /* ── 子模块变更(展开区间提交) ── */
+  .sub-changes {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .sub-change {
+    border: 1px solid #383838;
+    border-radius: 6px;
+    background: #232323;
+    overflow: hidden;
+  }
+  .sub-change-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    background: #2a2a2a;
+    border-bottom: 1px solid #333;
+    font-size: 12px;
+  }
+  .sub-tag {
+    background: #2d1d3a;
+    color: #c49ae2;
+    font-size: 10px;
+    border-radius: 4px;
+    padding: 1px 6px;
+    flex-shrink: 0;
+  }
+  .sub-path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #e4e4e4;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sub-range {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #e2c47a;
+    flex-shrink: 0;
+  }
+  .sub-commit-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+  }
+  .sub-commit {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 4px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+  }
+  .sub-c-sha {
+    color: #e2c47a;
+    flex-shrink: 0;
+  }
+  .sub-c-msg {
+    flex: 1;
+    color: #ddd;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sub-c-meta {
+    color: #777;
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+  .sub-none {
+    color: #666;
+    font-size: 12px;
+    padding: 6px 12px;
+    margin: 0;
   }
 
   /* ── Diff 列表 ── */

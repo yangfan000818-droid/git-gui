@@ -129,6 +129,18 @@ fn rev_range(repo: &Repo, range: &str) -> Result<Vec<LogEntry>, Error> {
     Ok(entries)
 }
 
+/// 列出子仓库在 `old..new` 区间的提交(供父仓 commit 详情展开子模块指针变化)。
+/// 子仓未初始化、或该区间提交本地未拉取时返回错误,由上层降级处理(只显示指针变化)。
+pub(crate) fn submodule_commits(
+    main_repo: &Repo,
+    sub_path: &std::path::Path,
+    old: &str,
+    new: &str,
+) -> Result<Vec<LogEntry>, Error> {
+    let sub = Repo::open(main_repo.workdir().join(sub_path))?;
+    rev_range(&sub, &format!("{old}..{new}"))
+}
+
 /// 带分支拓扑图的一行 log:`graph` 是该行的图形前缀(如 `* `、`|\`、`| * `),
 /// `entry` 仅 commit 行有(纯连接行为 None)。
 #[derive(Debug, Clone)]

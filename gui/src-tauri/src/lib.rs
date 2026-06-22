@@ -715,6 +715,19 @@ fn repo_commit_files(path: String, sha: String) -> Result<Vec<FileDiff>, String>
     repo.commit_files(&sha).map_err(|e| e.to_string())
 }
 
+/// 列出子仓库在 old..new 区间的提交(父仓 commit 详情展开子模块指针变化)。
+#[tauri::command]
+fn repo_submodule_commits(
+    path: String,
+    sub_path: String,
+    old_sha: String,
+    new_sha: String,
+) -> Result<Vec<gitcore::LogEntry>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.submodule_commits(Path::new(&sub_path), &old_sha, &new_sha)
+        .map_err(|e| e.to_string())
+}
+
 /// 选定分支(或任意 ref)与当前工作区的差异(Show Diff with Working Tree)。
 #[tauri::command]
 fn repo_diff_with_workdir(path: String, rev: String) -> Result<Vec<FileDiff>, String> {
@@ -804,6 +817,7 @@ pub fn run() {
             start_watch,
             check_git,
             repo_commit_files,
+            repo_submodule_commits,
             repo_diff_with_workdir,
             repo_compare_commits,
             repo_commit_message,
