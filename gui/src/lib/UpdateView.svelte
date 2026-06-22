@@ -90,7 +90,7 @@
   // ── 策略选项 ──
   let strategy = $state<"Merge" | "Rebase">("Merge");
   let ignoreWhitespace = $state(true);
-  // 全部更新:主仓库整合时不自动递归子模块,子仓库改用 update --remote 单独拉远程最新。
+  // 全部更新:主仓库整合时不自动递归子模块,子仓库改为在各自当前分支上 pull(留在原分支,不 detach)。
   let recurseSubmodules = $state(false);
 
   function buildOptions(): UpdateOptions {
@@ -122,14 +122,48 @@
   let conflictFiles = $state<string[]>([]);
   let autostash = $state<StashRef | null>(null);
 
-  // ── 子仓库更新状态(主仓库整合成功后,逐个 update --remote) ──
+  // ── 子仓库更新状态(主仓库整合成功后,逐个在各自当前分支 pull) ──
+  // SubmoduleUpdate: 外部 tagged 枚举(同 UpdateOutcome)
+  type SubmoduleUpdate =
+    | "UpToDate"
+    | "SkippedDetached"
+    | "SkippedNoUpstream"
+    | "Conflict"
+    | { Updated: { commits: number } };
+
   interface SubResult {
     label: string;
-    ok: boolean;
-    error?: string;
+    status: "ok" | "warn" | "fail";
+    detail: string;
   }
   let subResults = $state<SubResult[]>([]);
   let subCurrent = $state(""); // 正在更新的子仓库路径
+
+  // 把 SubmoduleUpdate 结果映射为展示(图标状态 + 文案)。
+  function describeSub(r: SubmoduleUpdate): {
+    status: SubResult["status"];
+    detail: string;
+  } {
+    if (typeof r === "object") {
+      return { status: "ok", detail: `已更新 ${r.Updated.commits} 个提交` };
+    }
+    switch (r) {
+      case "UpToDate":
+        return { status: "ok", detail: "已是最新" };
+      case "SkippedDetached":
+        return { status: "warn", detail: "跳过:detached(未在分支上)" };
+      case "SkippedNoUpstream":
+        return { status: "warn", detail: "跳过:无上游分支" };
+      case "Conflict":
+        return {
+          status: "warn",
+          detail: "更新有冲突,已保持原状,请手动更新该子仓",
+        };
+    }
+  }
+  function subIcon(s: SubResult["status"]): string {
+    return s === "ok" ? "✓" : s === "warn" ? "⚠" : "✕";
+  }
 
   let unlisten: UnlistenFn | null = null;
 
@@ -236,7 +270,7 @@
     await proceedToSubmodules();
   }
 
-  // 主仓库整合完成后,把每个子仓库更新到其远程分支最新(update --remote)。
+  // 主仓库整合完成后,把每个子仓库在**各自当前分支**上更新(pull,留在原分支,不 detach)。
   // 单个失败不阻断,逐个记录结果,最终在 outcome 汇总。
   async function proceedToSubmodules() {
     if (submodules.length === 0) {
@@ -248,15 +282,16 @@
     for (const sub of submodules) {
       subCurrent = sub.path;
       try {
-        await invoke("repo_submodule_update_remote", {
-          path,
-          subPath: sub.path,
-        });
-        subResults = [...subResults, { label: sub.path, ok: true }];
+        const r = await invoke<SubmoduleUpdate>(
+          "repo_update_submodule_on_branch",
+          { path, subPath: sub.path, options: buildOptions() },
+        );
+        const { status, detail } = describeSub(r);
+        subResults = [...subResults, { label: sub.path, status, detail }];
       } catch (e) {
         subResults = [
           ...subResults,
-          { label: sub.path, ok: false, error: String(e) },
+          { label: sub.path, status: "fail", detail: String(e) },
         ];
       }
     }
@@ -426,7 +461,7 @@
       </div>
       <p class="update-scope">
         将更新主仓库{#if submodules.length > 0}，并把 {submodules.length}
-          个子仓库拉取到各自远程最新{/if}。
+          个子仓库在各自当前分支上更新（留在原分支）{/if}。
       </p>
       <button class="btn-primary" onclick={doPlan}> 检查更新 </button>
     </div>
@@ -507,11 +542,14 @@
   <!-- ── submodules_updating: 逐个更新子仓库 ── -->
   {#if phase === "submodules_updating"}
     <div class="sub-updating">
-      <p class="sub-updating-title">正在更新子仓库（拉取各自远程最新）…</p>
+      <p class="sub-updating-title">正在更新子仓库（各自当前分支 pull）…</p>
       <ul class="sub-progress-list">
         {#each subResults as r (r.label)}
-          <li class:sub-fail={!r.ok}>
-            <span class="sub-icon">{r.ok ? "✓" : "✕"}</span>
+          <li
+            class:sub-fail={r.status === "fail"}
+            class:sub-warn={r.status === "warn"}
+          >
+            <span class="sub-icon">{subIcon(r.status)}</span>
             {r.label}
           </li>
         {/each}
@@ -574,12 +612,13 @@
           <h4>子仓库更新</h4>
           <ul class="sub-result-list">
             {#each subResults as r (r.label)}
-              <li class:sub-fail={!r.ok}>
-                <span class="sub-icon">{r.ok ? "✓" : "✕"}</span>
+              <li
+                class:sub-fail={r.status === "fail"}
+                class:sub-warn={r.status === "warn"}
+              >
+                <span class="sub-icon">{subIcon(r.status)}</span>
                 <span class="sub-label">{r.label}</span>
-                {#if !r.ok && r.error}
-                  <span class="sub-error" title={r.error}>{r.error}</span>
-                {/if}
+                <span class="sub-detail" title={r.detail}>{r.detail}</span>
               </li>
             {/each}
           </ul>
@@ -672,6 +711,10 @@
   .sub-result-list li.sub-fail {
     color: #f3b4b4;
   }
+  .sub-progress-list li.sub-warn,
+  .sub-result-list li.sub-warn {
+    color: #e0c178;
+  }
   .sub-current {
     color: #888 !important;
   }
@@ -692,8 +735,8 @@
   .sub-label {
     flex-shrink: 0;
   }
-  .sub-error {
-    color: #c98a8a;
+  .sub-detail {
+    color: #999;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

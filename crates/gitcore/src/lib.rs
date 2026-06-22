@@ -43,7 +43,10 @@ pub use stash::{PopResult, StashEntry, StashRef};
 pub use status::{FileState, FileStatus, RepoStatus};
 pub use submodule::{Submodule, SubmoduleStatus};
 pub use topology::{GraphCommit, GraphEdge};
-pub use update::{IntegrationStrategy, PendingConflicts, UpdateOptions, UpdateOutcome, UpdatePlan};
+pub use update::{
+    IntegrationStrategy, PendingConflicts, SubmoduleUpdate, UpdateOptions, UpdateOutcome,
+    UpdatePlan,
+};
 
 /// 一个 git 工作区的句柄;所有操作相对它执行。
 #[derive(Debug, Clone)]
@@ -410,9 +413,13 @@ impl Repo {
         submodule::update_submodule(self, path)
     }
 
-    /// 将子仓库更新到其远程跟踪分支的最新提交(git submodule update --remote)。
-    pub fn submodule_update_remote(&self, path: &Path) -> Result<(), Error> {
-        submodule::update_submodule_remote(self, path)
+    /// 把子仓更新到它当前分支的 upstream 并留在该分支(对标 WebStorm,不 detach)。
+    pub fn update_submodule_on_branch(
+        &self,
+        sub_path: &Path,
+        opts: &UpdateOptions,
+    ) -> Result<SubmoduleUpdate, Error> {
+        update::update_submodule_on_branch(self, sub_path, opts)
     }
 
     /// 同步子仓库的 URL 配置(git submodule sync)。

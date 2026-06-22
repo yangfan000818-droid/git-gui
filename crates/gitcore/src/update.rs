@@ -70,6 +70,22 @@ pub enum UpdateOutcome {
     SubmoduleSyncFailed { error: String },
 }
 
+/// 单个子仓库"在当前分支 pull"的结果(对标 WebStorm:更新后留在原分支,不 detach)。
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum SubmoduleUpdate {
+    /// 已是最新。
+    UpToDate,
+    /// 在当前分支上整合了 N 个提交(快进或合并/变基)。
+    Updated { commits: u32 },
+    /// 跳过:子仓处于 detached HEAD,没有分支可留。
+    SkippedDetached,
+    /// 跳过:子仓当前分支没有 upstream,无拉取目标。
+    SkippedNoUpstream,
+    /// 更新产生冲突,已回退到更新前(不留半合并状态),需手动在该子仓解决。
+    Conflict,
+}
+
 /// 预检 + fetch + 计算计划,不改动工作区。
 pub(crate) fn plan_update(repo: &Repo, _opts: &UpdateOptions) -> Result<UpdatePlan, Error> {
     let mut ignore = |_p: Progress| {};
@@ -391,6 +407,53 @@ fn update_submodules(repo: &Repo) -> Result<(), Error> {
     }
     repo.git(&["submodule", "update", "--init", "--recursive"])?;
     Ok(())
+}
+
+/// 把子仓更新到它当前分支的 upstream,并**留在当前分支**(对标 WebStorm)。
+/// 不同于 `git submodule update --remote`(会 detach 到具体 commit):这里把子仓当独立仓库,
+/// 在其当前分支上 pull(复用 `execute_update` 的 fetch + 整合 + autostash)。
+/// detached / 无 upstream 的子仓跳过;冲突则回退,不留半合并状态。
+pub(crate) fn update_submodule_on_branch(
+    main_repo: &Repo,
+    sub_path: &std::path::Path,
+    opts: &UpdateOptions,
+) -> Result<SubmoduleUpdate, Error> {
+    let abs = main_repo.workdir().join(sub_path);
+    let sub = Repo::open(&abs)?;
+
+    // detached HEAD → 没有分支可留,跳过(回退用旧 submodule update 会再次 detach,违背初衷)。
+    let head = sub.git(&["rev-parse", "--abbrev-ref", "HEAD"])?;
+    if head.trim() == "HEAD" {
+        return Ok(SubmoduleUpdate::SkippedDetached);
+    }
+    // 当前分支无 upstream → 无拉取目标,跳过。
+    let has_upstream = sub
+        .git_checked(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])?
+        .success;
+    if !has_upstream {
+        return Ok(SubmoduleUpdate::SkippedNoUpstream);
+    }
+
+    // 在子仓当前分支上 pull;不再向下递归子模块(避免嵌套子仓又被 detach)。
+    let sub_opts = UpdateOptions {
+        recurse_submodules: false,
+        ..opts.clone()
+    };
+    let cancel = CancelToken::default();
+    match execute_update(&sub, &sub_opts, &cancel)? {
+        UpdateOutcome::AlreadyUpToDate => Ok(SubmoduleUpdate::UpToDate),
+        UpdateOutcome::FastForwarded { commits } => Ok(SubmoduleUpdate::Updated { commits }),
+        UpdateOutcome::Integrated { commits, .. } => Ok(SubmoduleUpdate::Updated { commits }),
+        UpdateOutcome::Resolved => Ok(SubmoduleUpdate::Updated { commits: 0 }),
+        // 冲突:回退到更新前,不把子仓留在半合并状态(GUI 暂不支持子仓冲突解决)。
+        UpdateOutcome::Conflicted { autostash, .. } => {
+            abort_update(&sub, autostash)?;
+            Ok(SubmoduleUpdate::Conflict)
+        }
+        UpdateOutcome::StashRestoreConflict { .. } => Ok(SubmoduleUpdate::Conflict),
+        // 子仓的子仓同步失败:本层已 recurse_submodules=false,不会走到;兜底当作已更新。
+        UpdateOutcome::SubmoduleSyncFailed { .. } => Ok(SubmoduleUpdate::Updated { commits: 0 }),
+    }
 }
 
 // rerere 重放后:把已无冲突标记的文件自动 add(视为已解决)。

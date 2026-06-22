@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use gitcore::{
     BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk, PendingConflicts, Progress,
-    Repo, RepoStatus, Segment, StashRef, UpdateOptions, UpdateOutcome, UpdatePlan,
+    Repo, RepoStatus, Segment, StashRef, SubmoduleUpdate, UpdateOptions, UpdateOutcome, UpdatePlan,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -307,12 +307,17 @@ async fn repo_submodule_update(path: String, sub_path: String) -> Result<(), Str
     .map_err(|e| e.to_string())?
 }
 
-/// 将子仓库更新到其远程分支最新提交(git submodule update --remote)。
+/// 把子仓更新到它当前分支的 upstream 并留在该分支(对标 WebStorm,不 detach)。
+/// detached / 无 upstream 跳过;冲突回退。供"全部更新"逐子仓调用。
 #[tauri::command]
-async fn repo_submodule_update_remote(path: String, sub_path: String) -> Result<(), String> {
+async fn repo_update_submodule_on_branch(
+    path: String,
+    sub_path: String,
+    options: UpdateOptions,
+) -> Result<SubmoduleUpdate, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-        repo.submodule_update_remote(Path::new(&sub_path))
+        repo.update_submodule_on_branch(Path::new(&sub_path), &options)
             .map_err(|e| e.to_string())
     })
     .await
@@ -664,7 +669,7 @@ pub fn run() {
             repo_unstage_lines,
             repo_commit,
             repo_submodule_update,
-            repo_submodule_update_remote,
+            repo_update_submodule_on_branch,
             repo_submodule_sync,
             repo_fetch,
             repo_push,
