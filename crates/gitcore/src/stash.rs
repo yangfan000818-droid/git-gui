@@ -11,6 +11,7 @@ pub struct StashRef {
 
 /// autostash 贴回(pop)结果。
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PopResult {
     /// 干净贴回,stash 已删除。
     Clean,
@@ -85,6 +86,7 @@ fn locate(repo: &Repo, label: &str) -> Result<Option<String>, Error> {
 
 /// 一条 stash 记录。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StashEntry {
     /// stash@{N} 引用。
     pub reff: String,

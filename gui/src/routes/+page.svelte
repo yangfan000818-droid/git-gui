@@ -12,6 +12,7 @@
   import BranchPicker from "$lib/BranchPicker.svelte";
   import ConflictView from "$lib/ConflictView.svelte";
   import Settings from "$lib/Settings.svelte";
+  import StashView from "$lib/StashView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -103,6 +104,7 @@
   let blamePath = $state(""); // blame 查看的文件路径
   let branchPickerRepo = $state<string | null>(null); // 哪个仓库的分支选择面板打开(null=关闭)
   let showSettings = $state(false); // 全局设置弹层
+  let showStash = $state(false); // Stash 储藏管理弹层
   interface StashRef {
     label: string;
   }
@@ -805,6 +807,12 @@
           title="未初始化的子仓库执行 init，已初始化的在各自当前分支更新（留在原分支）"
           onclick={openUpdateSubs}>更新子仓库</button
         >
+        <button
+          class="btn-remote"
+          disabled={loading || operating}
+          title="储藏管理：把工作区改动暂存起来，或应用/弹出/丢弃已有储藏（git stash）"
+          onclick={() => (showStash = true)}>Stash</button
+        >
       </div>
     {/if}
     <button
@@ -1328,6 +1336,16 @@
   <!-- ── 全局设置 ── -->
   {#if showSettings}
     <Settings onClose={() => (showSettings = false)} />
+  {/if}
+
+  <!-- ── Stash 储藏管理 ── -->
+  {#if showStash && status}
+    <StashView
+      {path}
+      hasChanges={status.dirty}
+      onClose={() => (showStash = false)}
+      onChanged={refresh}
+    />
   {/if}
 </main>
 

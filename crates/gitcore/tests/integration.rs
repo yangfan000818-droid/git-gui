@@ -1265,3 +1265,43 @@ fn smart_switch_dirty_conflicting_reports_stash_conflict() {
 
     cleanup(&[&dir]);
 }
+
+#[test]
+fn stash_push_list_apply_drop_roundtrip() {
+    let dir = init_repo("stash-rt");
+    write(&dir, "a.txt", "base");
+    commit_all(&dir, "init");
+    write(&dir, "a.txt", "changed"); // 脏
+
+    let repo = Repo::open(&dir).unwrap();
+    repo.stash_push(Some("my wip")).unwrap();
+    assert!(!repo.status().unwrap().dirty, "stash 后工作区应干净");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "base",
+        "stash 后内容回到已提交版本"
+    );
+
+    let list = repo.stashes().unwrap();
+    assert_eq!(list.len(), 1, "应有 1 条 stash");
+    assert!(
+        list[0].message.contains("my wip"),
+        "应含自定义说明,实际 {:?}",
+        list[0].message
+    );
+
+    // apply 保留 stash
+    repo.stash_apply(&list[0].reff).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "changed",
+        "apply 后改动回到工作区"
+    );
+    assert_eq!(repo.stashes().unwrap().len(), 1, "apply 保留 stash");
+
+    // drop 删除
+    repo.stash_drop(&list[0].reff).unwrap();
+    assert_eq!(repo.stashes().unwrap().len(), 0, "drop 后无 stash");
+
+    cleanup(&[&dir]);
+}

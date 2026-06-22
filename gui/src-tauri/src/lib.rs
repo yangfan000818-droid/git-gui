@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use gitcore::{
     BranchComparison, BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk,
-    PendingConflicts, Progress, Repo, RepoStatus, Segment, StashRef, SubmoduleUpdate,
-    SwitchOutcome, UpdateOptions, UpdateOutcome,
+    PendingConflicts, PopResult, Progress, Repo, RepoStatus, Segment, StashEntry, StashRef,
+    SubmoduleUpdate, SwitchOutcome, UpdateOptions, UpdateOutcome,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -360,6 +360,43 @@ fn repo_commit(
         ..Default::default()
     };
     repo.commit(&opts).map_err(|e| e.to_string())
+}
+
+// ── Stash 管理命令(对标 WebStorm Stash / Unstash Changes) ──
+
+#[tauri::command]
+fn repo_stashes(path: String) -> Result<Vec<StashEntry>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.stashes().map_err(|e| e.to_string())
+}
+
+/// 把当前工作区改动(含未跟踪)储藏起来;message 为空则用 git 默认描述。
+#[tauri::command]
+fn repo_stash_push(path: String, message: Option<String>) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.stash_push(message.as_deref().filter(|m| !m.is_empty()))
+        .map_err(|e| e.to_string())
+}
+
+/// 应用指定 stash(保留 stash)。
+#[tauri::command]
+fn repo_stash_apply(path: String, reff: String) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.stash_apply(&reff).map_err(|e| e.to_string())
+}
+
+/// 弹出指定 stash(应用 + 删除;冲突则保留 stash)。
+#[tauri::command]
+fn repo_stash_pop(path: String, reff: String) -> Result<PopResult, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.stash_pop(&reff).map_err(|e| e.to_string())
+}
+
+/// 丢弃指定 stash。
+#[tauri::command]
+fn repo_stash_drop(path: String, reff: String) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.stash_drop(&reff).map_err(|e| e.to_string())
 }
 
 /// 初始化/更新子仓库到父仓库记录的提交。可能较慢(需 clone/fetch),故 spawn_blocking。
@@ -783,6 +820,11 @@ pub fn run() {
             repo_stage_lines,
             repo_unstage_lines,
             repo_commit,
+            repo_stashes,
+            repo_stash_push,
+            repo_stash_apply,
+            repo_stash_pop,
+            repo_stash_drop,
             repo_submodule_update,
             repo_update_submodule_on_branch,
             repo_submodule_sync,
