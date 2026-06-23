@@ -662,6 +662,13 @@ fn repo_switch_branch_autostash(path: String, name: String) -> Result<SwitchOutc
         .map_err(|e| e.to_string())
 }
 
+/// 检出某个提交,进入 detached HEAD(对标 WebStorm Checkout Revision)。
+#[tauri::command]
+fn repo_checkout_commit(path: String, sha: String) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.checkout_commit(&sha).map_err(|e| e.to_string())
+}
+
 /// 新建分支(仅创建,不切换)。start_point 为 None 时从当前 HEAD,Some 时从指定分支/提交。
 #[tauri::command]
 fn repo_create_branch(
@@ -922,6 +929,7 @@ pub fn run() {
             repo_push_tag,
             repo_branches,
             repo_switch_branch,
+            repo_checkout_commit,
             repo_switch_branch_autostash,
             repo_create_branch,
             repo_delete_branch,

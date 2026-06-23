@@ -257,6 +257,30 @@
     }
   }
 
+  // ── 检出该提交(进入 detached HEAD) ──
+  async function doCheckout() {
+    if (!selectedCommit || operationInProgress) return;
+    if (
+      !confirm(
+        `检出 ${selectedCommit.sha} 将进入 detached HEAD（游离头指针，不在任何分支上）。确定?`,
+      )
+    )
+      return;
+    operationInProgress = true;
+    operationError = "";
+    try {
+      await invoke("repo_checkout_commit", {
+        path,
+        sha: selectedCommit.full_sha,
+      });
+      await load();
+    } catch (e) {
+      operationError = String(e);
+    } finally {
+      operationInProgress = false;
+    }
+  }
+
   // ── 重置到此(Reset Current Branch to Here) ──
   async function doReset() {
     if (!selectedCommit || operationInProgress) return;
@@ -580,6 +604,13 @@
                 onclick={() => doOperation("repo_revert")}
                 title="生成一个撤销该提交改动的新提交（git revert）"
                 >Revert</button
+              >
+              <button
+                class="btn-action"
+                disabled={operationInProgress}
+                onclick={doCheckout}
+                title="检出该提交，进入 detached HEAD（git checkout <sha>）"
+                >检出</button
               >
               <button
                 class="btn-action btn-reset"

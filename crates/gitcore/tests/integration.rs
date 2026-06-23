@@ -1624,3 +1624,27 @@ fn push_tag_publishes_to_remote() {
 
     cleanup(&[&work, &remote]);
 }
+
+// ── 检出某提交(detached HEAD) ──
+
+#[test]
+fn checkout_commit_detaches_head() {
+    let dir = init_repo("checkout-commit");
+    write(&dir, "f.txt", "A\n");
+    commit_all(&dir, "A");
+    let a = head_sha(&dir);
+    write(&dir, "f.txt", "B\n");
+    commit_all(&dir, "B");
+
+    let repo = Repo::open(&dir).unwrap();
+    repo.checkout_commit(&a).unwrap();
+
+    let st = repo.status().unwrap();
+    assert!(
+        st.branch.is_none(),
+        "检出提交后应为 detached HEAD(branch=None)"
+    );
+    assert_eq!(head_sha(&dir), a, "HEAD 应指向被检出的提交 A");
+
+    cleanup(&[&dir]);
+}

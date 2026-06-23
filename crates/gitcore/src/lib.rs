@@ -522,6 +522,11 @@ impl Repo {
         branch::switch_branch_autostash(self, name)
     }
 
+    /// 检出某个提交,进入 detached HEAD(对标 WebStorm Checkout Revision)。
+    pub fn checkout_commit(&self, sha: &str) -> Result<(), Error> {
+        branch::checkout_commit(self, sha)
+    }
+
     /// 删除分支(安全模式)。
     pub fn delete_branch(&self, name: &str) -> Result<(), Error> {
         branch::delete_branch(self, name)

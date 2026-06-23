@@ -160,6 +160,19 @@ pub(crate) fn switch_branch(repo: &Repo, name: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// 检出某个提交,进入 detached HEAD(对标 WebStorm Checkout Revision)。
+/// 脏工作区先拒绝,提示提交或暂存(与 [`switch_branch`] 一致,不自动 stash)。
+pub(crate) fn checkout_commit(repo: &Repo, sha: &str) -> Result<(), Error> {
+    let dirty = !repo.git(&["status", "--porcelain"])?.trim().is_empty();
+    if dirty {
+        return Err(Error::Precondition(
+            "工作区有未提交改动，请先提交或暂存".into(),
+        ));
+    }
+    repo.git(&["checkout", sha])?;
+    Ok(())
+}
+
 /// 脏工作区切换(smart checkout)的结果。
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
