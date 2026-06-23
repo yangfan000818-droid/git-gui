@@ -107,6 +107,7 @@
   let showSettings = $state(false); // 全局设置弹层
   let showStash = $state(false); // Stash 储藏管理弹层
   let showTags = $state(false); // Tag 管理弹层
+  let showMore = $state(false); // 顶栏「⋯ 更多」下拉(收纳次要操作,给顶栏减负)
   interface StashRef {
     label: string;
   }
@@ -739,6 +740,8 @@
   }
 </script>
 
+<svelte:window onkeydown={(e) => e.key === "Escape" && (showMore = false)} />
+
 <main>
   <!-- ── 项目选择器覆盖层 ── -->
   {#if showProjectPicker}
@@ -791,6 +794,7 @@
       {#if status.behind > 0}<span class="badge behind">↓{status.behind}</span
         >{/if}
       <div class="remote-actions">
+        <!-- 日常主操作常驻可见,不埋进菜单 -->
         <button
           class="btn-remote"
           disabled={loading || operating}
@@ -803,24 +807,55 @@
           title="推送主仓库及各子仓库到各自远程"
           onclick={doPushAll}>全部推送</button
         >
-        <button
-          class="btn-remote"
-          disabled={loading || operating || subCount === 0}
-          title="未初始化的子仓库执行 init，已初始化的在各自当前分支更新（留在原分支）"
-          onclick={openUpdateSubs}>更新子仓库</button
-        >
-        <button
-          class="btn-remote"
-          disabled={loading || operating}
-          title="储藏管理：把工作区改动暂存起来，或应用/弹出/丢弃已有储藏（git stash）"
-          onclick={() => (showStash = true)}>Stash</button
-        >
-        <button
-          class="btn-remote"
-          disabled={loading || operating}
-          title="标签管理：列出/删除 tag，或在 HEAD 创建 tag（git tag）"
-          onclick={() => (showTags = true)}>Tags</button
-        >
+        <!-- 次要操作收进「⋯ 更多」,给顶栏减负 -->
+        <div class="more-wrap">
+          <button
+            class="btn-remote"
+            class:active={showMore}
+            disabled={loading || operating}
+            title="更多操作：更新子仓库 / Stash / Tags"
+            onclick={() => (showMore = !showMore)}>⋯ 更多</button
+          >
+          {#if showMore}
+            <!-- 点击空白处关闭菜单 -->
+            <button
+              class="more-backdrop"
+              aria-label="关闭菜单"
+              tabindex="-1"
+              onclick={() => (showMore = false)}
+            ></button>
+            <div class="more-menu" role="menu">
+              <button
+                class="more-item"
+                role="menuitem"
+                disabled={subCount === 0}
+                title="未初始化的子仓库执行 init，已初始化的在各自当前分支更新（留在原分支）"
+                onclick={() => {
+                  showMore = false;
+                  openUpdateSubs();
+                }}>更新子仓库</button
+              >
+              <button
+                class="more-item"
+                role="menuitem"
+                title="储藏管理：把工作区改动暂存起来，或应用/弹出/丢弃已有储藏（git stash）"
+                onclick={() => {
+                  showMore = false;
+                  showStash = true;
+                }}>Stash</button
+              >
+              <button
+                class="more-item"
+                role="menuitem"
+                title="标签管理：列出/删除/推送 tag，或在 HEAD 创建 tag（git tag）"
+                onclick={() => {
+                  showMore = false;
+                  showTags = true;
+                }}>Tags</button
+              >
+            </div>
+          {/if}
+        </div>
       </div>
     {/if}
     <button
@@ -1681,6 +1716,56 @@
   }
   .btn-remote:disabled {
     opacity: 0.5;
+    cursor: default;
+  }
+  .btn-remote.active {
+    background: #0e639c;
+    color: #fff;
+  }
+  /* ── 「⋯ 更多」下拉 ── */
+  .more-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+  .more-backdrop {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: default;
+    z-index: 40;
+  }
+  .more-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    min-width: 132px;
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 4px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  }
+  .more-item {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: #ddd;
+    cursor: pointer;
+    font-size: 12px;
+    text-align: left;
+    padding: 6px 10px;
+    white-space: nowrap;
+  }
+  .more-item:hover:not(:disabled) {
+    background: #2d2d2d;
+  }
+  .more-item:disabled {
+    opacity: 0.4;
     cursor: default;
   }
   .btn-settings {
