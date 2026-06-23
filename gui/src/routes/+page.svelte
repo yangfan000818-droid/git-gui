@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
+  import { onMount } from "svelte";
   import UpdateView from "$lib/UpdateView.svelte";
   import HistoryView from "$lib/HistoryView.svelte";
   import DiffView from "$lib/DiffView.svelte";
@@ -14,6 +15,37 @@
   import Settings from "$lib/Settings.svelte";
   import StashView from "$lib/StashView.svelte";
   import TagView from "$lib/TagView.svelte";
+  import "../lib/themes.css";
+
+  // ── 外观设置接口（与 Rust AppSettings 外观字段对应） ──
+  interface AppearanceSettings {
+    theme: string;
+    density: string;
+    font_size: string;
+    animations_enabled: boolean;
+    scanline_enabled: boolean;
+    glow_intensity: string;
+  }
+
+  function applyAppearance(s: AppearanceSettings) {
+    const body = document.body;
+    body.setAttribute("data-theme", s.theme || "neon-dark");
+    body.setAttribute("data-density", s.density || "comfortable");
+    body.setAttribute("data-font-size", s.font_size || "medium");
+    body.setAttribute("data-animations", s.animations_enabled ? "true" : "false");
+    body.setAttribute("data-scanline", s.scanline_enabled ? "true" : "false");
+    body.setAttribute("data-glow", s.glow_intensity || "medium");
+  }
+
+  // 启动时加载外观设置
+  onMount(async () => {
+    try {
+      const s = await invoke<AppearanceSettings>("get_settings");
+      applyAppearance(s);
+    } catch {
+      // 使用默认外观
+    }
+  });
 
   // ── 类型（与 gitcore serde 对应） ──
   type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
@@ -1386,7 +1418,7 @@
 
   <!-- ── 全局设置 ── -->
   {#if showSettings}
-    <Settings onClose={() => (showSettings = false)} />
+    <Settings onClose={() => (showSettings = false)} onAppearanceChanged={applyAppearance} />
   {/if}
 
   <!-- ── Stash 储藏管理 ── -->
@@ -1407,46 +1439,11 @@
 
 <style>
   /* ═══════════════════════════════════════════════════
-     Dark Dev Toolkit Theme — Design System Variables
+     Base body styles (theme-independent)
+     Themes are imported via JS import "../lib/themes.css"
      ═══════════════════════════════════════════════════ */
   :global(body) {
-    /* ── Surface palette ── */
-    --bg-void: #0D1117;
-    --bg-base: #111820;
-    --bg-surface: #161B24;
-    --bg-elevated: #1C2333;
-    --bg-hover: #21293B;
-    --bg-active: #293248;
-
-    /* ── Text ── */
-    --text-primary: #E6EDF3;
-    --text-secondary: #8B949E;
-    --text-muted: #6E7681;
-
-    /* ── Accents (soft, eye-friendly) ── */
-    --accent-neon: #56D364;
-    --accent-cyan: #58A6FF;
-    --accent-purple: #BC8CFF;
-    --accent-gold: #E3B341;
-    --accent-pink: #F7788B;
-
-    /* ── Semantic ── */
-    --color-success: #56D364;
-    --color-warning: #E3B341;
-    --color-error: #F7788B;
-    --color-info: #58A6FF;
-
-    /* ── Borders ── */
-    --border-dim: rgba(255,255,255,0.05);
-    --border-default: #30363D;
-    --border-glow: rgba(86,211,100,0.12);
-
-    /* ── Glow effects (subtle) ── */
-    --glow-neon: 0 0 6px rgba(86,211,100,0.2);
-    --glow-cyan: 0 0 6px rgba(88,166,255,0.2);
-    --glow-purple: 0 0 6px rgba(188,140,255,0.2);
-
-    /* ── Radii ── */
+    /* ── Radii (theme-independent) ── */
     --radius-sm: 4px;
     --radius-md: 6px;
     --radius-lg: 8px;
@@ -1456,11 +1453,12 @@
     background: var(--bg-void);
     color: var(--text-primary);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    font-size: 13px;
+    font-size: var(--fs-base, 13px);
     -webkit-font-smoothing: antialiased;
+    transition: background-color 0.35s ease, color 0.35s ease;
   }
 
-  /* ═══ Subtle scanline texture ═══ */
+  /* ═══ Subtle scanline texture (theme-aware) ═══ */
   :global(body)::after {
     content: "";
     position: fixed;
@@ -1471,8 +1469,8 @@
       0deg,
       transparent,
       transparent 3px,
-      rgba(0,0,0,0.015) 3px,
-      rgba(0,0,0,0.015) 6px
+      var(--scanline-color, rgba(0,0,0,0.015)) 3px,
+      var(--scanline-color, rgba(0,0,0,0.015)) 6px
     );
   }
 
@@ -1482,15 +1480,38 @@
     height: 100vh;
   }
 
+  /* ═══ Global focus ring ═══ */
+  :global(*:focus-visible) {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 1px;
+    border-radius: 2px;
+  }
+
+  /* ═══ Overlay fade-in ═══ */
+  @keyframes overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes modal-in {
+    from { opacity: 0; transform: scale(0.96) translateY(8px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  /* ═══ Button press feedback ═══ */
+  :global(button:active:not(:disabled)) {
+    transform: scale(0.97);
+    transition: transform 0.08s ease;
+  }
+
   /* ══════════════════════════════════════
      TOPBAR — Gradient + subtle edge accent
      ══════════════════════════════════════ */
   .topbar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 14px;
-    background: linear-gradient(135deg, #0D111A 0%, #141C28 40%, #111928 70%, #0D111A 100%);
+    gap: var(--space-md, 12px);
+    padding: var(--topbar-py, 8px) var(--topbar-px, 14px);
+    background: var(--topbar-bg, linear-gradient(135deg, #0D111A 0%, #141C28 40%, #111928 70%, #0D111A 100%));
     border-bottom: 1px solid var(--border-default);
     flex-shrink: 0;
     position: relative;
@@ -1502,14 +1523,14 @@
     position: absolute;
     inset: 0 0 auto 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
+    background: var(--topbar-accent, linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent));
     opacity: 0.2;
     pointer-events: none;
   }
 
   .logo {
     font-weight: 800;
-    font-size: 15px;
+    font-size: var(--fs-lg, 15px);
     letter-spacing: 0.02em;
     background: linear-gradient(135deg, var(--accent-neon), var(--accent-cyan));
     -webkit-background-clip: text;
@@ -1517,6 +1538,10 @@
     background-clip: text;
     text-shadow: none;
     flex-shrink: 0;
+    transition: filter 0.3s;
+  }
+  .logo:hover {
+    filter: brightness(1.2);
   }
 
   .path-bar {
@@ -1533,7 +1558,7 @@
     color: var(--text-primary) !important;
     padding: 6px 10px !important;
     font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--fs-code, 12px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1606,14 +1631,16 @@
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
-    color: var(--text-muted);
+    color: var(--text-primary);
     cursor: pointer;
-    font-size: 13px;
-    padding: 8px 18px;
-    transition: color 0.2s, border-color 0.2s;
+    font-size: var(--fs-sm, 13px);
+    padding: var(--tab-py, 8px) var(--tab-px, 18px);
+    transition: color 0.2s, border-color 0.2s, text-shadow 0.2s, background 0.15s;
+    position: relative;
   }
   .tab-btn:hover {
     color: var(--text-secondary);
+    background: rgba(255,255,255,0.02);
   }
   .tab-active {
     color: var(--accent-neon);
@@ -1634,6 +1661,7 @@
     align-items: center;
     justify-content: center;
     z-index: 1000;
+    animation: overlay-in 0.2s ease;
   }
   .picker-modal {
     background: var(--bg-elevated);
@@ -1644,6 +1672,7 @@
     max-height: 90%;
     overflow-y: auto;
     box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    animation: modal-in 0.25s ease;
   }
 
   /* ═══ UPDATE OVERLAY ═══ */
@@ -1656,6 +1685,7 @@
     align-items: center;
     justify-content: center;
     z-index: 1000;
+    animation: overlay-in 0.2s ease;
   }
   .update-modal {
     background: var(--bg-elevated);
@@ -1666,6 +1696,7 @@
     max-height: 90%;
     overflow-y: auto;
     box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    animation: modal-in 0.25s ease;
   }
 
   /* ═══ BRANCH DIFF MODAL ═══ */
@@ -1680,6 +1711,7 @@
     flex-direction: column;
     overflow: hidden;
     box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    animation: modal-in 0.25s ease;
   }
   .bd-header {
     display: flex;
@@ -1691,7 +1723,7 @@
   }
   .bd-title {
     margin: 0;
-    font-size: 14px;
+    font-size: var(--fs-lg, 14px);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -1868,6 +1900,8 @@
     border-radius: var(--radius-md);
     padding: 4px;
     box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+    animation: modal-in 0.15s ease;
+    transform-origin: top right;
   }
   .more-item {
     background: transparent;
@@ -1894,7 +1928,7 @@
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 17px;
+    font-size: var(--fs-xl, 17px);
     line-height: 1;
     padding: 4px 8px;
     border-radius: var(--radius-sm);
@@ -1983,14 +2017,16 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 14px 4px 20px;
+    padding: var(--file-item-py, 4px) 14px var(--file-item-py, 4px) var(--file-item-pl, 20px);
     cursor: pointer;
     min-height: 26px;
-    transition: background 0.15s;
+    transition: background 0.15s, border-left-color 0.15s;
     border-radius: 0;
+    border-left: 3px solid transparent;
   }
   .file-item:hover {
     background: var(--bg-hover);
+    border-left-color: var(--border-default);
   }
   .file-item.conflict {
     color: var(--color-error);
@@ -2015,7 +2051,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
+    font-size: var(--fs-xs, 11px);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -2207,10 +2243,11 @@
     flex-shrink: 0;
     border-top: 2px solid var(--border-default);
     background: var(--bg-void);
-    padding: 12px 14px 14px;
+    padding: var(--commit-py, 12px) var(--commit-px, 14px) var(--commit-py, 14px);
     box-shadow: 0 -4px 12px rgba(0,0,0,0.3);
     position: relative;
     z-index: 1;
+    transition: background 0.3s, border-color 0.3s;
   }
   .amend-toggle {
     display: flex;
@@ -2296,7 +2333,7 @@
 
   .hint {
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: var(--fs-base, 13px);
     text-align: center;
     margin-top: 60px;
   }

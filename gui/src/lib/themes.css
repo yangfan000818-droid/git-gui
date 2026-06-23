@@ -1,0 +1,461 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Theme System — 8 preset color schemes
+   Applied via [data-theme="..."] on <html> or <body>
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────
+   1. Neon Dark (default) — cyberpunk-tinged dev dark
+   ───────────────────────────────────────────── */
+[data-theme="neon-dark"] {
+  --bg-void: #0D1117;
+  --bg-base: #111820;
+  --bg-surface: #161B24;
+  --bg-elevated: #1C2333;
+  --bg-hover: #21293B;
+  --bg-active: #293248;
+
+  --text-primary: #E6EDF3;
+  --text-secondary: #8B949E;
+  --text-muted: #6E7681;
+
+  --accent-neon: #56D364;
+  --accent-cyan: #58A6FF;
+  --accent-purple: #BC8CFF;
+  --accent-gold: #E3B341;
+  --accent-pink: #F7788B;
+
+  --color-success: #56D364;
+  --color-warning: #E3B341;
+  --color-error: #F7788B;
+  --color-info: #58A6FF;
+
+  --border-dim: rgba(255,255,255,0.05);
+  --border-default: #30363D;
+  --border-glow: rgba(86,211,100,0.12);
+
+  --glow-neon: 0 0 6px rgba(86,211,100,0.2);
+  --glow-cyan: 0 0 6px rgba(88,166,255,0.2);
+  --glow-purple: 0 0 6px rgba(188,140,255,0.2);
+
+  --topbar-bg: linear-gradient(135deg, #0D111A 0%, #141C28 40%, #111928 70%, #0D111A 100%);
+  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
+  --scanline-color: rgba(0,0,0,0.015);
+
+  color-scheme: dark;
+}
+
+/* ─────────────────────────────────────────────
+   2. Light — soft, eye-friendly light
+   ───────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-void: #F6F8FA;
+  --bg-base: #FFFFFF;
+  --bg-surface: #F0F2F5;
+  --bg-elevated: #FFFFFF;
+  --bg-hover: #EBEDF0;
+  --bg-active: #DDE1E5;
+
+  --text-primary: #1F2328;
+  --text-secondary: #59636E;
+  --text-muted: #848D97;
+
+  --accent-neon: #1A7F37;
+  --accent-cyan: #0550AE;
+  --accent-purple: #8250DF;
+  --accent-gold: #9A6700;
+  --accent-pink: #CF222E;
+
+  --color-success: #1A7F37;
+  --color-warning: #9A6700;
+  --color-error: #CF222E;
+  --color-info: #0550AE;
+
+  --border-dim: rgba(0,0,0,0.05);
+  --border-default: #D0D7DE;
+  --border-glow: rgba(26,127,55,0.12);
+
+  --glow-neon: 0 0 6px rgba(26,127,55,0.15);
+  --glow-cyan: 0 0 6px rgba(5,80,174,0.15);
+  --glow-purple: 0 0 6px rgba(130,80,223,0.15);
+
+  --topbar-bg: linear-gradient(135deg, #F6F8FA 0%, #FFFFFF 40%, #F0F2F5 70%, #F6F8FA 100%);
+  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
+  --scanline-color: rgba(0,0,0,0.006);
+
+  color-scheme: light;
+}
+
+/* ─────────────────────────────────────────────
+   3. Dracula — purple-dominant classic
+   ───────────────────────────────────────────── */
+[data-theme="dracula"] {
+  --bg-void: #1E1F29;
+  --bg-base: #282A36;
+  --bg-surface: #2C2E3C;
+  --bg-elevated: #343746;
+  --bg-hover: #3E4058;
+  --bg-active: #4A4D6A;
+
+  --text-primary: #F8F8F2;
+  --text-secondary: #B4B6C5;
+  --text-muted: #7C7F93;
+
+  --accent-neon: #50FA7B;
+  --accent-cyan: #8BE9FD;
+  --accent-purple: #BD93F9;
+  --accent-gold: #F1FA8C;
+  --accent-pink: #FF79C6;
+
+  --color-success: #50FA7B;
+  --color-warning: #F1FA8C;
+  --color-error: #FF5555;
+  --color-info: #8BE9FD;
+
+  --border-dim: rgba(248,248,242,0.06);
+  --border-default: #44475A;
+  --border-glow: rgba(189,147,249,0.12);
+
+  --glow-neon: 0 0 6px rgba(80,250,123,0.2);
+  --glow-cyan: 0 0 6px rgba(139,233,253,0.2);
+  --glow-purple: 0 0 6px rgba(189,147,249,0.25);
+
+  --topbar-bg: linear-gradient(135deg, #1E1F29 0%, #282A36 40%, #252736 70%, #1E1F29 100%);
+  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-purple), var(--accent-pink), transparent);
+  --scanline-color: rgba(0,0,0,0.02);
+
+  color-scheme: dark;
+}
+
+/* ─────────────────────────────────────────────
+   4. Nord — arctic blue-gray
+   ───────────────────────────────────────────── */
+[data-theme="nord"] {
+  --bg-void: #242933;
+  --bg-base: #2E3440;
+  --bg-surface: #363C4A;
+  --bg-elevated: #3B4252;
+  --bg-hover: #434C5E;
+  --bg-active: #4C566A;
+
+  --text-primary: #ECEFF4;
+  --text-secondary: #D8DEE9;
+  --text-muted: #81A1C1;
+
+  --accent-neon: #A3BE8C;
+  --accent-cyan: #88C0D0;
+  --accent-purple: #B48EAD;
+  --accent-gold: #EBCB8B;
+  --accent-pink: #BF616A;
+
+  --color-success: #A3BE8C;
+  --color-warning: #EBCB8B;
+  --color-error: #BF616A;
+  --color-info: #88C0D0;
+
+  --border-dim: rgba(236,239,244,0.06);
+  --border-default: #4C566A;
+  --border-glow: rgba(136,192,208,0.1);
+
+  --glow-neon: 0 0 6px rgba(163,190,140,0.15);
+  --glow-cyan: 0 0 6px rgba(136,192,208,0.2);
+  --glow-purple: 0 0 6px rgba(180,142,173,0.15);
+
+  --topbar-bg: linear-gradient(135deg, #242933 0%, #2E3440 40%, #2B3240 70%, #242933 100%);
+  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
+  --scanline-color: rgba(0,0,0,0.018);
+
+  color-scheme: dark;
+}
+
+/* ─────────────────────────────────────────────
+   5. Solarized Dark — warm sepia-toned dark
+   ───────────────────────────────────────────── */
+[data-theme="solarized-dark"] {
+  --bg-void: #00212B;
+  --bg-base: #002B36;
+  --bg-surface: #073642;
+  --bg-elevated: #0A4150;
+  --bg-hover: #115166;
+  --bg-active: #1A6078;
+
+  --text-primary: #FDF6E3;
+  --text-secondary: #93A1A1;
+  --text-muted: #657B83;
+
+  --accent-neon: #859900;
+  --accent-cyan: #2AA198;
+  --accent-purple: #6C71C4;
+  --accent-gold: #B58900;
+  --accent-pink: #D33682;
+
+  --color-success: #859900;
+  --color-warning: #B58900;
+  --color-error: #DC322F;
+  --color-info: #2AA198;
+
+  --border-dim: rgba(253,246,227,0.06);
+  --border-default: #586E75;
+  --border-glow: rgba(133,153,0,0.12);
+
+  --glow-neon: 0 0 6px rgba(133,153,0,0.2);
+  --glow-cyan: 0 0 6px rgba(42,161,152,0.2);
+  --glow-purple: 0 0 6px rgba(108,113,196,0.2);
+
+  --topbar-bg: linear-gradient(135deg, #00212B 0%, #002B36 40%, #001E28 70%, #00212B 100%);
+  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-gold), transparent);
+  --scanline-color: rgba(0,0,0,0.015);
+
+  color-scheme: dark;
+}
+
+/* ─────────────────────────────────────────────
+   6. Monokai — high-contrast developer theme
+   ───────────────────────────────────────────── */
+[data-theme="monokai"] {
+  --bg-void: #1A1D1E;
+  --bg-base: #272822;
+  --bg-surface: #2D2F29;
+  --bg-elevated: #343630;
+  --bg-hover: #3E4038;
+  --bg-active: #494B42;
+
+  --text-primary: #F8F8F2;
+  --text-secondary: #C5C8C6;
+  --text-muted: #75715E;
+
+  --accent-neon: #A6E22E;
+  --accent-cyan: #66D9EF;
+  --accent-purple: #AE81FF;
+  --accent-gold: #E6DB74;
+  --accent-pink: #F92672;
+
+  --color-success: #A6E22E;
+  --color-warning: #E6DB74;
+  --color-error: #F92672;
+  --color-info: #66D9EF;
+
+  --border-dim: rgba(248,248,242,0.06);
+  --border-default: #49483E;
+  --border-glow: rgba(166,226,46,0.12);
+
+  --glow-neon: 0 0 6px rgba(166,226,46,0.2);
+  --glow-cyan: 0 0 6px rgba(102,217,239,0.2);
+  --glow-purple: 0 0 6px rgba(174,129,255,0.2);
+
+  --topbar-bg: linear-gradient(135deg, #1A1D1E 0%, #272822 40%, #222420 70%, #1A1D1E 100%);
+  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-gold), var(--accent-pink), transparent);
+  --scanline-color: rgba(0,0,0,0.02);
+
+  color-scheme: dark;
+}
+
+/* ─────────────────────────────────────────────
+   7. Tokyo Night — deep blue nocturnal
+   ───────────────────────────────────────────── */
+[data-theme="tokyo-night"] {
+  --bg-void: #1A1B26;
+  --bg-base: #1F2133;
+  --bg-surface: #24253D;
+  --bg-elevated: #292B44;
+  --bg-hover: #303256;
+  --bg-active: #393C67;
+
+  --text-primary: #C0CAF5;
+  --text-secondary: #9AA5CE;
+  --text-muted: #565F89;
+
+  --accent-neon: #9ECE6A;
+  --accent-cyan: #7DCFFF;
+  --accent-purple: #BB9AF7;
+  --accent-gold: #E0AF68;
+  --accent-pink: #F7768E;
+
+  --color-success: #9ECE6A;
+  --color-warning: #E0AF68;
+  --color-error: #F7768E;
+  --color-info: #7DCFFF;
+
+  --border-dim: rgba(192,202,245,0.06);
+  --border-default: #3B4261;
+  --border-glow: rgba(187,154,247,0.12);
+
+  --glow-neon: 0 0 6px rgba(158,206,106,0.2);
+  --glow-cyan: 0 0 6px rgba(125,207,255,0.2);
+  --glow-purple: 0 0 6px rgba(187,154,247,0.25);
+
+  --topbar-bg: linear-gradient(135deg, #1A1B26 0%, #1F2133 40%, #1C1E2E 70%, #1A1B26 100%);
+  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
+  --scanline-color: rgba(0,0,0,0.02);
+
+  color-scheme: dark;
+}
+
+/* ─────────────────────────────────────────────
+   8. GitHub Dark — GitHub's official dark palette
+   ───────────────────────────────────────────── */
+[data-theme="github-dark"] {
+  --bg-void: #0D1117;
+  --bg-base: #0D1117;
+  --bg-surface: #161B22;
+  --bg-elevated: #1C2128;
+  --bg-hover: #21262D;
+  --bg-active: #292E36;
+
+  --text-primary: #E6EDF3;
+  --text-secondary: #8B949E;
+  --text-muted: #6E7681;
+
+  --accent-neon: #3FB950;
+  --accent-cyan: #58A6FF;
+  --accent-purple: #BC8CFF;
+  --accent-gold: #D29922;
+  --accent-pink: #F78166;
+
+  --color-success: #3FB950;
+  --color-warning: #D29922;
+  --color-error: #F85149;
+  --color-info: #58A6FF;
+
+  --border-dim: rgba(255,255,255,0.06);
+  --border-default: #30363D;
+  --border-glow: rgba(63,185,80,0.12);
+
+  --glow-neon: 0 0 6px rgba(63,185,80,0.18);
+  --glow-cyan: 0 0 6px rgba(88,166,255,0.18);
+  --glow-purple: 0 0 6px rgba(188,140,255,0.18);
+
+  --topbar-bg: linear-gradient(135deg, #0D1117 0%, #161B22 40%, #11171E 70%, #0D1117 100%);
+  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
+  --scanline-color: rgba(0,0,0,0.02);
+
+  color-scheme: dark;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Density settings — control whitespace & padding
+   Applied via [data-density="..."]
+   ═══════════════════════════════════════════════════════════════════ */
+
+[data-density="compact"] {
+  --space-xs: 2px;
+  --space-sm: 4px;
+  --space-md: 6px;
+  --space-lg: 10px;
+  --space-xl: 14px;
+  --file-item-py: 2px;
+  --file-item-pl: 14px;
+  --tab-py: 5px;
+  --tab-px: 12px;
+  --topbar-py: 5px;
+  --topbar-px: 10px;
+  --commit-py: 8px;
+  --commit-px: 10px;
+}
+
+[data-density="comfortable"] {
+  --space-xs: 4px;
+  --space-sm: 6px;
+  --space-md: 10px;
+  --space-lg: 16px;
+  --space-xl: 22px;
+  --file-item-py: 4px;
+  --file-item-pl: 20px;
+  --tab-py: 8px;
+  --tab-px: 18px;
+  --topbar-py: 8px;
+  --topbar-px: 14px;
+  --commit-py: 12px;
+  --commit-px: 14px;
+}
+
+[data-density="spacious"] {
+  --space-xs: 6px;
+  --space-sm: 10px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --file-item-py: 6px;
+  --file-item-pl: 26px;
+  --tab-py: 12px;
+  --tab-px: 24px;
+  --topbar-py: 12px;
+  --topbar-px: 20px;
+  --commit-py: 16px;
+  --commit-px: 18px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Font size scaling
+   Applied via [data-font-size="..."]
+   ═══════════════════════════════════════════════════════════════════ */
+
+[data-font-size="small"] {
+  --fs-base: 11px;
+  --fs-sm: 10px;
+  --fs-xs: 9px;
+  --fs-lg: 13px;
+  --fs-xl: 15px;
+  --fs-code: 11px;
+}
+
+[data-font-size="medium"] {
+  --fs-base: 13px;
+  --fs-sm: 12px;
+  --fs-xs: 11px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --fs-code: 12px;
+}
+
+[data-font-size="large"] {
+  --fs-base: 15px;
+  --fs-sm: 14px;
+  --fs-xs: 12px;
+  --fs-lg: 17px;
+  --fs-xl: 21px;
+  --fs-code: 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Animation control
+   Applied via [data-animations="..."] on body
+   ═══════════════════════════════════════════════════════════════════ */
+
+[data-animations="false"] *,
+[data-animations="false"] *::before,
+[data-animations="false"] *::after {
+  transition-duration: 0s !important;
+  animation-duration: 0s !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Scanline toggle
+   ═══════════════════════════════════════════════════════════════════ */
+
+[data-scanline="false"]::after {
+  display: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Glow intensity
+   Applied via [data-glow="..."]
+   ═══════════════════════════════════════════════════════════════════ */
+
+[data-glow="off"] {
+  --glow-neon: none;
+  --glow-cyan: none;
+  --glow-purple: none;
+  --border-glow: none;
+}
+
+[data-glow="subtle"] {
+  --glow-neon: 0 0 3px rgba(86,211,100,0.1);
+  --glow-cyan: 0 0 3px rgba(88,166,255,0.1);
+  --glow-purple: 0 0 3px rgba(188,140,255,0.1);
+}
+
+[data-glow="strong"] {
+  --glow-neon: 0 0 14px rgba(86,211,100,0.35);
+  --glow-cyan: 0 0 14px rgba(88,166,255,0.35);
+  --glow-purple: 0 0 14px rgba(188,140,255,0.35);
+}

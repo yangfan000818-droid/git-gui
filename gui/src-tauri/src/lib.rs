@@ -99,7 +99,34 @@ struct AppSettings {
     /// 提交时跳过 git 钩子(--no-verify)。默认 false = 不跳过。
     #[serde(default)]
     skip_hooks: bool,
+
+    // ── 外观设置 ──
+    /// 主题预设: "neon-dark" | "light" | "dracula" | "nord" | "solarized-dark" |
+    ///            "monokai" | "tokyo-night" | "github-dark"
+    #[serde(default = "default_theme")]
+    theme: String,
+    /// 布局密度: "compact" | "comfortable" | "spacious"
+    #[serde(default = "default_density")]
+    density: String,
+    /// 字号: "small" | "medium" | "large"
+    #[serde(default = "default_font_size")]
+    font_size: String,
+    /// 是否启用过渡动画
+    #[serde(default = "default_true")]
+    animations_enabled: bool,
+    /// 是否显示扫描线纹理
+    #[serde(default = "default_true")]
+    scanline_enabled: bool,
+    /// Glow 强度: "off" | "subtle" | "medium" | "strong"
+    #[serde(default = "default_glow")]
+    glow_intensity: String,
 }
+
+fn default_theme() -> String { "neon-dark".into() }
+fn default_density() -> String { "comfortable".into() }
+fn default_font_size() -> String { "medium".into() }
+fn default_true() -> bool { true }
+fn default_glow() -> String { "medium".into() }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -107,6 +134,12 @@ impl Default for AppSettings {
             update_strategy: "Merge".into(),
             ignore_whitespace: true,
             skip_hooks: false,
+            theme: default_theme(),
+            density: default_density(),
+            font_size: default_font_size(),
+            animations_enabled: true,
+            scanline_enabled: true,
+            glow_intensity: default_glow(),
         }
     }
 }
