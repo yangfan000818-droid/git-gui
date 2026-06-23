@@ -6,10 +6,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use gitcore::{
-    BranchComparison, BranchInfo, CancelToken, CommitOptions, FileDiff, Hunk,
-    PendingConflicts, PopResult, Progress, RebaseItem, ReflogEntry, Repo, RepoStatus, ResetMode,
-    Segment, StashEntry, StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions,
-    UpdateOutcome,
+    BranchComparison, BranchInfo, CancelToken, CommitOptions, FileDiff, Hunk, PendingConflicts,
+    PopResult, Progress, RebaseItem, ReflogEntry, Repo, RepoStatus, ResetMode, Segment, StashEntry,
+    StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions, UpdateOutcome,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
