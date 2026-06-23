@@ -437,7 +437,12 @@
           role="button"
           tabindex="0"
           onclick={() => toggleFile(node.path)}
-          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFile(node.path); } }}
+          onkeydown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggleFile(node.path);
+            }
+          }}
         >
           <span class="file-caret"
             >{expandedFiles.has(node.path) ? "▾" : "▸"}</span
@@ -445,7 +450,11 @@
           <span class="diff-path">{node.name}</span>
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span class="file-actions" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+          <span
+            class="file-actions"
+            onclick={(e) => e.stopPropagation()}
+            onkeydown={(e) => e.stopPropagation()}
+          >
             {#if onFileHistory}
               <button
                 class="history-btn"
@@ -550,6 +559,7 @@
     align-items: center;
     gap: 8px;
     width: 100%;
+    box-sizing: border-box; /* 否则 content-box 下 width:100% 把左右 padding 加宽,header 溢出右侧致右上角按钮被裁 */
     background: var(--bg-elevated);
     border: none;
     border-bottom: 1px solid var(--border-default);
@@ -578,6 +588,10 @@
     font-weight: 600;
     color: var(--text-primary);
     flex: 1;
+    min-width: 0; /* 允许收缩,否则长文件名把右侧按钮顶出 header 被 overflow:hidden 裁切 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     text-align: left;
   }
   .file-actions {
