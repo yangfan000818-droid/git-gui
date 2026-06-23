@@ -134,6 +134,11 @@
   >([]);
   let updateTitle = $state("全部更新");
   let updateSubsOnly = $state(false);
+  // 「更新后推送」:推送被拒(远端领先)时,按全局策略更新该仓并在成功后自动推送。
+  let pushAfterSuccess = $state(false);
+  let pushTargetPath = $state("");
+  // 「全部推送」队列:被拒的仓逐个「更新后推送」,队首为当前正在处理的仓。
+  let pushQueue = $state<RepoView[]>([]);
   let showFileHistory = $state(false); // 文件历史弹窗
   let fileHistoryPath = $state(""); // 文件历史查看的文件路径
   let showBlame = $state(false); // blame 弹窗
@@ -661,15 +666,30 @@
     showUpdate = true;
   }
 
-  // 推送单个仓库(主仓库组的独立「推送」)。
-  async function doPush(repoPath: string) {
+  // repo_push 的返回(PushOutcome,外部 tagged 单元枚举 → 字符串)。
+  type PushOutcome = "Success" | "NoUpstream" | "NonFastForward";
+
+  function pushMsg(r: PushOutcome): string {
+    if (r === "Success") return "推送成功";
+    if (r === "NoUpstream") return "跳过:无 upstream";
+    return "远端领先,待更新后推送";
+  }
+
+  // 推送单个仓库(主仓库组的独立「推送」)。被拒于"远端领先"时走「更新后推送」。
+  async function doPush(repo: RepoView) {
     operating = true;
     error = "";
     opMessage = "";
     try {
-      const msg = await invoke<string>("repo_push", { path: repoPath });
-      opMessage = msg;
-      await refresh();
+      const r = await invoke<PushOutcome>("repo_push", { path: repo.path });
+      if (r === "Success") {
+        opMessage = "推送成功";
+        await refresh();
+      } else if (r === "NoUpstream") {
+        error = "当前分支没有 upstream，请先设置上游分支";
+      } else {
+        await offerUpdateThenPush(repo);
+      }
     } catch (e) {
       error = String(e);
     } finally {
@@ -677,17 +697,71 @@
     }
   }
 
+  // 当前全局更新策略的中文名(合并/变基),用于确认文案。
+  async function globalStrategyLabel(): Promise<string> {
+    try {
+      const s = await invoke<{ update_strategy: "Merge" | "Rebase" }>(
+        "get_settings",
+      );
+      return s.update_strategy === "Rebase" ? "变基" : "合并";
+    } catch {
+      return "合并"; // 读设置失败:实际策略以 UpdateView 载入的全局设置为准
+    }
+  }
+
+  // 打开 UpdateView 走「更新后推送」:按全局策略更新该仓,成功后自动推送。
+  function openUpdateThenPush(repo: RepoView) {
+    pushAfterSuccess = true;
+    pushTargetPath = repo.path;
+    updateSubmodules = [];
+    updateTitle = `更新后推送 · ${repo.label}`;
+    updateSubsOnly = false;
+    showUpdate = true;
+  }
+
+  // 单仓:远端领先 → 确认(显示当前策略)后更新并推送。
+  async function offerUpdateThenPush(repo: RepoView) {
+    const strat = await globalStrategyLabel();
+    if (
+      !confirm(
+        `「${repo.label}」推送被拒绝:远端领先。\n按当前全局策略「${strat}」更新后再推送?`,
+      )
+    )
+      return;
+    openUpdateThenPush(repo);
+  }
+
+  // 队列:从队首取下一个仓走「更新后推送」;队空则收尾关闭弹层。
+  function advancePushQueue() {
+    const next = pushQueue[0];
+    if (!next) {
+      showUpdate = false;
+      pushAfterSuccess = false;
+      return;
+    }
+    openUpdateThenPush(next);
+  }
+
+  // UpdateView 成功完成(含推送)→ 弹出队首,推进到下一个。
+  function onPushQueueItemDone() {
+    pushQueue = pushQueue.slice(1);
+    advancePushQueue();
+  }
+
   // 全部推送:遍历主仓库 + 各子仓库,各自 push,逐个汇总(无 upstream / 失败不中断)。
+  // 被拒于"远端领先"的仓收集成队列,批量推送结束后逐个「更新后推送」。
   async function doPushAll() {
     if (repos.length === 0) return;
     operating = true;
     error = "";
     opMessage = "";
     const lines: string[] = [];
+    const rejected: RepoView[] = [];
     for (const r of repos) {
       try {
-        const msg = await invoke<string>("repo_push", { path: r.path });
-        lines.push(`${r.label}：${msg}`);
+        const out = await invoke<PushOutcome>("repo_push", { path: r.path });
+        if (out === "NonFastForward") rejected.push(r);
+        lines.push(`${r.label}：${pushMsg(out)}`);
       } catch (e) {
         lines.push(`${r.label}：${String(e)}`);
       }
@@ -695,6 +769,19 @@
     opMessage = lines.join("\n");
     operating = false;
     await refresh();
+    // 远端领先的仓:一次确认 → 逐个「更新后推送」(复用 UpdateView,含冲突解决)。
+    if (rejected.length > 0) {
+      const strat = await globalStrategyLabel();
+      const names = rejected.map((r) => r.label).join("、");
+      if (
+        confirm(
+          `以下仓库远端领先:${names}\n按当前全局策略「${strat}」逐个更新后推送?`,
+        )
+      ) {
+        pushQueue = rejected;
+        advancePushQueue();
+      }
+    }
   }
 
   // ── hunk / 行级操作(作用于当前选中文件所属仓库) ──
@@ -998,7 +1085,7 @@
                         class="sub-btn sub-btn-push"
                         disabled={operating || repo.ahead === 0}
                         title="推送主仓库当前分支到远程"
-                        onclick={() => doPush(repo.path)}>↑ 推送</button
+                        onclick={() => doPush(repo)}>↑ 推送</button
                       >
                     </div>
                   {:else if repo.subStatus !== "Uninitialized"}
@@ -1013,7 +1100,7 @@
                         class="sub-btn sub-btn-push"
                         disabled={operating || repo.ahead === 0}
                         title="推送子仓库当前分支到远程"
-                        onclick={() => doPush(repo.path)}>↑ 推送</button
+                        onclick={() => doPush(repo)}>↑ 推送</button
                       >
                       <button
                         class="sub-btn sub-btn-sync"
@@ -1221,14 +1308,23 @@
   {#if showUpdate && status}
     <div class="update-overlay">
       <div class="update-modal">
-        <UpdateView
-          {path}
-          submodules={updateSubmodules}
-          title={updateTitle}
-          subsOnly={updateSubsOnly}
-          onRefresh={refresh}
-          onClose={() => (showUpdate = false)}
-        />
+        <!-- key 绑定目标仓:队列推进时(pushTargetPath 变)强制重新挂载,重跑 onMount。 -->
+        {#key pushAfterSuccess ? pushTargetPath : path}
+          <UpdateView
+            path={pushAfterSuccess ? pushTargetPath : path}
+            submodules={updateSubmodules}
+            title={updateTitle}
+            subsOnly={updateSubsOnly}
+            {pushAfterSuccess}
+            onRefresh={refresh}
+            onClose={() => {
+              showUpdate = false;
+              pushAfterSuccess = false;
+              pushQueue = []; // 取消/放弃:停止整个队列
+            }}
+            onFinished={pushQueue.length > 0 ? onPushQueueItemDone : undefined}
+          />
+        {/key}
       </div>
     </div>
   {/if}

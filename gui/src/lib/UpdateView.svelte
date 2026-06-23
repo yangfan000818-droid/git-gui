@@ -75,16 +75,23 @@
     submodules = [],
     title = "全部更新",
     subsOnly = false,
+    pushAfterSuccess = false,
     onRefresh,
     onClose,
+    onFinished,
   }: {
     path: string;
     submodules: { name: string; path: string; status: string }[];
     title?: string;
     // 仅子仓模式:跳过主仓库更新,直接逐个在各自当前分支更新子仓库。
     subsOnly?: boolean;
+    // 「更新后推送」:整合成功后自动推送本仓(被拒于"远端领先"时由推送入口开启)。
+    pushAfterSuccess?: boolean;
     onRefresh: () => Promise<void>;
+    // 取消/放弃/手动关闭时调用(队列推送中用它停止整个队列)。
     onClose: () => void;
+    // 成功完成(含更新后推送)时调用;提供则取代 onClose,供「全部推送」队列推进到下一个。
+    onFinished?: () => void;
   } = $props();
 
   // 仅子仓模式的范围提示:未初始化的将 init,其余 on-branch 更新。
@@ -403,11 +410,47 @@
     }
   }
 
+  // 成功类终态(可自动关闭 / 可在其后推送)。
+  function isSuccessOutcome(): boolean {
+    if (!outcome) return false;
+    const v = outcomeVariant(outcome);
+    return (
+      v === "AlreadyUpToDate" ||
+      v === "FastForwarded" ||
+      v === "Integrated" ||
+      v === "Resolved"
+    );
+  }
+
+  // 「更新后推送」:整合成功后自动推送本仓。成功返回 true;失败停在 idle 显示错误(不关闭),返回 false。
+  async function doPushAfter(): Promise<boolean> {
+    try {
+      const r = await invoke<"Success" | "NoUpstream" | "NonFastForward">(
+        "repo_push",
+        { path },
+      );
+      if (r === "Success") return true;
+      error =
+        r === "NonFastForward"
+          ? "已更新,但远端又有新提交,推送再次被拒绝,请重试。"
+          : "已更新,但当前分支没有 upstream,未能推送。";
+    } catch (e) {
+      error = String(e);
+    }
+    phase = "idle";
+    return false;
+  }
+
   // ── 成功后刷新并关闭弹层 ──
   async function finishAndRefresh() {
+    // 「更新后推送」:整合成功后先推送,推送失败则停在 idle 显示错误、不关闭。
+    if (pushAfterSuccess && isSuccessOutcome() && !(await doPushAfter()))
+      return;
     await onRefresh();
     reset();
-    onClose();
+    // 队列推送:成功完成走 onFinished(推进下一个);否则常规关闭。
+    if (onFinished) onFinished();
+    else onClose();
   }
 
   // 是否可以自动关闭：成功类 outcome 且子仓无失败/警告

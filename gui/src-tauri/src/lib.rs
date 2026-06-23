@@ -498,20 +498,13 @@ async fn repo_fetch(path: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-/// 主仓库:push 当前分支到 upstream。映射 PushOutcome 为前端消息。
+/// 主仓库:push 当前分支到 upstream。返回 PushOutcome 交前端决定文案与后续
+/// (被拒于"远端领先"时,前端可走「更新后推送」)。
 #[tauri::command]
-async fn repo_push(path: String) -> Result<String, String> {
+async fn repo_push(path: String) -> Result<gitcore::PushOutcome, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-        match repo.push().map_err(|e| e.to_string())? {
-            gitcore::PushOutcome::Success => Ok("推送成功".to_string()),
-            gitcore::PushOutcome::NoUpstream => {
-                Err("当前分支没有 upstream，请先设置上游分支".to_string())
-            }
-            gitcore::PushOutcome::NonFastForward => {
-                Err("推送被拒绝：远端领先，请先「更新」后再推送".to_string())
-            }
-        }
+        repo.push().map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

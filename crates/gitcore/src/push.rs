@@ -2,6 +2,7 @@ use crate::{CancelToken, Error, Progress, Repo};
 
 /// push 的结果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PushOutcome {
     /// 推送成功。
     Success,
