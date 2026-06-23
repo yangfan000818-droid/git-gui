@@ -32,7 +32,10 @@
     body.setAttribute("data-theme", s.theme || "neon-dark");
     body.setAttribute("data-density", s.density || "comfortable");
     body.setAttribute("data-font-size", s.font_size || "medium");
-    body.setAttribute("data-animations", s.animations_enabled ? "true" : "false");
+    body.setAttribute(
+      "data-animations",
+      s.animations_enabled ? "true" : "false",
+    );
     body.setAttribute("data-scanline", s.scanline_enabled ? "true" : "false");
     body.setAttribute("data-glow", s.glow_intensity || "medium");
   }
@@ -1043,11 +1046,11 @@
             <!-- 已暂存区:仅列出有已暂存改动的仓库,作为待提交预览 -->
             {#if totalStaged > 0}
               <section class="zone">
-              <h2 class="zone-title zone-staged">
-                <span class="zone-icon">✓</span>
-                已暂存
-                <span class="zone-badge">{totalStaged}</span>
-              </h2>
+                <h2 class="zone-title zone-staged">
+                  <span class="zone-icon">✓</span>
+                  已暂存
+                  <span class="zone-badge">{totalStaged}</span>
+                </h2>
                 {#each repos as repo (repo.path)}
                   {#if repo.staged.length > 0}
                     <div class="repo-group">
@@ -1104,11 +1107,11 @@
             <!-- 冲突(主仓库) -->
             {#if status.conflicted.length}
               <section class="zone">
-              <h2 class="zone-title zone-conflict">
-                <span class="zone-icon">!</span>
-                冲突
-                <span class="zone-badge">{status.conflicted.length}</span>
-              </h2>
+                <h2 class="zone-title zone-conflict">
+                  <span class="zone-icon">!</span>
+                  冲突
+                  <span class="zone-badge">{status.conflicted.length}</span>
+                </h2>
                 <ul>
                   {#each status.conflicted as c}
                     <li class="file-item conflict">{c}</li>
@@ -1418,7 +1421,10 @@
 
   <!-- ── 全局设置 ── -->
   {#if showSettings}
-    <Settings onClose={() => (showSettings = false)} onAppearanceChanged={applyAppearance} />
+    <Settings
+      onClose={() => (showSettings = false)}
+      onAppearanceChanged={applyAppearance}
+    />
   {/if}
 
   <!-- ── Stash 储藏管理 ── -->
@@ -1452,10 +1458,13 @@
     margin: 0;
     background: var(--bg-void);
     color: var(--text-primary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     font-size: var(--fs-base, 13px);
     -webkit-font-smoothing: antialiased;
-    transition: background-color 0.35s ease, color 0.35s ease;
+    transition:
+      background-color 0.35s ease,
+      color 0.35s ease;
   }
 
   /* ═══ Subtle scanline texture (theme-aware) ═══ */
@@ -1469,8 +1478,8 @@
       0deg,
       transparent,
       transparent 3px,
-      var(--scanline-color, rgba(0,0,0,0.015)) 3px,
-      var(--scanline-color, rgba(0,0,0,0.015)) 6px
+      var(--scanline-color, rgba(0, 0, 0, 0.015)) 3px,
+      var(--scanline-color, rgba(0, 0, 0, 0.015)) 6px
     );
   }
 
@@ -1489,12 +1498,22 @@
 
   /* ═══ Overlay fade-in ═══ */
   @keyframes overlay-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
   @keyframes modal-in {
-    from { opacity: 0; transform: scale(0.96) translateY(8px); }
-    to { opacity: 1; transform: scale(1) translateY(0); }
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
   }
 
   /* ═══ Button press feedback ═══ */
@@ -1511,7 +1530,16 @@
     align-items: center;
     gap: var(--space-md, 12px);
     padding: var(--topbar-py, 8px) var(--topbar-px, 14px);
-    background: var(--topbar-bg, linear-gradient(135deg, #0D111A 0%, #141C28 40%, #111928 70%, #0D111A 100%));
+    background: var(
+      --topbar-bg,
+      linear-gradient(
+        135deg,
+        #0d111a 0%,
+        #141c28 40%,
+        #111928 70%,
+        #0d111a 100%
+      )
+    );
     border-bottom: 1px solid var(--border-default);
     flex-shrink: 0;
     position: relative;
@@ -1523,7 +1551,16 @@
     position: absolute;
     inset: 0 0 auto 0;
     height: 1px;
-    background: var(--topbar-accent, linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent));
+    background: var(
+      --topbar-accent,
+      linear-gradient(
+        90deg,
+        transparent,
+        var(--accent-cyan),
+        var(--accent-purple),
+        transparent
+      )
+    );
     opacity: 0.2;
     pointer-events: none;
   }
@@ -1557,18 +1594,21 @@
     border-radius: var(--radius-md);
     color: var(--text-primary) !important;
     padding: 6px 10px !important;
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     font-size: var(--fs-code, 12px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     text-align: left;
     cursor: pointer;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition:
+      border-color 0.2s,
+      box-shadow 0.2s;
   }
   .current-path:hover:not(:disabled) {
     border-color: var(--accent-cyan) !important;
-    box-shadow: 0 0 8px rgba(88,166,255,0.15);
+    box-shadow: 0 0 8px rgba(88, 166, 255, 0.15);
     background: var(--bg-elevated) !important;
   }
   .current-path-empty {
@@ -1582,11 +1622,13 @@
     font-size: 12px;
     text-align: left;
     cursor: pointer;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition:
+      border-color 0.2s,
+      box-shadow 0.2s;
   }
   .current-path-empty:hover:not(:disabled) {
     border-color: var(--accent-cyan) !important;
-    box-shadow: 0 0 8px rgba(88,166,255,0.15);
+    box-shadow: 0 0 8px rgba(88, 166, 255, 0.15);
   }
   .path-bar button {
     background: var(--bg-elevated);
@@ -1617,7 +1659,7 @@
   .btn-refresh:hover:not(:disabled) {
     border-color: var(--accent-neon) !important;
     color: var(--accent-neon) !important;
-    box-shadow: 0 0 8px rgba(86,211,100,0.12);
+    box-shadow: 0 0 8px rgba(86, 211, 100, 0.12);
   }
 
   /* ═══ TAB BAR ═══ */
@@ -1635,17 +1677,21 @@
     cursor: pointer;
     font-size: var(--fs-sm, 13px);
     padding: var(--tab-py, 8px) var(--tab-px, 18px);
-    transition: color 0.2s, border-color 0.2s, text-shadow 0.2s, background 0.15s;
+    transition:
+      color 0.2s,
+      border-color 0.2s,
+      text-shadow 0.2s,
+      background 0.15s;
     position: relative;
   }
   .tab-btn:hover {
     color: var(--text-secondary);
-    background: rgba(255,255,255,0.02);
+    background: rgba(255, 255, 255, 0.02);
   }
   .tab-active {
     color: var(--accent-neon);
     border-bottom-color: var(--accent-neon);
-    text-shadow: 0 0 6px rgba(86,211,100,0.25);
+    text-shadow: 0 0 6px rgba(86, 211, 100, 0.25);
   }
 
   /* ═══ PROJECT PICKER ═══ */
@@ -1655,7 +1701,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0,0,0,0.75);
+    background: rgba(0, 0, 0, 0.75);
     backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
@@ -1671,7 +1717,7 @@
     max-width: 90%;
     max-height: 90%;
     overflow-y: auto;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
     animation: modal-in 0.25s ease;
   }
 
@@ -1679,7 +1725,7 @@
   .update-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.75);
+    background: rgba(0, 0, 0, 0.75);
     backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
@@ -1695,7 +1741,7 @@
     max-width: 92%;
     max-height: 90%;
     overflow-y: auto;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
     animation: modal-in 0.25s ease;
   }
 
@@ -1710,7 +1756,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
     animation: modal-in 0.25s ease;
   }
   .bd-header {
@@ -1728,7 +1774,8 @@
     color: var(--text-primary);
   }
   .bd-branch {
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     color: var(--accent-gold);
   }
   .bd-close {
@@ -1775,16 +1822,17 @@
     padding-bottom: 6px;
   }
   .cmp-branch {
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     color: var(--accent-gold);
   }
   .cmp-count {
-    background: rgba(188,140,255,0.15);
+    background: rgba(188, 140, 255, 0.15);
     color: var(--accent-purple);
     font-size: 11px;
     border-radius: 10px;
     padding: 1px 8px;
-    border: 1px solid rgba(188,140,255,0.2);
+    border: 1px solid rgba(188, 140, 255, 0.2);
   }
   .cmp-none {
     color: var(--text-muted);
@@ -1802,7 +1850,8 @@
     align-items: baseline;
     gap: 10px;
     padding: 4px 2px;
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     border-bottom: 1px solid var(--border-dim);
   }
@@ -1830,14 +1879,14 @@
     padding: 1px 8px;
   }
   .ahead {
-    background: rgba(86,211,100,0.12);
+    background: rgba(86, 211, 100, 0.12);
     color: var(--accent-neon);
-    border: 1px solid rgba(86,211,100,0.2);
+    border: 1px solid rgba(86, 211, 100, 0.2);
   }
   .behind {
-    background: rgba(88,166,255,0.12);
+    background: rgba(88, 166, 255, 0.12);
     color: var(--accent-cyan);
-    border: 1px solid rgba(88,166,255,0.2);
+    border: 1px solid rgba(88, 166, 255, 0.2);
   }
 
   /* ═══ REMOTE ACTIONS ═══ */
@@ -1899,7 +1948,7 @@
     border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     padding: 4px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
     animation: modal-in 0.15s ease;
     transform-origin: top right;
   }
@@ -1938,13 +1987,13 @@
   .btn-settings:hover {
     color: var(--accent-neon);
     background: var(--bg-hover);
-    text-shadow: 0 0 6px rgba(86,211,100,0.25);
+    text-shadow: 0 0 6px rgba(86, 211, 100, 0.25);
   }
 
   /* ═══ ERROR & OP MESSAGE ═══ */
   .error {
-    background: rgba(247,120,139,0.1);
-    border-bottom: 1px solid rgba(247,120,139,0.25);
+    background: rgba(247, 120, 139, 0.1);
+    border-bottom: 1px solid rgba(247, 120, 139, 0.25);
     padding: 8px 14px;
     color: var(--color-error);
     white-space: pre-wrap;
@@ -1955,8 +2004,8 @@
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    background: rgba(86,211,100,0.08);
-    border-bottom: 1px solid rgba(86,211,100,0.2);
+    background: rgba(86, 211, 100, 0.08);
+    border-bottom: 1px solid rgba(86, 211, 100, 0.2);
     padding: 8px 14px;
     margin: 0;
   }
@@ -2017,10 +2066,13 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: var(--file-item-py, 4px) 14px var(--file-item-py, 4px) var(--file-item-pl, 20px);
+    padding: var(--file-item-py, 4px) 14px var(--file-item-py, 4px)
+      var(--file-item-pl, 20px);
     cursor: pointer;
     min-height: 26px;
-    transition: background 0.15s, border-left-color 0.15s;
+    transition:
+      background 0.15s,
+      border-left-color 0.15s;
     border-radius: 0;
     border-left: 3px solid transparent;
   }
@@ -2084,22 +2136,37 @@
     color: var(--accent-gold);
     border-left: 3px solid var(--accent-gold);
   }
-  .zone-unstaged .zone-icon { color: var(--accent-gold); }
-  .zone-unstaged .zone-badge { color: var(--accent-gold); border-color: rgba(227,179,65,0.25); }
+  .zone-unstaged .zone-icon {
+    color: var(--accent-gold);
+  }
+  .zone-unstaged .zone-badge {
+    color: var(--accent-gold);
+    border-color: rgba(227, 179, 65, 0.25);
+  }
 
   .zone-staged {
     color: var(--accent-neon);
     border-left: 3px solid var(--accent-neon);
   }
-  .zone-staged .zone-icon { color: var(--accent-neon); }
-  .zone-staged .zone-badge { color: var(--accent-neon); border-color: rgba(86,211,100,0.25); }
+  .zone-staged .zone-icon {
+    color: var(--accent-neon);
+  }
+  .zone-staged .zone-badge {
+    color: var(--accent-neon);
+    border-color: rgba(86, 211, 100, 0.25);
+  }
 
   .zone-conflict {
     color: var(--color-error);
     border-left: 3px solid var(--color-error);
   }
-  .zone-conflict .zone-icon { color: var(--color-error); }
-  .zone-conflict .zone-badge { color: var(--color-error); border-color: rgba(247,120,139,0.25); }
+  .zone-conflict .zone-icon {
+    color: var(--color-error);
+  }
+  .zone-conflict .zone-badge {
+    color: var(--color-error);
+    border-color: rgba(247, 120, 139, 0.25);
+  }
 
   /* ═══ REPO GROUPS ═══ */
   .repo-group {
@@ -2118,7 +2185,8 @@
     border-bottom: 1px solid var(--border-dim);
   }
   .repo-title {
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     font-size: 11px;
     font-weight: 600;
     color: var(--text-secondary);
@@ -2134,7 +2202,8 @@
   .repo-branch {
     font-size: 10px;
     color: var(--text-muted);
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     flex-shrink: 0;
     max-width: 130px;
     overflow: hidden;
@@ -2214,27 +2283,27 @@
   }
   /* Action-specific accents */
   .sub-btn-update {
-    border-color: rgba(86,211,100,0.3);
+    border-color: rgba(86, 211, 100, 0.3);
     color: var(--accent-neon);
   }
   .sub-btn-update:hover {
-    background: rgba(86,211,100,0.12);
+    background: rgba(86, 211, 100, 0.12);
     border-color: var(--accent-neon);
   }
   .sub-btn-push {
-    border-color: rgba(88,166,255,0.3);
+    border-color: rgba(88, 166, 255, 0.3);
     color: var(--accent-cyan);
   }
   .sub-btn-push:hover {
-    background: rgba(88,166,255,0.12);
+    background: rgba(88, 166, 255, 0.12);
     border-color: var(--accent-cyan);
   }
   .sub-btn-sync {
-    border-color: rgba(188,140,255,0.3);
+    border-color: rgba(188, 140, 255, 0.3);
     color: var(--accent-purple);
   }
   .sub-btn-sync:hover {
-    background: rgba(188,140,255,0.12);
+    background: rgba(188, 140, 255, 0.12);
     border-color: var(--accent-purple);
   }
 
@@ -2243,11 +2312,14 @@
     flex-shrink: 0;
     border-top: 2px solid var(--border-default);
     background: var(--bg-void);
-    padding: var(--commit-py, 12px) var(--commit-px, 14px) var(--commit-py, 14px);
-    box-shadow: 0 -4px 12px rgba(0,0,0,0.3);
+    padding: var(--commit-py, 12px) var(--commit-px, 14px)
+      var(--commit-py, 14px);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
     position: relative;
     z-index: 1;
-    transition: background 0.3s, border-color 0.3s;
+    transition:
+      background 0.3s,
+      border-color 0.3s;
   }
   .amend-toggle {
     display: flex;
@@ -2272,16 +2344,19 @@
     border-radius: var(--radius-md);
     color: var(--text-primary);
     padding: 10px 12px;
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     resize: vertical;
     margin-top: 6px;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition:
+      border-color 0.2s,
+      box-shadow 0.2s;
   }
   .commit-area textarea:focus {
     outline: none;
     border-color: var(--accent-neon);
-    box-shadow: 0 0 0 2px rgba(86,211,100,0.1);
+    box-shadow: 0 0 0 2px rgba(86, 211, 100, 0.1);
   }
   .commit-area textarea:disabled {
     opacity: 0.4;
@@ -2293,7 +2368,7 @@
     align-items: center;
   }
   .btn-commit {
-    background: rgba(86,211,100,0.1);
+    background: rgba(86, 211, 100, 0.1);
     border: 1px solid var(--accent-neon);
     border-radius: var(--radius-md);
     color: var(--accent-neon);
@@ -2316,7 +2391,7 @@
     color: var(--accent-neon);
     font-size: 12px;
     margin: 6px 0 0;
-    text-shadow: 0 0 4px rgba(86,211,100,0.2);
+    text-shadow: 0 0 4px rgba(86, 211, 100, 0.2);
   }
 
   /* ═══ DIFF VIEW (RIGHT PANEL) ═══ */

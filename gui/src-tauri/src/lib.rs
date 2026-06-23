@@ -122,11 +122,21 @@ struct AppSettings {
     glow_intensity: String,
 }
 
-fn default_theme() -> String { "neon-dark".into() }
-fn default_density() -> String { "comfortable".into() }
-fn default_font_size() -> String { "medium".into() }
-fn default_true() -> bool { true }
-fn default_glow() -> String { "medium".into() }
+fn default_theme() -> String {
+    "neon-dark".into()
+}
+fn default_density() -> String {
+    "comfortable".into()
+}
+fn default_font_size() -> String {
+    "medium".into()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_glow() -> String {
+    "medium".into()
+}
 
 impl Default for AppSettings {
     fn default() -> Self {

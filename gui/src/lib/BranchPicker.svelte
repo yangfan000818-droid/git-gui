@@ -733,7 +733,8 @@
     border: 1px solid var(--border-default);
     border-radius: 4px;
     color: var(--text-primary);
-    font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+    font-family:
+      ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
     font-size: 12px;
     padding: 5px 8px;
     min-width: 0;
@@ -818,7 +819,8 @@
     font-size: 13px;
     padding: 7px 0 7px 18px;
     text-align: left;
-    font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+    font-family:
+      ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
     min-width: 0;
   }
   .bp-btn:hover:not(:disabled) {
@@ -877,7 +879,8 @@
     border: 1px solid var(--accent-cyan);
     border-radius: 4px;
     color: var(--text-primary);
-    font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+    font-family:
+      ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
     font-size: 13px;
     padding: 5px 8px;
     margin: 2px 0 2px 16px;

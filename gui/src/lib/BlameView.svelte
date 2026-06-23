@@ -208,7 +208,8 @@
     flex: 1;
     overflow: auto;
     padding: 8px 0;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
   }
   .detail-msg {

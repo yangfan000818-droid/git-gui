@@ -269,7 +269,10 @@
   async function proceedToSubmodules() {
     if (submodules.length === 0) {
       phase = "outcome";
-      if (canAutoClose()) { await tick(); await finishAndRefresh(); }
+      if (canAutoClose()) {
+        await tick();
+        await finishAndRefresh();
+      }
       return;
     }
     subResults = [];
@@ -325,7 +328,10 @@
     }
     subCurrent = "";
     phase = "outcome";
-    if (canAutoClose()) { await tick(); await finishAndRefresh(); }
+    if (canAutoClose()) {
+      await tick();
+      await finishAndRefresh();
+    }
   }
 
   // 子仓冲突解决/放弃后:记录该子仓结果,从下一个子仓继续。
@@ -408,7 +414,12 @@
   function canAutoClose(): boolean {
     if (!outcome) return false;
     const v = outcomeVariant(outcome);
-    if (v !== "AlreadyUpToDate" && v !== "FastForwarded" && v !== "Integrated" && v !== "Resolved")
+    if (
+      v !== "AlreadyUpToDate" &&
+      v !== "FastForwarded" &&
+      v !== "Integrated" &&
+      v !== "Resolved"
+    )
       return false;
     if (subResults.some((r) => r.status === "fail" || r.status === "warn"))
       return false;
@@ -747,7 +758,8 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
   }
   .sub-progress-list li,
@@ -804,7 +816,7 @@
   }
   .update-error {
     background: #3a1d1d;
-    border: 1px solid rgba(247,120,139,0.25);
+    border: 1px solid rgba(247, 120, 139, 0.25);
     border-radius: 6px;
     padding: 8px 12px;
     color: var(--color-error);
@@ -828,14 +840,14 @@
     cursor: pointer;
   }
   .btn-primary:hover {
-    background: #58A6FF;
+    background: #58a6ff;
   }
   .btn-primary:disabled {
     opacity: 0.5;
     cursor: default;
   }
   .btn-danger {
-    background: rgba(247,120,139,0.2);
+    background: rgba(247, 120, 139, 0.2);
     border: none;
     border-radius: 6px;
     color: #fff;
@@ -844,7 +856,7 @@
     cursor: pointer;
   }
   .btn-danger:hover {
-    background: rgba(247,120,139,0.25);
+    background: rgba(247, 120, 139, 0.25);
   }
   /* ── 进度条(executing) ── */
   .executing {
@@ -879,7 +891,8 @@
     font-size: 11px;
     margin: 4px 0 8px;
     white-space: pre-wrap;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   /* ── 终态卡片 ── */
@@ -891,7 +904,7 @@
     max-width: 480px;
   }
   .outcome-success {
-    border-color: rgba(86,211,100,0.2);
+    border-color: rgba(86, 211, 100, 0.2);
   }
   .outcome-warn {
     border-color: #5a4a2d;
@@ -905,7 +918,8 @@
   }
   .outcome-card .file-list {
     color: var(--color-error);
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     padding-left: 20px;
   }

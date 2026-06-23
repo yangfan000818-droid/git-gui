@@ -601,7 +601,9 @@
           <div class="commit-meta">
             <div class="meta-row">
               <span class="meta-label">SHA</span>
-              <span class="meta-sha" title={selectedCommit.full_sha}>{selectedCommit.full_sha}</span>
+              <span class="meta-sha" title={selectedCommit.full_sha}
+                >{selectedCommit.full_sha}</span
+              >
             </div>
             <div class="meta-row">
               <span class="meta-label">作者</span>
@@ -801,7 +803,9 @@
                         <li class="sub-commit">
                           <span class="sub-c-sha">{c.sha}</span>
                           <span class="sub-c-msg">{c.message}</span>
-                          <span class="sub-c-meta">{c.author} · {fmtDate(c.date)}</span>
+                          <span class="sub-c-meta"
+                            >{c.author} · {fmtDate(c.date)}</span
+                          >
                         </li>
                       {/each}
                     </ul>
@@ -863,8 +867,8 @@
     overflow: hidden;
   }
   .error {
-    background: rgba(247,120,139,0.12);
-    border-bottom: 1px solid rgba(247,120,139,0.25);
+    background: rgba(247, 120, 139, 0.12);
+    border-bottom: 1px solid rgba(247, 120, 139, 0.25);
     padding: 8px 14px;
     color: var(--color-error);
     white-space: pre-wrap;
@@ -966,7 +970,8 @@
     align-items: center;
     gap: 6px;
     padding: 0 8px;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     line-height: 1;
     white-space: nowrap;
@@ -976,7 +981,7 @@
     cursor: pointer;
   }
   .log-row.selected {
-    background: rgba(88,166,255,0.15);
+    background: rgba(88, 166, 255, 0.15);
   }
   .log-sha {
     color: var(--accent-gold);
@@ -1033,7 +1038,7 @@
   }
   .btn-action {
     background: transparent;
-    border: 1px solid rgba(88,166,255,0.3);
+    border: 1px solid rgba(88, 166, 255, 0.3);
     border-radius: 4px;
     color: var(--accent-cyan);
     cursor: pointer;
@@ -1042,7 +1047,7 @@
     transition: all 0.15s;
   }
   .btn-action:hover:not(:disabled) {
-    background: rgba(88,166,255,0.15);
+    background: rgba(88, 166, 255, 0.15);
     border-color: var(--accent-cyan);
   }
   .btn-action:disabled {
@@ -1050,21 +1055,21 @@
     cursor: not-allowed;
   }
   .btn-reset {
-    border-color: rgba(227,179,65,0.3);
+    border-color: rgba(227, 179, 65, 0.3);
     color: var(--accent-gold);
   }
   .btn-reset:hover:not(:disabled) {
-    background: rgba(227,179,65,0.12);
+    background: rgba(227, 179, 65, 0.12);
     border-color: var(--accent-gold);
   }
   .btn-reset.active {
-    background: rgba(227,179,65,0.2);
+    background: rgba(227, 179, 65, 0.2);
   }
 
   /* ── 重置面板 ── */
   .reset-panel {
     background: var(--bg-elevated);
-    border: 1px solid rgba(227,179,65,0.15);
+    border: 1px solid rgba(227, 179, 65, 0.15);
     border-radius: 6px;
     padding: 12px 14px;
     margin-bottom: 14px;
@@ -1075,7 +1080,8 @@
     color: var(--text-secondary);
   }
   .reset-title code {
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     color: var(--accent-gold);
   }
   .reset-mode {
@@ -1112,8 +1118,8 @@
     margin-top: 10px;
   }
   .btn-reset-confirm {
-    background: rgba(227,179,65,0.12);
-    border: 1px solid rgba(227,179,65,0.25);
+    background: rgba(227, 179, 65, 0.12);
+    border: 1px solid rgba(227, 179, 65, 0.25);
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
@@ -1121,11 +1127,11 @@
     padding: 5px 14px;
   }
   .btn-reset-confirm:hover:not(:disabled) {
-    background: rgba(227,179,65,0.18);
+    background: rgba(227, 179, 65, 0.18);
   }
   .btn-reset-confirm.danger {
-    background: rgba(247,120,139,0.25);
-    border-color: rgba(247,120,139,0.4);
+    background: rgba(247, 120, 139, 0.25);
+    border-color: rgba(247, 120, 139, 0.4);
   }
   .btn-reset-confirm.danger:hover:not(:disabled) {
     background: var(--color-error);
@@ -1147,21 +1153,21 @@
     background: var(--bg-hover);
   }
   .btn-tag {
-    border-color: rgba(86,211,100,0.3);
+    border-color: rgba(86, 211, 100, 0.3);
     color: var(--accent-neon);
   }
   .btn-tag:hover:not(:disabled) {
-    background: rgba(86,211,100,0.12);
+    background: rgba(86, 211, 100, 0.12);
     border-color: var(--accent-neon);
   }
   .btn-tag.active {
-    background: rgba(86,211,100,0.2);
+    background: rgba(86, 211, 100, 0.2);
   }
 
   /* ── 打 Tag 面板 ── */
   .tag-panel {
     background: var(--bg-elevated);
-    border: 1px solid rgba(86,211,100,0.15);
+    border: 1px solid rgba(86, 211, 100, 0.15);
     border-radius: 6px;
     padding: 12px 14px;
     margin-bottom: 14px;
@@ -1172,7 +1178,8 @@
     color: var(--text-secondary);
   }
   .tag-title code {
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     color: var(--accent-gold);
   }
   .tag-inputs {
@@ -1205,8 +1212,8 @@
     margin-top: 10px;
   }
   .btn-tag-confirm {
-    background: rgba(86,211,100,0.12);
-    border: 1px solid rgba(86,211,100,0.25);
+    background: rgba(86, 211, 100, 0.12);
+    border: 1px solid rgba(86, 211, 100, 0.25);
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
@@ -1214,7 +1221,7 @@
     padding: 5px 14px;
   }
   .btn-tag-confirm:hover:not(:disabled) {
-    background: rgba(86,211,100,0.18);
+    background: rgba(86, 211, 100, 0.18);
   }
   .btn-tag-confirm:disabled {
     opacity: 0.5;
@@ -1268,7 +1275,8 @@
     font-size: 11px;
   }
   .meta-sha {
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     color: var(--accent-gold);
     font-size: 11px;
     word-break: break-all;
@@ -1285,7 +1293,8 @@
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
     border-radius: 6px;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     line-height: 1.55;
     color: var(--text-secondary);
@@ -1316,7 +1325,7 @@
     font-size: 12px;
   }
   .sub-tag {
-    background: rgba(188,140,255,0.12);
+    background: rgba(188, 140, 255, 0.12);
     color: #c49ae2;
     font-size: 10px;
     border-radius: 4px;
@@ -1324,7 +1333,8 @@
     flex-shrink: 0;
   }
   .sub-path {
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     color: var(--text-primary);
     flex: 1;
     overflow: hidden;
@@ -1332,7 +1342,8 @@
     white-space: nowrap;
   }
   .sub-range {
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     color: var(--accent-gold);
     flex-shrink: 0;
   }
@@ -1346,7 +1357,8 @@
     align-items: baseline;
     gap: 10px;
     padding: 4px 12px;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
   }
   .sub-c-sha {

@@ -224,7 +224,8 @@
     background: rgba(88, 166, 255, 0.12);
   }
   .commit-sha {
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     color: var(--text-muted);
   }
   .commit-message {

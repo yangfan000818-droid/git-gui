@@ -240,7 +240,7 @@
     background: var(--bg-hover);
   }
   .file-row.selected {
-    background: rgba(88,166,255,0.1);
+    background: rgba(88, 166, 255, 0.1);
     box-shadow: inset 3px 0 0 var(--accent-cyan);
   }
   .caret {
@@ -255,7 +255,8 @@
   }
   .dname,
   .fname {
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -286,7 +287,8 @@
     color: var(--text-secondary);
     cursor: pointer;
     font-size: 13px;
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     width: 22px;
     height: 18px;
     display: flex;
@@ -304,23 +306,23 @@
   }
   .stage {
     color: var(--accent-neon);
-    border-color: rgba(86,211,100,0.25);
+    border-color: rgba(86, 211, 100, 0.25);
   }
   .stage:hover {
-    background: rgba(86,211,100,0.1);
+    background: rgba(86, 211, 100, 0.1);
   }
   .unstage {
     color: var(--accent-gold);
-    border-color: rgba(227,179,65,0.25);
+    border-color: rgba(227, 179, 65, 0.25);
   }
   .unstage:hover {
-    background: rgba(227,179,65,0.1);
+    background: rgba(227, 179, 65, 0.1);
   }
   .discard {
     color: var(--color-error);
-    border-color: rgba(247,120,139,0.25);
+    border-color: rgba(247, 120, 139, 0.25);
   }
   .discard:hover {
-    background: rgba(247,120,139,0.1);
+    background: rgba(247, 120, 139, 0.1);
   }
 </style>

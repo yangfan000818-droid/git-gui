@@ -128,7 +128,7 @@
 
   .btn-browse {
     background: var(--accent-cyan);
-    border: 1px solid #58A6FF;
+    border: 1px solid #58a6ff;
     border-radius: 6px;
     color: var(--text-primary);
     padding: 8px 16px;
@@ -138,7 +138,7 @@
   }
 
   .btn-browse:hover:not(:disabled) {
-    background: #58A6FF;
+    background: #58a6ff;
   }
 
   .btn-browse:disabled {
@@ -147,8 +147,8 @@
   }
 
   .error {
-    background: rgba(247,120,139,0.12);
-    border: 1px solid rgba(247,120,139,0.25);
+    background: rgba(247, 120, 139, 0.12);
+    border: 1px solid rgba(247, 120, 139, 0.25);
     border-radius: 6px;
     color: var(--color-error);
     padding: 12px;
@@ -209,8 +209,8 @@
   }
 
   .btn-remove {
-    background: rgba(247,120,139,0.15);
-    border: 1px solid rgba(247,120,139,0.25);
+    background: rgba(247, 120, 139, 0.15);
+    border: 1px solid rgba(247, 120, 139, 0.25);
     border-radius: 6px;
     color: var(--color-error);
     width: 36px;
@@ -226,8 +226,8 @@
   }
 
   .btn-remove:hover:not(:disabled) {
-    background: rgba(247,120,139,0.18);
-    border-color: rgba(247,120,139,0.25);
+    background: rgba(247, 120, 139, 0.18);
+    border-color: rgba(247, 120, 139, 0.25);
   }
 
   .btn-remove:disabled {

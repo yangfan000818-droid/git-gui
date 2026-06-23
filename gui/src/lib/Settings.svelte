@@ -14,7 +14,10 @@
     glow_intensity: string;
   }
 
-  let { onClose, onAppearanceChanged }: {
+  let {
+    onClose,
+    onAppearanceChanged,
+  }: {
     onClose: () => void;
     onAppearanceChanged?: (s: AppSettings) => void;
   } = $props();
@@ -37,7 +40,12 @@
   let error = $state("");
 
   // ── 主题预设定义 ──
-  const THEMES: { id: string; name: string; preview: string[]; kind: string }[] = [
+  const THEMES: {
+    id: string;
+    name: string;
+    preview: string[];
+    kind: string;
+  }[] = [
     {
       id: "neon-dark",
       name: "Neon Dark",
@@ -175,7 +183,8 @@
               >
                 <span class="theme-swatches">
                   {#each t.preview as color}
-                    <span class="theme-swatch" style="background:{color}"></span>
+                    <span class="theme-swatch" style="background:{color}"
+                    ></span>
                   {/each}
                 </span>
                 <span class="theme-name">{t.name}</span>
@@ -191,18 +200,18 @@
             <button
               class="seg-btn"
               class:seg-active={density === "compact"}
-              onclick={() => (density = "compact")}
-            >紧凑</button>
+              onclick={() => (density = "compact")}>紧凑</button
+            >
             <button
               class="seg-btn"
               class:seg-active={density === "comfortable"}
-              onclick={() => (density = "comfortable")}
-            >舒适</button>
+              onclick={() => (density = "comfortable")}>舒适</button
+            >
             <button
               class="seg-btn"
               class:seg-active={density === "spacious"}
-              onclick={() => (density = "spacious")}
-            >宽松</button>
+              onclick={() => (density = "spacious")}>宽松</button
+            >
           </div>
         </fieldset>
 
@@ -213,18 +222,18 @@
             <button
               class="seg-btn"
               class:seg-active={font_size === "small"}
-              onclick={() => (font_size = "small")}
-            >小</button>
+              onclick={() => (font_size = "small")}>小</button
+            >
             <button
               class="seg-btn"
               class:seg-active={font_size === "medium"}
-              onclick={() => (font_size = "medium")}
-            >中</button>
+              onclick={() => (font_size = "medium")}>中</button
+            >
             <button
               class="seg-btn"
               class:seg-active={font_size === "large"}
-              onclick={() => (font_size = "large")}
-            >大</button>
+              onclick={() => (font_size = "large")}>大</button
+            >
           </div>
         </fieldset>
 
@@ -254,23 +263,23 @@
               <button
                 class="seg-btn seg-sm"
                 class:seg-active={glowIntensity === "off"}
-                onclick={() => (glowIntensity = "off")}
-              >关闭</button>
+                onclick={() => (glowIntensity = "off")}>关闭</button
+              >
               <button
                 class="seg-btn seg-sm"
                 class:seg-active={glowIntensity === "subtle"}
-                onclick={() => (glowIntensity = "subtle")}
-              >微光</button>
+                onclick={() => (glowIntensity = "subtle")}>微光</button
+              >
               <button
                 class="seg-btn seg-sm"
                 class:seg-active={glowIntensity === "medium"}
-                onclick={() => (glowIntensity = "medium")}
-              >适中</button>
+                onclick={() => (glowIntensity = "medium")}>适中</button
+              >
               <button
                 class="seg-btn seg-sm"
                 class:seg-active={glowIntensity === "strong"}
-                onclick={() => (glowIntensity = "strong")}
-              >强光</button>
+                onclick={() => (glowIntensity = "strong")}>强光</button
+              >
             </div>
           </div>
         </fieldset>
@@ -311,7 +320,8 @@
           <input type="checkbox" bind:checked={ignoreWhitespace} />
           <span>
             <b>忽略空白差异</b>
-            <small>整合时用 -Xignore-space-change，减少纯空白引起的伪冲突</small>
+            <small>整合时用 -Xignore-space-change，减少纯空白引起的伪冲突</small
+            >
           </span>
         </label>
 
@@ -319,7 +329,10 @@
           <input type="checkbox" bind:checked={skipHooks} />
           <span>
             <b>提交时跳过 git 钩子</b>
-            <small>勾选则提交用 --no-verify，不运行 pre-commit / commit-msg 钩子。默认不跳过。</small>
+            <small
+              >勾选则提交用 --no-verify，不运行 pre-commit / commit-msg
+              钩子。默认不跳过。</small
+            >
           </span>
         </label>
       </div>
@@ -328,7 +341,9 @@
         <button class="st-save" disabled={saving} onclick={save}>
           {saving ? "保存中…" : "保存"}
         </button>
-        <button class="st-cancel" disabled={saving} onclick={onClose}>取消</button>
+        <button class="st-cancel" disabled={saving} onclick={onClose}
+          >取消</button
+        >
       </div>
     {/if}
   </div>
@@ -353,7 +368,7 @@
     max-width: 94%;
     max-height: 88%;
     overflow-y: auto;
-    box-shadow: 0 12px 60px rgba(0,0,0,0.5);
+    box-shadow: 0 12px 60px rgba(0, 0, 0, 0.5);
   }
   .st-header {
     display: flex;
@@ -568,7 +583,7 @@
     background: var(--bg-active);
     color: var(--text-primary);
     font-weight: 600;
-    box-shadow: inset 0 1px 0 rgba(0,0,0,0.1);
+    box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.1);
   }
   .seg-sm {
     padding: 4px 10px;

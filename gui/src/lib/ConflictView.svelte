@@ -528,7 +528,7 @@
   }
   .cv-error {
     background: #3a1d1d;
-    border: 1px solid rgba(247,120,139,0.25);
+    border: 1px solid rgba(247, 120, 139, 0.25);
     border-radius: 6px;
     padding: 8px 12px;
     color: var(--color-error);
@@ -563,7 +563,8 @@
     color: var(--text-secondary);
     cursor: pointer;
     font-size: 12px;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     padding: 3px 10px;
     white-space: nowrap;
   }
@@ -571,7 +572,7 @@
     background: var(--border-default);
   }
   .file-active .file-chip-btn {
-    background: rgba(88,166,255,0.12);
+    background: rgba(88, 166, 255, 0.12);
     border-color: var(--accent-cyan);
     color: #fff;
   }
@@ -593,7 +594,8 @@
     margin-bottom: 8px;
   }
   .file-path {
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 13px;
     color: var(--color-error);
     flex: 1;
@@ -622,7 +624,7 @@
   /* ── 全自动解决 ── */
   .all-auto {
     background: #1d2a1d;
-    border: 1px solid rgba(86,211,100,0.2);
+    border: 1px solid rgba(86, 211, 100, 0.2);
     border-radius: 6px;
     padding: 16px;
     text-align: center;
@@ -673,7 +675,8 @@
     flex: 1;
     padding: 4px 0;
     overflow-x: auto;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     line-height: 1.55;
   }
@@ -715,7 +718,7 @@
   }
   .btn-choice {
     background: var(--bg-surface);
-    border: 1px solid #3A3A4A;
+    border: 1px solid #3a3a4a;
     border-radius: 4px;
     color: var(--text-secondary);
     cursor: pointer;
@@ -732,7 +735,7 @@
     color: #fff;
   }
   .btn-choice-active:hover {
-    background: #58A6FF;
+    background: #58a6ff;
   }
   .choice-arrows {
     margin-left: 8px;
@@ -747,7 +750,8 @@
     cursor: pointer;
     font-size: 14px;
     padding: 5px 10px;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   .btn-arrow:hover {
     background: var(--border-default);
@@ -777,14 +781,14 @@
     cursor: pointer;
   }
   .btn-primary:hover {
-    background: #58A6FF;
+    background: #58a6ff;
   }
   .btn-primary:disabled {
     opacity: 0.4;
     cursor: default;
   }
   .btn-danger {
-    background: rgba(247,120,139,0.2);
+    background: rgba(247, 120, 139, 0.2);
     border: none;
     border-radius: 6px;
     color: #fff;
@@ -793,6 +797,6 @@
     cursor: pointer;
   }
   .btn-danger:hover {
-    background: rgba(247,120,139,0.25);
+    background: rgba(247, 120, 139, 0.25);
   }
 </style>

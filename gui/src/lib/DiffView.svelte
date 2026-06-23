@@ -326,42 +326,79 @@
                 {#if activeList === "unstaged"}
                   {@const selCount = selectedCount(hi)}
                   {#if selCount > 0}
-                    <button class="btn-act btn-stage" disabled={operating} title="暂存选中行"
-                      onclick={() => onStageLines?.(hunk, hi)}>暂存 {selCount} 行</button>
+                    <button
+                      class="btn-act btn-stage"
+                      disabled={operating}
+                      title="暂存选中行"
+                      onclick={() => onStageLines?.(hunk, hi)}
+                      >暂存 {selCount} 行</button
+                    >
                   {/if}
-                  <button class="btn-act btn-stage" disabled={operating} title="暂存整个 hunk"
-                    onclick={() => onStageHunk?.(hunk)}>暂存 Hunk</button>
+                  <button
+                    class="btn-act btn-stage"
+                    disabled={operating}
+                    title="暂存整个 hunk"
+                    onclick={() => onStageHunk?.(hunk)}>暂存 Hunk</button
+                  >
                 {:else}
                   {@const selCount = selectedCount(hi)}
                   {#if selCount > 0}
-                    <button class="btn-act btn-unstage" disabled={operating} title="取消暂存选中行"
-                      onclick={() => onUnstageLines?.(hunk, hi)}>取消暂存 {selCount} 行</button>
+                    <button
+                      class="btn-act btn-unstage"
+                      disabled={operating}
+                      title="取消暂存选中行"
+                      onclick={() => onUnstageLines?.(hunk, hi)}
+                      >取消暂存 {selCount} 行</button
+                    >
                   {/if}
-                  <button class="btn-act btn-unstage" disabled={operating} title="取消暂存整个 hunk"
-                    onclick={() => onUnstageHunk?.(hunk)}>取消暂存 Hunk</button>
+                  <button
+                    class="btn-act btn-unstage"
+                    disabled={operating}
+                    title="取消暂存整个 hunk"
+                    onclick={() => onUnstageHunk?.(hunk)}>取消暂存 Hunk</button
+                  >
                 {/if}
               </div>
             {/if}
           </div>
           {#each lines as { oldNo, newNo, line, idx }}
             {@const segments = segMap.get(idx)}
-            {@const prefix = line.kind === "Added" ? "+" : line.kind === "Removed" ? "-" : " "}
+            {@const prefix =
+              line.kind === "Added" ? "+" : line.kind === "Removed" ? "-" : " "}
             {#if interactive && line.kind !== "Context"}
               {@const selected = isLineSelected(hi, idx)}
-              <div class="diff-line line-selectable" class:line-added={line.kind === "Added"}
-                class:line-removed={line.kind === "Removed"} class:line-selected={selected}
-                role="checkbox" aria-checked={selected} tabindex="0"
+              <div
+                class="diff-line line-selectable"
+                class:line-added={line.kind === "Added"}
+                class:line-removed={line.kind === "Removed"}
+                class:line-selected={selected}
+                role="checkbox"
+                aria-checked={selected}
+                tabindex="0"
                 onclick={() => onToggleLine?.(hi, idx)}
-                onkeydown={(e) => onActivate(e, () => onToggleLine?.(hi, idx))}>
+                onkeydown={(e) => onActivate(e, () => onToggleLine?.(hi, idx))}
+              >
                 <span class="ln ln-old">{oldNo ?? ""}</span>
                 <span class="ln ln-new">{newNo ?? ""}</span>
-                <span class="line-content">{prefix}{#if segments}{#each segments as seg}<mark class="char-{seg.kind}">{seg.text}</mark>{/each}{:else}{line.content}{/if}</span>
+                <span class="line-content"
+                  >{prefix}{#if segments}{#each segments as seg}<mark
+                        class="char-{seg.kind}">{seg.text}</mark
+                      >{/each}{:else}{line.content}{/if}</span
+                >
               </div>
             {:else}
-              <div class="diff-line" class:line-added={line.kind === "Added"} class:line-removed={line.kind === "Removed"}>
+              <div
+                class="diff-line"
+                class:line-added={line.kind === "Added"}
+                class:line-removed={line.kind === "Removed"}
+              >
                 <span class="ln ln-old">{oldNo ?? ""}</span>
                 <span class="ln ln-new">{newNo ?? ""}</span>
-                <span class="line-content">{prefix}{#if segments}{#each segments as seg}<mark class="char-{seg.kind}">{seg.text}</mark>{/each}{:else}{line.content}{/if}</span>
+                <span class="line-content"
+                  >{prefix}{#if segments}{#each segments as seg}<mark
+                        class="char-{seg.kind}">{seg.text}</mark
+                      >{/each}{:else}{line.content}{/if}</span
+                >
               </div>
             {/if}
           {/each}
@@ -375,8 +412,14 @@
   {#each nodes as node}
     {#if node.file === null}
       <!-- directory node -->
-      <button class="tree-row" style="padding-left:{12 + depth * 16}px" onclick={() => toggleDir(node.path)}>
-        <span class="tree-caret">{collapsedDirs.has(node.path) ? "▸" : "▾"}</span>
+      <button
+        class="tree-row"
+        style="padding-left:{12 + depth * 16}px"
+        onclick={() => toggleDir(node.path)}
+      >
+        <span class="tree-caret"
+          >{collapsedDirs.has(node.path) ? "▸" : "▾"}</span
+        >
         <span class="tree-name">{node.name}/</span>
       </button>
       {#if !collapsedDirs.has(node.path)}
@@ -384,16 +427,29 @@
       {/if}
     {:else}
       <!-- file node -->
-      <div class="diff-file" style="margin-left:{8 + depth * 16}px; margin-right:0; width:auto;">
+      <div
+        class="diff-file"
+        style="margin-left:{8 + depth * 16}px; margin-right:0; width:auto;"
+      >
         <button class="diff-header" onclick={() => toggleFile(node.path)}>
-          <span class="file-caret">{expandedFiles.has(node.path) ? "▾" : "▸"}</span>
+          <span class="file-caret"
+            >{expandedFiles.has(node.path) ? "▾" : "▸"}</span
+          >
           <span class="diff-path">{node.name}</span>
           <span class="file-actions" onclick={(e) => e.stopPropagation()}>
             {#if onFileHistory}
-              <button class="history-btn" onclick={() => onFileHistory?.(node.file!.path)} title="查看文件历史">历史</button>
+              <button
+                class="history-btn"
+                onclick={() => onFileHistory?.(node.file!.path)}
+                title="查看文件历史">历史</button
+              >
             {/if}
             {#if onBlame}
-              <button class="history-btn" onclick={() => onBlame?.(node.file!.path)} title="查看 blame">blame</button>
+              <button
+                class="history-btn"
+                onclick={() => onBlame?.(node.file!.path)}
+                title="查看 blame">blame</button
+              >
             {/if}
           </span>
         </button>
@@ -409,13 +465,25 @@
   {#each files as file (file.path)}
     <div class="diff-file">
       <div class="diff-header" style="cursor:default">
-        <span class="diff-path">{file.path.includes("/") ? file.path.slice(file.path.lastIndexOf("/") + 1) : file.path}</span>
+        <span class="diff-path"
+          >{file.path.includes("/")
+            ? file.path.slice(file.path.lastIndexOf("/") + 1)
+            : file.path}</span
+        >
         <span class="file-actions">
           {#if onFileHistory}
-            <button class="history-btn" onclick={() => onFileHistory?.(file.path)} title="查看文件历史">历史</button>
+            <button
+              class="history-btn"
+              onclick={() => onFileHistory?.(file.path)}
+              title="查看文件历史">历史</button
+            >
           {/if}
           {#if onBlame}
-            <button class="history-btn" onclick={() => onBlame?.(file.path)} title="查看 blame">blame</button>
+            <button
+              class="history-btn"
+              onclick={() => onBlame?.(file.path)}
+              title="查看 blame">blame</button
+            >
           {/if}
         </span>
       </div>
@@ -438,7 +506,8 @@
     color: var(--text-secondary);
     cursor: pointer;
     font-size: 12px;
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     padding: 3px 8px;
     transition: background 0.1s;
   }
@@ -494,7 +563,8 @@
   }
   .diff-path {
     margin: 0;
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     font-weight: 600;
     color: var(--text-primary);
@@ -571,7 +641,8 @@
     color: var(--text-secondary);
     cursor: pointer;
     font-size: 11px;
-    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family:
+      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     width: auto;
     padding: 1px 8px;
     height: 20px;
@@ -589,17 +660,17 @@
   }
   .btn-stage {
     color: var(--accent-neon);
-    border-color: rgba(86,211,100,0.25);
+    border-color: rgba(86, 211, 100, 0.25);
   }
   .btn-stage:hover {
-    background: rgba(86,211,100,0.1);
+    background: rgba(86, 211, 100, 0.1);
   }
   .btn-unstage {
     color: var(--color-error);
-    border-color: rgba(247,120,139,0.25);
+    border-color: rgba(247, 120, 139, 0.25);
   }
   .btn-unstage:hover {
-    background: rgba(247,120,139,0.1);
+    background: rgba(247, 120, 139, 0.1);
   }
 
   .diff-line {
@@ -608,10 +679,10 @@
     padding: 0 12px;
   }
   .line-added {
-    background: rgba(86,211,100,0.08);
+    background: rgba(86, 211, 100, 0.08);
   }
   .line-removed {
-    background: rgba(247,120,139,0.08);
+    background: rgba(247, 120, 139, 0.08);
   }
   .line-selectable {
     cursor: pointer;
@@ -648,11 +719,11 @@
     color: inherit;
   }
   .char-removed {
-    background: rgba(247,120,139,0.2);
+    background: rgba(247, 120, 139, 0.2);
     border-radius: 2px;
   }
   .char-added {
-    background: rgba(86,211,100,0.2);
+    background: rgba(86, 211, 100, 0.2);
     border-radius: 2px;
   }
 

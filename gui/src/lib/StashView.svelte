@@ -240,8 +240,8 @@
   }
   .sv-error {
     background: #3a1d1d;
-    border-top: 1px solid rgba(247,120,139,0.25);
-    border-bottom: 1px solid rgba(247,120,139,0.25);
+    border-top: 1px solid rgba(247, 120, 139, 0.25);
+    border-bottom: 1px solid rgba(247, 120, 139, 0.25);
     padding: 8px 18px;
     color: var(--color-error);
     font-size: 12px;
@@ -274,8 +274,8 @@
     opacity: 0.5;
   }
   .sv-create-btn {
-    background: rgba(86,211,100,0.12);
-    border: 1px solid rgba(86,211,100,0.12);
+    background: rgba(86, 211, 100, 0.12);
+    border: 1px solid rgba(86, 211, 100, 0.12);
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
@@ -322,7 +322,8 @@
   .sv-meta {
     font-size: 11px;
     color: var(--text-muted);
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   .sv-actions {
     display: flex;

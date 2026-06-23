@@ -302,9 +302,9 @@
     padding: 0 18px 8px;
   }
   .rb-error {
-    background: rgba(247,120,139,0.12);
-    border-top: 1px solid rgba(247,120,139,0.25);
-    border-bottom: 1px solid rgba(247,120,139,0.25);
+    background: rgba(247, 120, 139, 0.12);
+    border-top: 1px solid rgba(247, 120, 139, 0.25);
+    border-bottom: 1px solid rgba(247, 120, 139, 0.25);
     padding: 8px 18px;
     color: var(--color-error);
     font-size: 12px;
@@ -370,7 +370,8 @@
   }
   .rb-sha {
     color: var(--text-muted);
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     flex-shrink: 0;
   }
@@ -387,7 +388,7 @@
     flex: 1;
     min-width: 0;
     background: var(--bg-surface);
-    border: 1px solid rgba(86,211,100,0.15);
+    border: 1px solid rgba(86, 211, 100, 0.15);
     border-radius: 4px;
     color: var(--text-primary);
     font-size: 12px;
@@ -408,8 +409,8 @@
     padding: 12px 18px 16px;
   }
   .rb-start {
-    background: rgba(86,211,100,0.12);
-    border: 1px solid rgba(86,211,100,0.25);
+    background: rgba(86, 211, 100, 0.12);
+    border: 1px solid rgba(86, 211, 100, 0.25);
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
@@ -417,7 +418,7 @@
     padding: 6px 18px;
   }
   .rb-start:hover:not(:disabled) {
-    background: rgba(86,211,100,0.18);
+    background: rgba(86, 211, 100, 0.18);
   }
   .rb-start:disabled {
     opacity: 0.4;
