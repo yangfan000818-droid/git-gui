@@ -38,7 +38,7 @@ pub use diff::DiffOptions;
 pub use error::Error;
 pub use git::{CancelToken, Progress};
 pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
-pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions};
+pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions, MergedLogEntry};
 pub use push::PushOutcome;
 pub use rebase::{RebaseAction, RebaseItem};
 pub use reflog::ReflogEntry;
@@ -269,6 +269,11 @@ impl Repo {
     /// 获取带分支拓扑图的提交历史(每行 = 图形前缀 + 可选 commit)。
     pub fn log_graph(&self, opts: &LogOptions) -> Result<Vec<GraphRow>, Error> {
         log::log_graph(self, opts)
+    }
+
+    /// 合并主仓与各子仓的提交历史(按时间降序,每条带仓库标识)。
+    pub fn log_merged(&self, opts: &LogOptions) -> Result<Vec<MergedLogEntry>, Error> {
+        log::log_merged(self, opts)
     }
 
     /// 获取单个文件的提交历史(追踪重命名)。

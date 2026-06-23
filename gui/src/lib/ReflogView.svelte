@@ -10,10 +10,12 @@
 
   let {
     path,
+    repoLabel = "",
     onChanged,
     onClose,
   }: {
     path: string;
+    repoLabel?: string; // 非空 = 子仓相对路径,标在标题区
     onChanged: () => void;
     onClose: () => void;
   } = $props();
@@ -81,7 +83,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="rl-panel" onclick={(e) => e.stopPropagation()}>
     <div class="rl-header">
-      <h3>Reflog · HEAD 历史</h3>
+      <h3>Reflog · {repoLabel ? `${repoLabel} ` : ""}HEAD 历史</h3>
       <button
         class="rl-close"
         onclick={onClose}

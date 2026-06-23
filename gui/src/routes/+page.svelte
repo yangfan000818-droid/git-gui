@@ -141,8 +141,10 @@
   let pushQueue = $state<RepoView[]>([]);
   let showFileHistory = $state(false); // 文件历史弹窗
   let fileHistoryPath = $state(""); // 文件历史查看的文件路径
+  let fileHistoryRepoPath = $state(""); // 该文件所属仓库(主仓或子仓),History 子仓提交用
   let showBlame = $state(false); // blame 弹窗
   let blamePath = $state(""); // blame 查看的文件路径
+  let blameRepoPath = $state(""); // 该文件所属仓库(主仓或子仓)
   let branchPickerRepo = $state<string | null>(null); // 哪个仓库的分支选择面板打开(null=关闭)
   let showSettings = $state(false); // 全局设置弹层
   let showStash = $state(false); // Stash 储藏管理弹层
@@ -1275,10 +1277,12 @@
               {operating}
               onFileHistory={(filePath) => {
                 fileHistoryPath = filePath;
+                fileHistoryRepoPath = selectedRepoPath ?? path;
                 showFileHistory = true;
               }}
               onBlame={(filePath) => {
                 blamePath = filePath;
+                blameRepoPath = selectedRepoPath ?? path;
                 showBlame = true;
               }}
             />
@@ -1297,8 +1301,10 @@
   {:else if tab === "history"}
     <HistoryView
       {path}
-      onFileHistory={(filePath) => {
+      submodules={status?.submodules ?? []}
+      onFileHistory={(filePath, repoPath) => {
         fileHistoryPath = filePath;
+        fileHistoryRepoPath = repoPath;
         showFileHistory = true;
       }}
     />
@@ -1332,7 +1338,7 @@
   <!-- ── 文件历史弹窗 ── -->
   {#if showFileHistory}
     <FileHistory
-      {path}
+      path={fileHistoryRepoPath}
       filePath={fileHistoryPath}
       onClose={() => (showFileHistory = false)}
     />
@@ -1340,7 +1346,7 @@
 
   {#if showBlame}
     <BlameView
-      {path}
+      path={blameRepoPath}
       filePath={blamePath}
       onClose={() => (showBlame = false)}
     />

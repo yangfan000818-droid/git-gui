@@ -141,6 +141,121 @@ pub(crate) fn submodule_commits(
     rev_range(&sub, &format!("{old}..{new}"))
 }
 
+/// 合并视图中的一条提交:可能来自主仓或某个子仓,带仓库标识。
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct MergedLogEntry {
+    /// 提交本体。
+    pub entry: LogEntry,
+    /// 仓库标识:空串 = 主仓,否则为子仓相对主仓的路径(供 UI 标签展示)。
+    pub repo_label: String,
+    /// 该提交所属仓库的绝对路径,供前端对该提交执行操作时定位到正确的仓库。
+    pub repo_path: String,
+}
+
+/// 与 `log` 相同,但额外解析 author unix 时间戳(`%at`),用于跨仓库合并时按时间排序。
+/// 时间戳仅用于排序,不进入 `LogEntry`(避免改动其它构造点)。
+fn log_with_ts(repo: &Repo, opts: &LogOptions) -> Result<Vec<(i64, LogEntry)>, Error> {
+    let max_count_str = format!("-{}", opts.max_count);
+    let mut args = vec![
+        "log",
+        "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ai%x00%at",
+        &max_count_str,
+    ];
+
+    let author_str;
+    if let Some(ref a) = opts.author {
+        author_str = format!("--author={}", a);
+        args.push(&author_str);
+        args.push("--regexp-ignore-case");
+    }
+
+    let grep_str;
+    if let Some(ref g) = opts.grep {
+        grep_str = format!("--grep={}", g);
+        args.push(&grep_str);
+        args.push("--regexp-ignore-case");
+    }
+
+    let branch_str;
+    if let Some(ref b) = opts.branch {
+        branch_str = b.clone();
+        args.push(&branch_str);
+    }
+
+    let output = repo.git(&args)?;
+    let entries = output
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split('\0').collect();
+            if parts.len() != 6 {
+                return None;
+            }
+            let ts = parts[5].parse::<i64>().unwrap_or(0);
+            Some((
+                ts,
+                LogEntry {
+                    full_sha: parts[0].to_string(),
+                    sha: parts[1].to_string(),
+                    message: parts[2].to_string(),
+                    author: parts[3].to_string(),
+                    date: parts[4].to_string(),
+                },
+            ))
+        })
+        .collect();
+    Ok(entries)
+}
+
+/// 合并主仓与各已初始化子仓的提交历史,按提交时间降序排列,每条带仓库标识。
+/// 子仓打开或日志读取失败时静默跳过该子仓,不影响其它仓库的展示。
+pub(crate) fn log_merged(repo: &Repo, opts: &LogOptions) -> Result<Vec<MergedLogEntry>, Error> {
+    use crate::submodule::{list_submodules, SubmoduleStatus};
+
+    let mut rows: Vec<(i64, MergedLogEntry)> = Vec::new();
+
+    let main_path = repo.workdir().to_string_lossy().to_string();
+    for (ts, entry) in log_with_ts(repo, opts)? {
+        rows.push((
+            ts,
+            MergedLogEntry {
+                entry,
+                repo_label: String::new(),
+                repo_path: main_path.clone(),
+            },
+        ));
+    }
+
+    for sub in list_submodules(repo)? {
+        if sub.status == SubmoduleStatus::Uninitialized {
+            continue;
+        }
+        let abs = repo.workdir().join(&sub.path);
+        let Ok(sub_repo) = Repo::open(&abs) else {
+            continue;
+        };
+        let Ok(sub_rows) = log_with_ts(&sub_repo, opts) else {
+            continue;
+        };
+        let label = sub.path.to_string_lossy().to_string();
+        let abs_str = abs.to_string_lossy().to_string();
+        for (ts, entry) in sub_rows {
+            rows.push((
+                ts,
+                MergedLogEntry {
+                    entry,
+                    repo_label: label.clone(),
+                    repo_path: abs_str.clone(),
+                },
+            ));
+        }
+    }
+
+    // 时间降序(newest first),与单仓 log 一致。
+    rows.sort_by_key(|(ts, _)| std::cmp::Reverse(*ts));
+    Ok(rows.into_iter().map(|(_, e)| e).collect())
+}
+
 /// 带分支拓扑图的一行 log:`graph` 是该行的图形前缀(如 `* `、`|\`、`| * `),
 /// `entry` 仅 commit 行有(纯连接行为 None)。
 #[derive(Debug, Clone)]

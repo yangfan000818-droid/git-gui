@@ -862,6 +862,24 @@ fn repo_log_topology(
     repo.log_topology(&opts).map_err(|e| e.to_string())
 }
 
+/// 合并主仓与各子仓的提交历史(按时间排序,每条带仓库标识),用于含子模块的仓库。
+#[tauri::command]
+fn repo_log_merged(
+    path: String,
+    max_count: usize,
+    author: Option<String>,
+    grep: Option<String>,
+) -> Result<Vec<gitcore::MergedLogEntry>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    let opts = gitcore::LogOptions {
+        max_count,
+        branch: None,
+        author,
+        grep,
+    };
+    repo.log_merged(&opts).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn repo_commit_files(path: String, sha: String) -> Result<Vec<FileDiff>, String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
@@ -981,6 +999,7 @@ pub fn run() {
             repo_commit_file_diff,
             repo_blame,
             repo_log_topology,
+            repo_log_merged,
             start_watch,
             check_git,
             repo_commit_files,

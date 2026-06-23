@@ -23,6 +23,12 @@
     lane: number;
     edges: GraphEdge[];
   }
+  // 合并视图(主仓 + 各子仓)中的一条提交,带仓库标识。
+  interface MergedLogEntry {
+    entry: LogEntry;
+    repo_label: string; // "" = 主仓,否则子仓相对路径
+    repo_path: string; // 该提交所属仓库的绝对路径(操作定位用)
+  }
   type LineKind = "Context" | "Added" | "Removed";
   interface DiffLine {
     kind: LineKind;
@@ -77,11 +83,22 @@
   // ── Props ──
   let {
     path,
+    submodules = [],
     onFileHistory,
-  }: { path: string; onFileHistory?: (filePath: string) => void } = $props();
+  }: {
+    path: string;
+    submodules?: { path: string; name: string }[];
+    onFileHistory?: (filePath: string, repoPath: string) => void;
+  } = $props();
+
+  // 有子仓 → 提交历史合并主仓 + 各子仓(线性 + 仓库标识);无子仓 → 沿用单仓拓扑图。
+  let hasSub = $derived(submodules.length > 0);
 
   // ── 状态 ──
   let commits = $state<GraphCommit[]>([]);
+  let mergedRows = $state<MergedLogEntry[]>([]);
+  // 当前选中提交所属仓库的绝对路径(主仓或某子仓),详情与操作据此定位仓库。
+  let selectedRepoPath = $state("");
   let loading = $state(false);
   let error = $state("");
   let maxCount = $state(50);
@@ -148,19 +165,37 @@
     loading = true;
     error = "";
     try {
-      commits = await invoke<GraphCommit[]>("repo_log_topology", {
-        path,
-        maxCount,
-        branch: null,
-        author: authorFilter || null,
-        grep: grepFilter || null,
-      });
+      if (hasSub) {
+        mergedRows = await invoke<MergedLogEntry[]>("repo_log_merged", {
+          path,
+          maxCount,
+          author: authorFilter || null,
+          grep: grepFilter || null,
+        });
+      } else {
+        commits = await invoke<GraphCommit[]>("repo_log_topology", {
+          path,
+          maxCount,
+          branch: null,
+          author: authorFilter || null,
+          grep: grepFilter || null,
+        });
+      }
     } catch (e) {
       error = String(e);
     } finally {
       loading = false;
     }
   }
+
+  // 列表总条数(供标题与空态判断,合并/单仓两种来源统一)。
+  let rowCount = $derived(hasSub ? mergedRows.length : commits.length);
+  // 选中提交所属子仓的相对路径(主仓提交为空串),供详情头部标注操作目标仓库。
+  let selectedRepoLabel = $derived(
+    selectedRepoPath && selectedRepoPath !== path
+      ? selectedRepoPath.slice(path.length).replace(/^\/+/, "")
+      : "",
+  );
 
   function onCommitScroll(e: Event) {
     const el = e.target as HTMLElement;
@@ -175,8 +210,10 @@
     await load();
   }
 
-  async function selectCommit(entry: LogEntry) {
+  // repoPath:该提交所属仓库的绝对路径(合并视图下可能是子仓);单仓视图传主仓 path。
+  async function selectCommit(entry: LogEntry, repoPath: string) {
     selectedCommit = entry;
+    selectedRepoPath = repoPath;
     detailLoading = true;
     detailError = "";
     commitMsg = "";
@@ -187,12 +224,18 @@
     tagging = false;
     try {
       const [msg, diffs] = await Promise.all([
-        invoke<string>("repo_commit_message", { path, sha: entry.full_sha }),
-        invoke<FileDiff[]>("repo_commit_files", { path, sha: entry.full_sha }),
+        invoke<string>("repo_commit_message", {
+          path: repoPath,
+          sha: entry.full_sha,
+        }),
+        invoke<FileDiff[]>("repo_commit_files", {
+          path: repoPath,
+          sha: entry.full_sha,
+        }),
       ]);
       commitMsg = msg;
       commitDiffs = diffs;
-      void loadSubmoduleRanges(entry.full_sha, diffs);
+      void loadSubmoduleRanges(repoPath, entry.full_sha, diffs);
     } catch (e) {
       detailError = String(e);
     } finally {
@@ -202,14 +245,18 @@
 
   // 对该提交里的每个子模块指针变化,取其 old..new 区间的子仓提交(失败则只显示指针)。
   // 传入 sha 守卫:慢请求返回时若已切到别的提交,丢弃结果避免写入过期区间。
-  async function loadSubmoduleRanges(sha: string, diffs: FileDiff[]) {
+  async function loadSubmoduleRanges(
+    repoPath: string,
+    sha: string,
+    diffs: FileDiff[],
+  ) {
     for (const f of diffs) {
       if (!isSubmoduleChange(f)) continue;
       const { old, new: newSha } = subRange(f);
       if (!old || !newSha) continue; // 仅指针变更(modify)才有区间
       try {
         const commits = await invoke<LogEntry[]>("repo_submodule_commits", {
-          path,
+          path: repoPath,
           subPath: f.path,
           oldSha: old,
           newSha,
@@ -250,7 +297,7 @@
     operationError = "";
     try {
       const outcome = await invoke<UpdateOutcome>(command, {
-        path,
+        path: selectedRepoPath,
         sha: selectedCommit.full_sha,
       });
       if (outcomeVariant(outcome) === "Conflicted") {
@@ -283,7 +330,7 @@
     operationError = "";
     try {
       await invoke("repo_checkout_commit", {
-        path,
+        path: selectedRepoPath,
         sha: selectedCommit.full_sha,
       });
       await load();
@@ -310,7 +357,7 @@
     operationError = "";
     try {
       await invoke("repo_reset", {
-        path,
+        path: selectedRepoPath,
         sha: selectedCommit.full_sha,
         mode: resetMode,
       });
@@ -332,7 +379,7 @@
     operationError = "";
     try {
       await invoke("repo_create_tag", {
-        path,
+        path: selectedRepoPath,
         name,
         target: selectedCommit.full_sha,
         message: tagMessage.trim() || null,
@@ -350,7 +397,7 @@
   async function handleContinue() {
     try {
       const outcome = await invoke<UpdateOutcome>("continue_update_cmd", {
-        path,
+        path: selectedRepoPath,
         autostash,
         recurse_submodules: false,
       });
@@ -374,7 +421,7 @@
 
   async function handleAbort() {
     try {
-      await invoke("abort_update_cmd", { path, autostash });
+      await invoke("abort_update_cmd", { path: selectedRepoPath, autostash });
       inConflictResolution = false;
       conflictFiles = [];
       autostash = null;
@@ -462,8 +509,11 @@
       authorFilter = "";
       grepFilter = "";
       selectedCommit = null;
+      selectedRepoPath = path;
       commitMsg = "";
       commitDiffs = [];
+      commits = [];
+      mergedRows = [];
       load();
     }
   });
@@ -478,7 +528,7 @@
     <!-- ── 左侧:提交列表 + SVG 图 ── -->
     <aside class="commit-list">
       <div class="list-header">
-        <span class="list-title">提交历史 ({commits.length})</span>
+        <span class="list-title">提交历史 ({rowCount})</span>
         <button
           class="btn-load-more"
           onclick={() => (showReflog = true)}
@@ -507,8 +557,40 @@
         />
       </div>
 
-      {#if commits.length === 0 && !loading}
+      {#if rowCount === 0 && !loading}
         <p class="muted">无提交记录</p>
+      {:else if hasSub}
+        <!-- 合并视图:主仓 + 各子仓提交按时间排序,带仓库标识(无拓扑图) -->
+        <div class="log-scroll merged" onscroll={onCommitScroll}>
+          <div class="info-rows">
+            {#each mergedRows as row (row.repo_path + row.entry.full_sha)}
+              {@const entry = row.entry}
+              <div
+                class="log-row"
+                class:selected={selectedCommit?.full_sha === entry.full_sha &&
+                  selectedRepoPath === row.repo_path}
+                role="button"
+                tabindex="0"
+                style="height:{ROW_H}px"
+                onclick={() => selectCommit(entry, row.repo_path)}
+                onkeydown={(e) =>
+                  onActivate(e, () => selectCommit(entry, row.repo_path))}
+              >
+                {#if row.repo_label}
+                  <span class="repo-chip" title="子仓库 {row.repo_label}"
+                    >{row.repo_label}</span
+                  >
+                {:else}
+                  <span class="repo-chip repo-main" title="主仓库">主仓</span>
+                {/if}
+                <span class="log-sha">{entry.sha}</span>
+                <span class="log-author">{entry.author}</span>
+                <span class="log-date">{fmtDate(entry.date)}</span>
+                <span class="log-msg">{entry.message}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
       {:else}
         <div class="log-scroll" onscroll={onCommitScroll}>
           {#if !filtering}
@@ -560,8 +642,9 @@
                 role="button"
                 tabindex="0"
                 style="height:{ROW_H}px"
-                onclick={() => selectCommit(entry)}
-                onkeydown={(e) => onActivate(e, () => selectCommit(entry))}
+                onclick={() => selectCommit(entry, path)}
+                onkeydown={(e) =>
+                  onActivate(e, () => selectCommit(entry, path))}
               >
                 <span class="log-sha">{entry.sha}</span>
                 <span class="log-author">{entry.author}</span>
@@ -586,7 +669,7 @@
           <pre class="error">{operationError}</pre>
         {/if}
         <ConflictView
-          {path}
+          path={selectedRepoPath}
           {conflictFiles}
           {autostash}
           onContinue={handleContinue}
@@ -599,6 +682,16 @@
             <h3 class="commit-title">{selectedCommit.message}</h3>
           </div>
           <div class="commit-meta">
+            {#if selectedRepoLabel}
+              <div class="meta-row">
+                <span class="meta-label">仓库</span>
+                <span
+                  class="meta-repo"
+                  title="该提交属于子仓库,操作将作用于此子仓"
+                  >{selectedRepoLabel}</span
+                >
+              </div>
+            {/if}
             <div class="meta-row">
               <span class="meta-label">SHA</span>
               <span class="meta-sha" title={selectedCommit.full_sha}
@@ -820,7 +913,10 @@
           {/if}
           {#if normalDiffs.length > 0}
             <div class="diff-list">
-              <DiffView files={normalDiffs} {onFileHistory} />
+              <DiffView
+                files={normalDiffs}
+                onFileHistory={(fp) => onFileHistory?.(fp, selectedRepoPath)}
+              />
             </div>
           {/if}
         {/if}
@@ -833,7 +929,7 @@
   <!-- ── 交互式变基编辑器(冲突/完成都回到本组件已有的 ConflictView/刷新) ── -->
   {#if rebasing && selectedCommit}
     <RebaseTodoView
-      {path}
+      path={selectedRepoPath}
       fromSha={selectedCommit.full_sha}
       onClose={() => (rebasing = false)}
       onConflict={(data) => {
@@ -852,7 +948,8 @@
   <!-- ── Reflog:HEAD 历史查看/恢复 ── -->
   {#if showReflog}
     <ReflogView
-      {path}
+      path={selectedRepoPath}
+      repoLabel={selectedRepoLabel}
       onChanged={() => void load()}
       onClose={() => (showReflog = false)}
     />
@@ -1002,6 +1099,30 @@
     color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* ── 合并视图:仓库标识 chip ── */
+  .repo-chip {
+    flex-shrink: 0;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background: rgba(188, 140, 255, 0.14);
+    color: #c49ae2;
+    font-size: 10px;
+    border-radius: 4px;
+    padding: 1px 6px;
+  }
+  .repo-chip.repo-main {
+    background: rgba(88, 166, 255, 0.14);
+    color: var(--accent-cyan);
+  }
+  .meta-repo {
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #c49ae2;
+    font-size: 11px;
+    word-break: break-all;
   }
 
   /* ── 右侧详情 ── */
