@@ -7,8 +7,9 @@ use std::time::{Duration, Instant};
 
 use gitcore::{
     BranchComparison, BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk,
-    PendingConflicts, PopResult, Progress, RebaseItem, Repo, RepoStatus, ResetMode, Segment,
-    StashEntry, StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions, UpdateOutcome,
+    PendingConflicts, PopResult, Progress, RebaseItem, ReflogEntry, Repo, RepoStatus, ResetMode,
+    Segment, StashEntry, StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions,
+    UpdateOutcome,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -594,6 +595,13 @@ fn repo_reset(path: String, sha: String, mode: ResetMode) -> Result<(), String> 
     repo.reset(&sha, mode).map_err(|e| e.to_string())
 }
 
+/// 取 HEAD reflog(最近 max_count 条),供查看/恢复历史状态。
+#[tauri::command]
+fn repo_reflog(path: String, max_count: usize) -> Result<Vec<ReflogEntry>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.reflog(max_count).map_err(|e| e.to_string())
+}
+
 // ── Tag 管理命令 ──
 
 #[tauri::command]
@@ -900,6 +908,7 @@ pub fn run() {
             repo_cherry_pick,
             repo_revert,
             repo_reset,
+            repo_reflog,
             repo_tags,
             repo_create_tag,
             repo_delete_tag,

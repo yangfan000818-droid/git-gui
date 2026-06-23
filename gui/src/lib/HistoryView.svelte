@@ -3,6 +3,7 @@
   import DiffView from "$lib/DiffView.svelte";
   import ConflictView from "$lib/ConflictView.svelte";
   import RebaseTodoView from "$lib/RebaseTodoView.svelte";
+  import ReflogView from "$lib/ReflogView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   interface LogEntry {
@@ -131,6 +132,8 @@
   let tagMessage = $state("");
   // 交互式变基:打开编辑器弹层(从 selectedCommit 起)
   let rebasing = $state(false);
+  // reflog:打开 HEAD 历史弹层(查看/恢复)
+  let showReflog = $state(false);
   let conflictFiles = $state<string[]>([]);
   let autostash = $state<StashRef | null>(null);
   let inConflictResolution = $state(false);
@@ -439,6 +442,12 @@
     <aside class="commit-list">
       <div class="list-header">
         <span class="list-title">提交历史 ({commits.length})</span>
+        <button
+          class="btn-load-more"
+          onclick={() => (showReflog = true)}
+          title="查看 HEAD 走过的历史(reflog),可从中恢复被变基/重置丢掉的状态"
+          >Reflog</button
+        >
         <button
           class="btn-load-more"
           disabled={loading}
@@ -788,6 +797,15 @@
         rebasing = false;
         void load();
       }}
+    />
+  {/if}
+
+  <!-- ── Reflog:HEAD 历史查看/恢复 ── -->
+  {#if showReflog}
+    <ReflogView
+      {path}
+      onChanged={() => void load()}
+      onClose={() => (showReflog = false)}
     />
   {/if}
 </div>

@@ -1567,3 +1567,28 @@ fn rebase_interactive_sequential_conflicts_resolve_through() {
 
     cleanup(&[&dir]);
 }
+
+// ── reflog 查看 ──
+
+#[test]
+fn reflog_lists_head_movements_newest_first() {
+    let dir = init_repo("reflog");
+    write(&dir, "f.txt", "A\n");
+    commit_all(&dir, "A");
+    write(&dir, "f.txt", "B\n");
+    commit_all(&dir, "B");
+    let b = head_sha(&dir);
+
+    let repo = Repo::open(&dir).unwrap();
+    let entries = repo.reflog(50).unwrap();
+    assert!(entries.len() >= 2, "至少 A、B 两次提交的 reflog");
+    assert_eq!(entries[0].selector, "HEAD@{0}", "最新在前");
+    assert_eq!(entries[0].full_sha, b, "顶部指向最新提交 B");
+    assert!(
+        entries[0].action.contains("commit"),
+        "最近动作应是 commit,实际 {:?}",
+        entries[0].action
+    );
+
+    cleanup(&[&dir]);
+}

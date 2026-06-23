@@ -1,0 +1,254 @@
+<script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
+
+  interface ReflogEntry {
+    selector: string;
+    sha: string;
+    full_sha: string;
+    action: string;
+  }
+
+  let {
+    path,
+    onChanged,
+    onClose,
+  }: {
+    path: string;
+    onChanged: () => void;
+    onClose: () => void;
+  } = $props();
+
+  let entries = $state<ReflogEntry[]>([]);
+  let loading = $state(true);
+  let busy = $state(false);
+  let error = $state("");
+
+  async function load() {
+    loading = true;
+    error = "";
+    try {
+      entries = await invoke<ReflogEntry[]>("repo_reflog", {
+        path,
+        maxCount: 100,
+      });
+    } catch (e) {
+      error = String(e);
+    } finally {
+      loading = false;
+    }
+  }
+
+  // 把当前分支移回某条 reflog 状态(混合重置:改动退回工作区,不丢未提交内容)。
+  async function restore(e: ReflogEntry) {
+    if (
+      !confirm(
+        `把当前分支移到 ${e.selector}（${e.sha}）：改动退回工作区（未提交内容不丢失，混合重置）。确定?`,
+      )
+    )
+      return;
+    busy = true;
+    error = "";
+    try {
+      await invoke("repo_reset", { path, sha: e.full_sha, mode: "Mixed" });
+      await load();
+      onChanged();
+    } catch (err) {
+      error = String(err);
+    } finally {
+      busy = false;
+    }
+  }
+
+  function handleKeydown(ev: KeyboardEvent) {
+    if (ev.key === "Escape" && !busy) onClose();
+  }
+
+  $effect(() => {
+    load();
+  });
+</script>
+
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div
+  class="rl-overlay"
+  role="dialog"
+  aria-modal="true"
+  tabindex="-1"
+  onclick={() => !busy && onClose()}
+  onkeydown={handleKeydown}
+>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="rl-panel" onclick={(e) => e.stopPropagation()}>
+    <div class="rl-header">
+      <h3>Reflog · HEAD 历史</h3>
+      <button
+        class="rl-close"
+        onclick={onClose}
+        disabled={busy}
+        aria-label="关闭">×</button
+      >
+    </div>
+
+    <p class="rl-hint">
+      HEAD 走过的每一步(含
+      commit/reset/rebase/checkout)。变基或重置搞砸了,可从这里「重置到此」找回旧状态。
+    </p>
+
+    {#if error}
+      <pre class="rl-error">{error}</pre>
+    {/if}
+
+    {#if loading}
+      <p class="rl-muted">加载中…</p>
+    {:else if entries.length === 0}
+      <p class="rl-muted">没有 reflog 记录</p>
+    {:else}
+      <ul class="rl-list">
+        {#each entries as e (e.selector)}
+          <li class="rl-item">
+            <span class="rl-selector">{e.selector}</span>
+            <span class="rl-sha">{e.sha}</span>
+            <span class="rl-action" title={e.action}>{e.action}</span>
+            <button
+              class="rl-restore"
+              disabled={busy}
+              onclick={() => restore(e)}
+              title="把当前分支移到该状态(git reset --mixed,改动退回工作区)"
+              >重置到此</button
+            >
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
+</div>
+
+<style>
+  .rl-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .rl-panel {
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 8px;
+    width: 620px;
+    max-width: 94%;
+    max-height: 84%;
+    display: flex;
+    flex-direction: column;
+  }
+  .rl-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px 6px;
+  }
+  .rl-header h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e4e4e4;
+    margin: 0;
+  }
+  .rl-close {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+  }
+  .rl-close:hover:not(:disabled) {
+    color: #e4e4e4;
+  }
+  .rl-close:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .rl-hint {
+    color: #888;
+    font-size: 12px;
+    margin: 0;
+    padding: 0 18px 8px;
+  }
+  .rl-error {
+    background: #3a1d1d;
+    border-top: 1px solid #6a2b2b;
+    border-bottom: 1px solid #6a2b2b;
+    padding: 8px 18px;
+    color: #f3b4b4;
+    font-size: 12px;
+    white-space: pre-wrap;
+    margin: 0;
+  }
+  .rl-muted {
+    color: #666;
+    font-size: 12px;
+    text-align: center;
+    padding: 22px 18px;
+    margin: 0;
+  }
+  .rl-list {
+    list-style: none;
+    margin: 0;
+    padding: 6px 0 12px;
+    overflow-y: auto;
+  }
+  .rl-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 18px;
+  }
+  .rl-item:hover {
+    background: #252525;
+  }
+  .rl-selector {
+    color: #5a8af0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    flex-shrink: 0;
+    width: 92px;
+  }
+  .rl-sha {
+    color: #888;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .rl-action {
+    color: #ccc;
+    font-size: 13px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rl-restore {
+    background: transparent;
+    border: 1px solid #444;
+    border-radius: 3px;
+    color: #bbb;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 3px 10px;
+    flex-shrink: 0;
+  }
+  .rl-restore:hover:not(:disabled) {
+    background: #2a3a4a;
+    border-color: #3a5a7a;
+    color: #cfe2ff;
+  }
+  .rl-restore:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+</style>

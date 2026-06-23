@@ -16,6 +16,7 @@ mod hunk;
 mod log;
 mod push;
 mod rebase;
+mod reflog;
 mod reset;
 mod resolve;
 mod stage;
@@ -40,6 +41,7 @@ pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
 pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions};
 pub use push::PushOutcome;
 pub use rebase::{RebaseAction, RebaseItem};
+pub use reflog::ReflogEntry;
 pub use reset::ResetMode;
 pub use resolve::{
     parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment,
@@ -141,6 +143,11 @@ impl Repo {
     /// 把当前分支重置到指定提交(soft/mixed/hard)。
     pub fn reset(&self, sha: &str, mode: ResetMode) -> Result<(), Error> {
         reset::reset(self, sha, mode)
+    }
+
+    /// 取 HEAD reflog(最近 max_count 条),供查看/恢复历史状态。
+    pub fn reflog(&self, max_count: usize) -> Result<Vec<ReflogEntry>, Error> {
+        reflog::reflog(self, max_count)
     }
 
     /// 列出所有 tag。
