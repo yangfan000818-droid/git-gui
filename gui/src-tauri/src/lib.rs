@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use gitcore::{
-    BranchComparison, BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk,
+    BranchComparison, BranchInfo, CancelToken, CommitOptions, FileDiff, Hunk,
     PendingConflicts, PopResult, Progress, RebaseItem, ReflogEntry, Repo, RepoStatus, ResetMode,
     Segment, StashEntry, StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions,
     UpdateOutcome,
@@ -616,18 +616,6 @@ fn read_conflict_segments(path: String, file_path: String) -> Result<Vec<Segment
         .map_err(|e| e.to_string())
 }
 
-/// 按用户选择重建冲突文件文本并写回 + git add。
-#[tauri::command]
-fn resolve_conflict(path: String, file_path: String, choices: Vec<Choice>) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let segments = repo
-        .read_conflict(Path::new(&file_path))
-        .map_err(|e| e.to_string())?;
-    let text = gitcore::rebuild(&segments, &choices);
-    repo.resolve_file(Path::new(&file_path), &text)
-        .map_err(|e| e.to_string())
-}
-
 /// 冲突解决后完成整合,并还原 autostash。
 #[tauri::command]
 fn continue_update_cmd(
@@ -1013,7 +1001,6 @@ pub fn run() {
             read_repo_file,
             resolve_conflict_file,
             read_conflict_segments,
-            resolve_conflict,
             continue_update_cmd,
             abort_update_cmd,
             resume_conflicts,
