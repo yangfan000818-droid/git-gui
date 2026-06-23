@@ -72,7 +72,10 @@ pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
     ])?;
     let files = parse_porcelain(&porcelain);
     let dirty = !files.is_empty();
-    let conflicted = crate::conflict::conflicted_files(repo)?;
+    // 冲突文件直接从已取到的 porcelain 解析(等价 `git diff --diff-filter=U`),
+    // 省掉热路径上每仓一次 git 进程——status 在文件监视刷新里高频调用,Windows 上
+    // 进程创建昂贵,这一省对刷新风暴下的卡顿有实质改善。
+    let conflicted = parse_conflicted(&porcelain);
     let submodules = repo.submodules().unwrap_or_default();
 
     Ok(RepoStatus {
@@ -129,4 +132,73 @@ fn parse_porcelain(output: &str) -> Vec<FileStatus> {
             })
         })
         .collect()
+}
+
+// 从同一份 porcelain 输出解析未合并(冲突)文件,等价于 `git diff --name-only --diff-filter=U`。
+// 未合并状态码(XY): DD / AU / UD / UA / DU / AA / UU —— 任一侧为 U,或 both-added(AA)/
+// both-deleted(DD)。冲突路径不会是 rename,raw 即路径。
+fn parse_conflicted(output: &str) -> Vec<PathBuf> {
+    output
+        .lines()
+        .filter_map(|line| {
+            if line.len() < 4 {
+                return None;
+            }
+            let x = line.chars().next()?;
+            let y = line.chars().nth(1)?;
+            let unmerged = matches!(
+                (x, y),
+                ('D', 'D')
+                    | ('A', 'U')
+                    | ('U', 'D')
+                    | ('U', 'A')
+                    | ('D', 'U')
+                    | ('A', 'A')
+                    | ('U', 'U')
+            );
+            unmerged.then(|| PathBuf::from(line[3..].trim()))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_conflicted_picks_unmerged_only() {
+        // 含全部 7 种未合并码 + 普通暂存/修改/未跟踪行,只应取未合并文件。
+        let porcelain = "\
+UU both-modified.txt
+AA both-added.txt
+DD both-deleted.txt
+AU added-by-us.txt
+UA added-by-them.txt
+DU deleted-by-us.txt
+UD deleted-by-them.txt
+M  staged.txt
+ M modified.txt
+?? untracked.txt
+MM staged-and-modified.txt";
+        let got = parse_conflicted(porcelain);
+        let want: Vec<PathBuf> = [
+            "both-modified.txt",
+            "both-added.txt",
+            "both-deleted.txt",
+            "added-by-us.txt",
+            "added-by-them.txt",
+            "deleted-by-us.txt",
+            "deleted-by-them.txt",
+        ]
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn parse_conflicted_empty_when_no_conflicts() {
+        assert!(parse_conflicted("M  a.txt\n M b.txt\n?? c.txt").is_empty());
+        assert!(parse_conflicted("").is_empty());
+    }
 }

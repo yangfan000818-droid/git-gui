@@ -213,7 +213,7 @@ impl Default for CancelRegistry {
     }
 }
 
-// ── 文件监视:debounce 300ms 后 emit "repo-changed" ──
+// ── 文件监视:debounce 500ms 后 emit "repo-changed" ──
 
 struct WatchState {
     watcher: Mutex<Option<RecommendedWatcher>>,
@@ -234,19 +234,19 @@ fn start_watch(app: AppHandle, path: String, state: State<'_, WatchState>) -> Re
 
     let (tx, rx) = mpsc::channel::<()>();
 
-    // 后台线程:收到事件后等 300ms 无新事件才 emit。
+    // 后台线程:收到事件后等 500ms 无新事件才 emit。
     let app_handle = app.clone();
     std::thread::spawn(move || {
         let mut pending = false;
         let mut last = Instant::now();
         loop {
-            match rx.recv_timeout(Duration::from_millis(300)) {
+            match rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(()) => {
                     pending = true;
                     last = Instant::now();
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    if pending && last.elapsed() >= Duration::from_millis(300) {
+                    if pending && last.elapsed() >= Duration::from_millis(500) {
                         let _ = app_handle.emit("repo-changed", ());
                         pending = false;
                     }
@@ -271,6 +271,50 @@ fn start_watch(app: AppHandle, path: String, state: State<'_, WatchState>) -> Re
                     .paths
                     .iter()
                     .all(|p| p.extension().and_then(|e| e.to_str()) == Some("lock"))
+            {
+                return;
+            }
+            // .git/objects 与 .git/logs(含子仓 .git/modules/*/{objects,logs})下的写入是
+            // 高频噪声:对象落盘、reflog 追加。它们不代表用户可见的仓库状态变化——真正的
+            // 变化(分支移动/HEAD 切换/合并)一定同时落到被保留的 .git/refs、.git/HEAD、
+            // .git/MERGE_HEAD 上。递归监视 .git 时这两类事件量极大(fetch/gc 尤甚),会把刷新打成
+            // 风暴;而每次刷新又要对主仓+每个子仓各 spawn 5~7 个 git 进程(Windows 上进程
+            // 创建昂贵)→ 直接卡顿。整事件路径都落在 git 内部的 objects/logs 时跳过。
+            let is_git_noise = |p: &PathBuf| {
+                let mut saw_git = false;
+                let mut saw_noise = false;
+                for c in p.components() {
+                    match c.as_os_str().to_str() {
+                        Some(".git") => saw_git = true,
+                        Some("objects") | Some("logs") => saw_noise = true,
+                        _ => {}
+                    }
+                }
+                saw_git && saw_noise
+            };
+            // 自激刷新的根因:我们自己每次刷新都要跑的 `git status`/`git diff` 会刷新 stat cache
+            // 并回写 .git/index(经 index.lock → rename 到 index;子仓为 .git/modules/*/index)。
+            // 递归监视 .git 会把这个"自己造成的写"当成仓库变更 → 再刷新 → 再写 index →
+            // 自持循环(尤其文件刚被编辑器/同步盘/杀软触碰、处于 git racy 态时,每次 status 都回写)。
+            // index 写入无需靠 watcher 反映:App 自身的暂存/提交/丢弃等操作都在命令返回后显式 refresh。
+            // 故整事件路径都是 .git 下 index 系列文件时跳过。
+            // (代价:命令行外部 `git add` 不再即时反映,需等下一个事件;权衡可接受。)
+            let is_index_write = |p: &PathBuf| {
+                let in_git = p
+                    .components()
+                    .any(|c| c.as_os_str().to_str() == Some(".git"));
+                let is_index = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "index" || n == "index.lock" || n.starts_with("sharedindex."))
+                    .unwrap_or(false);
+                in_git && is_index
+            };
+            if !event.paths.is_empty()
+                && event
+                    .paths
+                    .iter()
+                    .all(|p| is_git_noise(p) || is_index_write(p))
             {
                 return;
             }
