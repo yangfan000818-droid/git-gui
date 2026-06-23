@@ -566,27 +566,31 @@
             {#each mergedRows as row (row.repo_path + row.entry.full_sha)}
               {@const entry = row.entry}
               <div
-                class="log-row"
+                class="merged-row"
                 class:selected={selectedCommit?.full_sha === entry.full_sha &&
                   selectedRepoPath === row.repo_path}
                 role="button"
                 tabindex="0"
-                style="height:{ROW_H}px"
                 onclick={() => selectCommit(entry, row.repo_path)}
                 onkeydown={(e) =>
                   onActivate(e, () => selectCommit(entry, row.repo_path))}
               >
-                {#if row.repo_label}
-                  <span class="repo-chip" title="子仓库 {row.repo_label}"
-                    >{row.repo_label}</span
-                  >
-                {:else}
-                  <span class="repo-chip repo-main" title="主仓库">主仓</span>
-                {/if}
-                <span class="log-sha">{entry.sha}</span>
-                <span class="log-author">{entry.author}</span>
-                <span class="log-date">{fmtDate(entry.date)}</span>
-                <span class="log-msg">{entry.message}</span>
+                <div class="mr-top">
+                  {#if row.repo_label}
+                    <span class="repo-chip" title="子仓库 {row.repo_label}"
+                      >{row.repo_label}</span
+                    >
+                  {:else}
+                    <span class="repo-chip repo-main" title="主仓库">主仓</span>
+                  {/if}
+                  <span class="log-sha">{entry.sha}</span>
+                  <span class="mr-msg">{entry.message}</span>
+                </div>
+                <div class="mr-bot">
+                  <span class="mr-author">{entry.author}</span>
+                  <span class="mr-dot">·</span>
+                  <span class="mr-date">{fmtDate(entry.date)}</span>
+                </div>
               </div>
             {/each}
           </div>
@@ -1116,6 +1120,56 @@
   .repo-chip.repo-main {
     background: rgba(88, 166, 255, 0.14);
     color: var(--accent-cyan);
+  }
+
+  /* ── 合并视图:两行布局(主行 chip+sha+msg / 副行 作者·日期) ── */
+  .merged-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px 8px;
+    cursor: pointer;
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.04));
+  }
+  .merged-row:hover {
+    background: var(--bg-surface);
+  }
+  .merged-row.selected {
+    background: rgba(88, 166, 255, 0.15);
+  }
+  .mr-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .mr-msg {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mr-bot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 2px;
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+  .mr-author {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mr-dot {
+    opacity: 0.5;
   }
   .meta-repo {
     font-family:
