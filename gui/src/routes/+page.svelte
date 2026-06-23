@@ -798,7 +798,7 @@
         >
         <button
           class="btn-remote"
-          disabled={loading || operating}
+          disabled={loading || operating || !repos.some((r) => r.ahead > 0)}
           title="推送主仓库及各子仓库到各自远程"
           onclick={doPushAll}>全部推送</button
         >
@@ -961,7 +961,7 @@
                       >
                       <button
                         class="sub-btn sub-btn-push"
-                        disabled={operating}
+                        disabled={operating || repo.ahead === 0}
                         title="推送主仓库当前分支到远程"
                         onclick={() => doPush(repo.path)}>↑ 推送</button
                       >
@@ -976,7 +976,7 @@
                       >
                       <button
                         class="sub-btn sub-btn-push"
-                        disabled={operating}
+                        disabled={operating || repo.ahead === 0}
                         title="推送子仓库当前分支到远程"
                         onclick={() => doPush(repo.path)}>↑ 推送</button
                       >
