@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use gitcore::{
     BranchComparison, BranchInfo, CancelToken, Choice, CommitOptions, FileDiff, Hunk,
-    PendingConflicts, PopResult, Progress, Repo, RepoStatus, ResetMode, Segment, StashEntry,
-    StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions, UpdateOutcome,
+    PendingConflicts, PopResult, Progress, RebaseItem, Repo, RepoStatus, ResetMode, Segment,
+    StashEntry, StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions, UpdateOutcome,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -706,6 +706,26 @@ fn repo_rebase_branch(
         .map_err(|e| e.to_string())
 }
 
+/// 列出 from_sha..HEAD(含 from_sha)的提交,供交互式变基编辑(oldest-first)。
+#[tauri::command]
+fn repo_rebase_plan(path: String, from_sha: String) -> Result<Vec<gitcore::LogEntry>, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.rebase_plan(&from_sha).map_err(|e| e.to_string())
+}
+
+/// 从 from_sha 起按给定操作交互式变基(reword/squash/fixup/drop/重排);
+/// 冲突时返回 Conflicted,交前端 ConflictView 复用 continue/abort 推进。
+#[tauri::command]
+fn repo_rebase_interactive(
+    path: String,
+    from_sha: String,
+    items: Vec<RebaseItem>,
+) -> Result<UpdateOutcome, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.rebase_interactive(&from_sha, &items)
+        .map_err(|e| e.to_string())
+}
+
 /// 检出远程分支为本地跟踪分支(脏工作区/本地同名已存在时返回错误)。
 #[tauri::command]
 fn repo_checkout_remote(path: String, remote_branch: String) -> Result<(), String> {
@@ -893,6 +913,8 @@ pub fn run() {
             repo_checkout_remote,
             repo_merge_branch,
             repo_rebase_branch,
+            repo_rebase_plan,
+            repo_rebase_interactive,
             repo_log_graph,
             repo_file_history,
             repo_commit_file_diff,

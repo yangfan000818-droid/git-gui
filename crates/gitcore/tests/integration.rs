@@ -2,8 +2,8 @@
 //! 每个测试自建临时 repo、用完即删。
 
 use gitcore::{
-    CancelToken, IntegrationStrategy, PendingConflicts, Repo, SwitchOutcome, UpdateOptions,
-    UpdateOutcome,
+    CancelToken, IntegrationStrategy, PendingConflicts, RebaseAction, RebaseItem, Repo,
+    SwitchOutcome, UpdateOptions, UpdateOutcome,
 };
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -1382,6 +1382,188 @@ fn tag_create_list_delete_roundtrip() {
 
     repo.delete_tag("v1.0").unwrap();
     assert_eq!(repo.tags().unwrap().len(), 1, "删除后剩 1 个");
+
+    cleanup(&[&dir]);
+}
+
+// ── 交互式变基(Interactively Rebase from Here) ──
+
+fn head_sha(dir: &PathBuf) -> String {
+    let out = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn head_subject(dir: &Path) -> String {
+    let out = Command::new("git")
+        .args(["log", "-1", "--format=%s"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn rev_count(dir: &Path) -> usize {
+    let out = Command::new("git")
+        .args(["rev-list", "--count", "HEAD"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
+}
+
+#[test]
+fn rebase_plan_lists_from_commit_to_head_oldest_first() {
+    let dir = init_repo("rb-plan");
+    write(&dir, "a.txt", "a\n");
+    commit_all(&dir, "A");
+    write(&dir, "b.txt", "b\n");
+    commit_all(&dir, "B");
+    let b = head_sha(&dir);
+    write(&dir, "c.txt", "c\n");
+    commit_all(&dir, "C");
+    write(&dir, "d.txt", "d\n");
+    commit_all(&dir, "D");
+
+    let repo = Repo::open(&dir).unwrap();
+    let plan = repo.rebase_plan(&b).unwrap();
+    let msgs: Vec<&str> = plan.iter().map(|e| e.message.as_str()).collect();
+    assert_eq!(
+        msgs,
+        ["B", "C", "D"],
+        "应含 from_sha 起到 HEAD,oldest-first"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn rebase_interactive_reword_squash_drop() {
+    let dir = init_repo("rb-int");
+    write(&dir, "a.txt", "a\n");
+    commit_all(&dir, "A");
+    write(&dir, "b.txt", "b\n");
+    commit_all(&dir, "B");
+    let b = head_sha(&dir);
+    write(&dir, "c.txt", "c\n");
+    commit_all(&dir, "C");
+    write(&dir, "d.txt", "d\n");
+    commit_all(&dir, "D");
+
+    let repo = Repo::open(&dir).unwrap();
+    let plan = repo.rebase_plan(&b).unwrap(); // [B, C, D]
+    let items = vec![
+        RebaseItem {
+            sha: plan[0].full_sha.clone(),
+            action: RebaseAction::Reword("B2".into()),
+        },
+        RebaseItem {
+            sha: plan[1].full_sha.clone(),
+            action: RebaseAction::Squash("BC".into()),
+        },
+        RebaseItem {
+            sha: plan[2].full_sha.clone(),
+            action: RebaseAction::Drop,
+        },
+    ];
+    let outcome = repo.rebase_interactive(&b, &items).unwrap();
+    assert!(
+        matches!(outcome, UpdateOutcome::Resolved),
+        "无冲突应 Resolved,实际 {outcome:?}"
+    );
+
+    // A + (B 折叠 C) = 2 个提交;D 丢弃。
+    assert_eq!(rev_count(&dir), 2, "drop D、squash 折叠 C 后应剩 A + BC");
+    assert_eq!(
+        head_subject(&dir),
+        "BC",
+        "squash 的信息成为合并后提交 subject"
+    );
+    assert!(dir.join("b.txt").exists(), "B 保留");
+    assert!(dir.join("c.txt").exists(), "C 的改动被折叠保留");
+    assert!(!dir.join("d.txt").exists(), "D 被丢弃");
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn rebase_interactive_requires_clean_worktree() {
+    let dir = init_repo("rb-dirty");
+    write(&dir, "a.txt", "a\n");
+    commit_all(&dir, "A");
+    let a = head_sha(&dir);
+    write(&dir, "b.txt", "b\n");
+    commit_all(&dir, "B");
+    // 制造脏工作区
+    write(&dir, "a.txt", "a-changed\n");
+
+    let repo = Repo::open(&dir).unwrap();
+    let items = vec![RebaseItem {
+        sha: a.clone(),
+        action: RebaseAction::Reword("A2".into()),
+    }];
+    assert!(
+        repo.rebase_interactive(&a, &items).is_err(),
+        "脏工作区应被拒绝"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn rebase_interactive_sequential_conflicts_resolve_through() {
+    // 三个提交都改 f.txt 同一行;把 [B, C] 重排为 [C, B] → 顺序两次冲突,
+    // 直击 continue_update 新增的"下一个提交又冲突"分支(交互式变基最危险路径)。
+    let dir = init_repo("rb-seq");
+    write(&dir, "f.txt", "A\n");
+    commit_all(&dir, "A");
+    write(&dir, "f.txt", "B\n");
+    commit_all(&dir, "B");
+    let b = head_sha(&dir);
+    write(&dir, "f.txt", "C\n");
+    commit_all(&dir, "C");
+
+    let repo = Repo::open(&dir).unwrap();
+    let plan = repo.rebase_plan(&b).unwrap(); // [B, C]
+    let items = vec![
+        RebaseItem {
+            sha: plan[1].full_sha.clone(),
+            action: RebaseAction::Pick,
+        }, // C 先
+        RebaseItem {
+            sha: plan[0].full_sha.clone(),
+            action: RebaseAction::Pick,
+        }, // 再 B
+    ];
+
+    // 冲突 #1:C 应用到 A 上冲突。
+    let o1 = repo.rebase_interactive(&b, &items).unwrap();
+    assert!(
+        matches!(o1, UpdateOutcome::Conflicted { .. }),
+        "重排后首个提交应冲突,实际 {o1:?}"
+    );
+    write(&dir, "f.txt", "C\n");
+    git(&dir, &["add", "f.txt"]);
+
+    // 冲突 #2:continue 推进到 B,又冲突(验证 continue_update 顺序冲突分支)。
+    let o2 = repo.continue_update(None, false).unwrap();
+    assert!(
+        matches!(o2, UpdateOutcome::Conflicted { .. }),
+        "续跑到第二个提交应再次冲突,实际 {o2:?}"
+    );
+    write(&dir, "f.txt", "B\n");
+    git(&dir, &["add", "f.txt"]);
+
+    // 二次解决后完成。
+    let o3 = repo.continue_update(None, false).unwrap();
+    assert!(
+        matches!(o3, UpdateOutcome::Resolved),
+        "二次解决后应完成,实际 {o3:?}"
+    );
+    assert_eq!(std::fs::read_to_string(dir.join("f.txt")).unwrap(), "B\n");
 
     cleanup(&[&dir]);
 }

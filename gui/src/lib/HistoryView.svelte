@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import DiffView from "$lib/DiffView.svelte";
   import ConflictView from "$lib/ConflictView.svelte";
+  import RebaseTodoView from "$lib/RebaseTodoView.svelte";
 
   // ── 类型（与 gitcore serde 对应） ──
   interface LogEntry {
@@ -128,6 +129,8 @@
   let tagging = $state(false);
   let tagName = $state("");
   let tagMessage = $state("");
+  // 交互式变基:打开编辑器弹层(从 selectedCommit 起)
+  let rebasing = $state(false);
   let conflictFiles = $state<string[]>([]);
   let autostash = $state<StashRef | null>(null);
   let inConflictResolution = $state(false);
@@ -584,6 +587,13 @@
                 title="在该提交创建 tag（git tag）">打 Tag</button
               >
               <button
+                class="btn-action"
+                disabled={operationInProgress}
+                onclick={() => (rebasing = true)}
+                title="从该提交起交互式变基：reword/squash/fixup/drop/重排（git rebase -i）"
+                >交互式变基</button
+              >
+              <button
                 class="btn-copy"
                 onclick={copySha}
                 title="复制该提交的完整 SHA"
@@ -761,6 +771,25 @@
       {/if}
     </section>
   </div>
+
+  <!-- ── 交互式变基编辑器(冲突/完成都回到本组件已有的 ConflictView/刷新) ── -->
+  {#if rebasing && selectedCommit}
+    <RebaseTodoView
+      {path}
+      fromSha={selectedCommit.full_sha}
+      onClose={() => (rebasing = false)}
+      onConflict={(data) => {
+        rebasing = false;
+        conflictFiles = data.files;
+        autostash = data.autostash;
+        inConflictResolution = true;
+      }}
+      onDone={() => {
+        rebasing = false;
+        void load();
+      }}
+    />
+  {/if}
 </div>
 
 <style>

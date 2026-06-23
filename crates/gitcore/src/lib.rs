@@ -15,6 +15,7 @@ mod git;
 mod hunk;
 mod log;
 mod push;
+mod rebase;
 mod reset;
 mod resolve;
 mod stage;
@@ -38,6 +39,7 @@ pub use git::{CancelToken, Progress};
 pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
 pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions};
 pub use push::PushOutcome;
+pub use rebase::{RebaseAction, RebaseItem};
 pub use reset::ResetMode;
 pub use resolve::{
     parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment,
@@ -173,6 +175,20 @@ impl Repo {
         opts: &UpdateOptions,
     ) -> Result<UpdateOutcome, Error> {
         update::rebase_branch(self, branch, opts)
+    }
+
+    /// 列出 `from_sha..HEAD`(含 from_sha)的提交(oldest-first),供交互式变基编辑。
+    pub fn rebase_plan(&self, from_sha: &str) -> Result<Vec<LogEntry>, Error> {
+        rebase::rebase_plan(self, from_sha)
+    }
+
+    /// 从 `from_sha` 起按给定操作交互式变基(对标 WebStorm "Interactively Rebase from Here")。
+    pub fn rebase_interactive(
+        &self,
+        from_sha: &str,
+        items: &[RebaseItem],
+    ) -> Result<UpdateOutcome, Error> {
+        rebase::rebase_interactive(self, from_sha, items)
     }
 
     /// 暂存指定文件。

@@ -194,7 +194,7 @@ pub(crate) fn continue_update(
         }
         Some(Integration::Rebase) => {
             // 跳过 editor,用现成 message 继续。
-            repo.git(&[
+            let out = repo.git_checked(&[
                 "-c",
                 "rerere.enabled=true",
                 "-c",
@@ -202,6 +202,20 @@ pub(crate) fn continue_update(
                 "rebase",
                 "--continue",
             ])?;
+            if !out.success {
+                // 序列里的下一个提交又冲突了(交互式变基/多提交变基常见):
+                // 重新探测,有真冲突就回到 ConflictView,让上层再调一次 continue 推进。
+                auto_resolve_rerere(repo)?;
+                let files = crate::conflict::conflicted_files(repo)?;
+                if !files.is_empty() {
+                    return Ok(UpdateOutcome::Conflicted { files, autostash });
+                }
+                return Err(Error::Git {
+                    args: vec!["rebase".into(), "--continue".into()],
+                    code: out.code,
+                    stderr: out.stderr,
+                });
+            }
         }
         Some(Integration::CherryPick) => {
             repo.git(&[
@@ -428,7 +442,7 @@ pub(crate) fn update_submodule_on_branch(
 }
 
 // rerere 重放后:把已无冲突标记的文件自动 add(视为已解决)。
-fn auto_resolve_rerere(repo: &Repo) -> Result<(), Error> {
+pub(crate) fn auto_resolve_rerere(repo: &Repo) -> Result<(), Error> {
     for file in crate::conflict::conflicted_files(repo)? {
         let content = std::fs::read_to_string(repo.workdir().join(&file))?;
         if !content.lines().any(|l| l.starts_with("<<<<<<<")) {
@@ -457,6 +471,11 @@ fn git_dir(repo: &Repo) -> Result<PathBuf, Error> {
     })
 }
 
+/// 是否有正在进行的变基(供交互式变基判断"暂停中还是已结束")。
+pub(crate) fn rebase_in_progress(repo: &Repo) -> Result<bool, Error> {
+    Ok(matches!(in_progress(repo)?, Some(Integration::Rebase)))
+}
+
 // 是否有正在进行的 merge / rebase / cherry-pick / revert。
 fn in_progress(repo: &Repo) -> Result<Option<Integration>, Error> {
     let base = git_dir(repo)?;
@@ -474,7 +493,7 @@ fn in_progress(repo: &Repo) -> Result<Option<Integration>, Error> {
 }
 
 // 预检:不能有正在进行的 merge / rebase(防止重入)。
-fn preflight(repo: &Repo) -> Result<(), Error> {
+pub(crate) fn preflight(repo: &Repo) -> Result<(), Error> {
     if let Some(kind) = in_progress(repo)? {
         let what = match kind {
             Integration::Merge => "合并",
