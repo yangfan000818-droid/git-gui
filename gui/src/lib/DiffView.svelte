@@ -431,12 +431,21 @@
         class="diff-file"
         style="margin-left:{8 + depth * 16}px; margin-right:0; width:auto;"
       >
-        <button class="diff-header" onclick={() => toggleFile(node.path)}>
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <div
+          class="diff-header"
+          role="button"
+          tabindex="0"
+          onclick={() => toggleFile(node.path)}
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFile(node.path); } }}
+        >
           <span class="file-caret"
             >{expandedFiles.has(node.path) ? "▾" : "▸"}</span
           >
           <span class="diff-path">{node.name}</span>
-          <span class="file-actions" onclick={(e) => e.stopPropagation()}>
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <span class="file-actions" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
             {#if onFileHistory}
               <button
                 class="history-btn"
@@ -452,7 +461,7 @@
               >
             {/if}
           </span>
-        </button>
+        </div>
         {#if expandedFiles.has(node.path)}
           {@render renderFileDiff(node.file!)}
         {/if}
