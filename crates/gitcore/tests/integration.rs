@@ -1592,3 +1592,35 @@ fn reflog_lists_head_movements_newest_first() {
 
     cleanup(&[&dir]);
 }
+
+// ── 推送 tag 到远程 ──
+
+#[test]
+fn push_tag_publishes_to_remote() {
+    let work = init_repo("pushtag");
+    write(&work, "f.txt", "1\n");
+    commit_all(&work, "c1");
+    let remote = bare_remote("pushtag-remote");
+    git(
+        &work,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&work, &["push", "-q", "-u", "origin", "main"]);
+
+    let repo = Repo::open(&work).unwrap();
+    repo.create_tag("v1.0", None, None).unwrap();
+    repo.push_tag("v1.0").unwrap();
+
+    // 远程裸库应已收到该 tag。
+    let out = Command::new("git")
+        .args(["tag", "--list"])
+        .current_dir(&remote)
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("v1.0"),
+        "push_tag 后远程应有 v1.0"
+    );
+
+    cleanup(&[&work, &remote]);
+}

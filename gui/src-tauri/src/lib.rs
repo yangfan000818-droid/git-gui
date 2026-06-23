@@ -633,6 +633,13 @@ fn repo_delete_tag(path: String, name: String) -> Result<(), String> {
     repo.delete_tag(&name).map_err(|e| e.to_string())
 }
 
+/// 把一个 tag 推送到默认远程。
+#[tauri::command]
+fn repo_push_tag(path: String, name: String) -> Result<(), String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.push_tag(&name).map_err(|e| e.to_string())
+}
+
 /// 列出仓库所有本地分支。
 #[tauri::command]
 fn repo_branches(path: String) -> Result<Vec<BranchInfo>, String> {
@@ -912,6 +919,7 @@ pub fn run() {
             repo_tags,
             repo_create_tag,
             repo_delete_tag,
+            repo_push_tag,
             repo_branches,
             repo_switch_branch,
             repo_switch_branch_autostash,

@@ -69,3 +69,37 @@ pub(crate) fn delete_tag(repo: &Repo, name: &str) -> Result<(), Error> {
     repo.git(&["tag", "-d", name])?;
     Ok(())
 }
+
+/// 把一个 tag 推送到默认远程(对标 WebStorm Push Tags,补完 tag 创建→删除→推送闭环)。
+pub(crate) fn push_tag(repo: &Repo, name: &str) -> Result<(), Error> {
+    let remote = default_remote(repo)?;
+    let refspec = format!("refs/tags/{name}");
+    let out = repo.git_checked(&["push", &remote, &refspec])?;
+    if out.success {
+        Ok(())
+    } else {
+        Err(Error::Git {
+            args: vec!["push".into(), remote, refspec],
+            code: out.code,
+            stderr: out.stderr,
+        })
+    }
+}
+
+// 默认远程:优先当前分支 upstream 的远程名,否则取第一个 remote,都没有则报错。
+fn default_remote(repo: &Repo) -> Result<String, Error> {
+    let up = repo.git_checked(&["rev-parse", "--abbrev-ref", "@{u}"])?;
+    if up.success {
+        if let Some(remote) = up.stdout.trim().split('/').next() {
+            if !remote.is_empty() {
+                return Ok(remote.to_string());
+            }
+        }
+    }
+    repo.git(&["remote"])?
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(String::from)
+        .ok_or_else(|| Error::Precondition("没有配置远程仓库".into()))
+}

@@ -170,6 +170,11 @@ impl Repo {
         tags::delete_tag(self, name)
     }
 
+    /// 把一个 tag 推送到默认远程。
+    pub fn push_tag(&self, name: &str) -> Result<(), Error> {
+        tags::push_tag(self, name)
+    }
+
     /// 把另一个分支合并到当前分支(对标 WebStorm "Merge into current")。
     pub fn merge_branch(&self, branch: &str, opts: &UpdateOptions) -> Result<UpdateOutcome, Error> {
         update::merge_branch(self, branch, opts)

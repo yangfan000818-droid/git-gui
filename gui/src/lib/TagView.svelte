@@ -23,6 +23,7 @@
   let error = $state("");
   let newName = $state("");
   let newMessage = $state("");
+  let pushedNames = $state<string[]>([]); // 本次会话已推送的 tag(显示 ✓)
 
   async function load() {
     loading = true;
@@ -68,6 +69,20 @@
       await invoke("repo_delete_tag", { path, name });
       await load();
       onChanged();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  // 推送该 tag 到默认远程。
+  async function push(name: string) {
+    busy = true;
+    error = "";
+    try {
+      await invoke("repo_push_tag", { path, name });
+      if (!pushedNames.includes(name)) pushedNames = [...pushedNames, name];
     } catch (e) {
       error = String(e);
     } finally {
@@ -145,6 +160,13 @@
                 {#if t.message}<span class="tv-msg">{t.message}</span>{/if}
               </span>
             </div>
+            <button
+              class="tv-push"
+              disabled={busy || pushedNames.includes(t.name)}
+              onclick={() => push(t.name)}
+              title="把该 tag 推送到远程(git push <remote> <tag>)"
+              >{pushedNames.includes(t.name) ? "已推送 ✓" : "推送"}</button
+            >
             <button
               class="tv-del"
               disabled={busy}
@@ -304,6 +326,25 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .tv-push {
+    background: transparent;
+    border: 1px solid #444;
+    border-radius: 3px;
+    color: #bbb;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 3px 8px;
+    flex-shrink: 0;
+  }
+  .tv-push:hover:not(:disabled) {
+    background: #2a3a4a;
+    border-color: #3a5a7a;
+    color: #cfe2ff;
+  }
+  .tv-push:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   .tv-del {
     background: transparent;
