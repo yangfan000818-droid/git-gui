@@ -528,19 +528,19 @@
   }
   .cv-error {
     background: #3a1d1d;
-    border: 1px solid #6a2b2b;
+    border: 1px solid rgba(247,120,139,0.25);
     border-radius: 6px;
     padding: 8px 12px;
-    color: #f3b4b4;
+    color: var(--color-error);
     white-space: pre-wrap;
     font-size: 12px;
     margin: 0 0 12px;
   }
   .cv-status {
-    color: #888;
+    color: var(--text-muted);
   }
   .hint {
-    color: #888;
+    color: var(--text-muted);
     font-size: 12px;
     margin: 6px 0 0;
   }
@@ -557,32 +557,32 @@
     overflow: hidden;
   }
   .file-chip-btn {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     padding: 3px 10px;
     white-space: nowrap;
   }
   .file-chip-btn:hover {
-    background: #383838;
+    background: var(--border-default);
   }
   .file-active .file-chip-btn {
-    background: #0e639c33;
-    border-color: #0e639c;
+    background: rgba(88,166,255,0.12);
+    border-color: var(--accent-cyan);
     color: #fff;
   }
   .file-written .file-chip-btn {
-    color: #7ee29a;
+    color: var(--accent-neon);
   }
   .file-auto .file-chip-btn {
-    color: #7ee29a;
+    color: var(--accent-neon);
   }
   .file-pending .file-chip-btn {
-    color: #e2c47a;
+    color: var(--accent-gold);
   }
 
   /* ── 文件头 ── */
@@ -593,26 +593,26 @@
     margin-bottom: 8px;
   }
   .file-path {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 13px;
-    color: #f3b4b4;
+    color: var(--color-error);
     flex: 1;
   }
   .file-stats {
-    color: #888;
+    color: var(--text-muted);
     font-size: 12px;
   }
   .btn-nav {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 12px;
     padding: 3px 10px;
   }
   .btn-nav:hover {
-    background: #383838;
+    background: var(--border-default);
   }
   .btn-nav:disabled {
     opacity: 0.3;
@@ -622,7 +622,7 @@
   /* ── 全自动解决 ── */
   .all-auto {
     background: #1d2a1d;
-    border: 1px solid #2d5a2d;
+    border: 1px solid rgba(86,211,100,0.2);
     border-radius: 6px;
     padding: 16px;
     text-align: center;
@@ -630,7 +630,7 @@
   }
   .all-auto p {
     margin: 0 0 10px;
-    color: #7ee29a;
+    color: var(--accent-neon);
   }
 
   /* ── 三栏视图 ── */
@@ -638,20 +638,20 @@
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 1px;
-    background: #444;
-    border: 1px solid #444;
+    background: var(--border-default);
+    border: 1px solid var(--border-default);
     border-radius: 6px;
     overflow: hidden;
     margin-bottom: 10px;
     min-height: 120px;
   }
   .col {
-    background: #1a1a1a;
+    background: var(--bg-elevated);
     display: flex;
     flex-direction: column;
   }
   .col-selected {
-    outline: 2px solid #0e639c;
+    outline: 2px solid var(--accent-cyan);
     outline-offset: -1px;
     z-index: 1;
   }
@@ -660,20 +660,20 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #888;
+    color: var(--text-muted);
     padding: 6px 10px 4px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--bg-hover);
     flex-shrink: 0;
   }
   .title-selected {
-    color: #5a8af0;
-    border-bottom-color: #0e639c;
+    color: var(--accent-cyan);
+    border-bottom-color: var(--accent-cyan);
   }
   .col-body {
     flex: 1;
     padding: 4px 0;
     overflow-x: auto;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     line-height: 1.55;
   }
@@ -683,12 +683,12 @@
     white-space: pre;
   }
   .conflict-line {
-    color: #e2c47a;
+    color: var(--accent-gold);
     padding: 0 10px;
     white-space: pre;
   }
   .col-selected .conflict-line {
-    color: #f5d88a;
+    color: var(--accent-gold);
     font-weight: 600;
   }
 
@@ -700,7 +700,7 @@
     margin-bottom: 8px;
   }
   .hunk-label {
-    color: #ccc;
+    color: var(--text-secondary);
     font-size: 12px;
     flex: 1;
     text-align: center;
@@ -714,25 +714,25 @@
     margin-bottom: 10px;
   }
   .btn-choice {
-    background: #2a2a2a;
-    border: 1px solid #555;
+    background: var(--bg-surface);
+    border: 1px solid #3A3A4A;
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 13px;
     padding: 5px 16px;
     font-weight: 500;
   }
   .btn-choice:hover {
-    background: #383838;
+    background: var(--border-default);
   }
   .btn-choice-active {
-    background: #0e639c;
-    border-color: #0e639c;
+    background: var(--accent-cyan);
+    border-color: var(--accent-cyan);
     color: #fff;
   }
   .btn-choice-active:hover {
-    background: #1177bb;
+    background: #58A6FF;
   }
   .choice-arrows {
     margin-left: 8px;
@@ -740,35 +740,35 @@
     gap: 4px;
   }
   .btn-arrow {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 14px;
     padding: 5px 10px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   .btn-arrow:hover {
-    background: #383838;
+    background: var(--border-default);
   }
 
   /* ── 写入 ── */
   .write-bar {
     margin-bottom: 14px;
     padding: 10px 0;
-    border-top: 1px solid #333;
+    border-top: 1px solid var(--bg-hover);
   }
 
   /* ── 底部操作 ── */
   .bottom-actions {
     display: flex;
     gap: 8px;
-    border-top: 1px solid #383838;
+    border-top: 1px solid var(--border-default);
     padding-top: 12px;
   }
   .btn-primary {
-    background: #0e639c;
+    background: var(--accent-cyan);
     border: none;
     border-radius: 6px;
     color: #fff;
@@ -777,14 +777,14 @@
     cursor: pointer;
   }
   .btn-primary:hover {
-    background: #1177bb;
+    background: #58A6FF;
   }
   .btn-primary:disabled {
     opacity: 0.4;
     cursor: default;
   }
   .btn-danger {
-    background: #8b2a2a;
+    background: rgba(247,120,139,0.2);
     border: none;
     border-radius: 6px;
     color: #fff;
@@ -793,6 +793,6 @@
     cursor: pointer;
   }
   .btn-danger:hover {
-    background: #a33;
+    background: rgba(247,120,139,0.25);
   }
 </style>

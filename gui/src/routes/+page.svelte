@@ -788,11 +788,6 @@
       {/if}
     </div>
     {#if status}
-      <span class="branch">{status.branch ?? "(detached)"}</span>
-      {#if status.ahead > 0}<span class="badge ahead">↑{status.ahead}</span
-        >{/if}
-      {#if status.behind > 0}<span class="badge behind">↓{status.behind}</span
-        >{/if}
       <div class="remote-actions">
         <!-- 日常主操作常驻可见,不埋进菜单 -->
         <button
@@ -909,7 +904,11 @@
           <div class="repo-scroll">
             <!-- 未暂存区:各仓库分组(含仓库操作按钮) + 未暂存目录树 -->
             <section class="zone">
-              <h2 class="zone-title">未暂存 ({totalUnstaged})</h2>
+              <h2 class="zone-title zone-unstaged">
+                <span class="zone-icon">—</span>
+                未暂存
+                <span class="zone-badge">{totalUnstaged}</span>
+              </h2>
               {#each repos as repo (repo.path)}
                 <div class="repo-group">
                   <div class="repo-grouphead">
@@ -955,37 +954,37 @@
                   {#if repo.isMain}
                     <div class="repo-manage">
                       <button
-                        class="sub-btn"
+                        class="sub-btn sub-btn-update"
                         disabled={operating}
                         title="更新主仓库:走 update 流程,可处理冲突"
-                        onclick={openUpdateMain}>更新</button
+                        onclick={openUpdateMain}>↓ 更新</button
                       >
                       <button
-                        class="sub-btn"
+                        class="sub-btn sub-btn-push"
                         disabled={operating}
                         title="推送主仓库当前分支到远程"
-                        onclick={() => doPush(repo.path)}>推送</button
+                        onclick={() => doPush(repo.path)}>↑ 推送</button
                       >
                     </div>
                   {:else if repo.subStatus !== "Uninitialized"}
                     <div class="repo-manage">
                       <button
-                        class="sub-btn"
+                        class="sub-btn sub-btn-update"
                         disabled={operating}
                         title="在当前分支上更新（留在原分支）"
-                        onclick={() => openUpdateSub(repo)}>更新</button
+                        onclick={() => openUpdateSub(repo)}>↓ 更新</button
                       >
                       <button
-                        class="sub-btn"
+                        class="sub-btn sub-btn-push"
                         disabled={operating}
                         title="推送子仓库当前分支到远程"
-                        onclick={() => doPush(repo.path)}>推送</button
+                        onclick={() => doPush(repo.path)}>↑ 推送</button
                       >
                       <button
-                        class="sub-btn"
+                        class="sub-btn sub-btn-sync"
                         disabled={operating}
                         title="同步子仓库 URL 配置（sync）"
-                        onclick={() => syncSubmodule(repo)}>同步</button
+                        onclick={() => syncSubmodule(repo)}>⇄ 同步</button
                       >
                     </div>
                   {/if}
@@ -1012,7 +1011,11 @@
             <!-- 已暂存区:仅列出有已暂存改动的仓库,作为待提交预览 -->
             {#if totalStaged > 0}
               <section class="zone">
-                <h2 class="zone-title">已暂存 ({totalStaged})</h2>
+              <h2 class="zone-title zone-staged">
+                <span class="zone-icon">✓</span>
+                已暂存
+                <span class="zone-badge">{totalStaged}</span>
+              </h2>
                 {#each repos as repo (repo.path)}
                   {#if repo.staged.length > 0}
                     <div class="repo-group">
@@ -1069,7 +1072,11 @@
             <!-- 冲突(主仓库) -->
             {#if status.conflicted.length}
               <section class="zone">
-                <h2 class="zone-title">冲突 ({status.conflicted.length})</h2>
+              <h2 class="zone-title zone-conflict">
+                <span class="zone-icon">!</span>
+                冲突
+                <span class="zone-badge">{status.conflicted.length}</span>
+              </h2>
                 <ul>
                   {#each status.conflicted as c}
                     <li class="file-item conflict">{c}</li>
@@ -1143,6 +1150,7 @@
             <p class="muted placeholder">加载 diff 中…</p>
           {:else if selectedFile}
             <DiffView
+              compact
               files={[selectedFile]}
               interactive
               {selectedLines}
@@ -1398,61 +1406,119 @@
 </main>
 
 <style>
+  /* ═══════════════════════════════════════════════════
+     Dark Dev Toolkit Theme — Design System Variables
+     ═══════════════════════════════════════════════════ */
   :global(body) {
+    /* ── Surface palette ── */
+    --bg-void: #0D1117;
+    --bg-base: #111820;
+    --bg-surface: #161B24;
+    --bg-elevated: #1C2333;
+    --bg-hover: #21293B;
+    --bg-active: #293248;
+
+    /* ── Text ── */
+    --text-primary: #E6EDF3;
+    --text-secondary: #8B949E;
+    --text-muted: #6E7681;
+
+    /* ── Accents (soft, eye-friendly) ── */
+    --accent-neon: #56D364;
+    --accent-cyan: #58A6FF;
+    --accent-purple: #BC8CFF;
+    --accent-gold: #E3B341;
+    --accent-pink: #F7788B;
+
+    /* ── Semantic ── */
+    --color-success: #56D364;
+    --color-warning: #E3B341;
+    --color-error: #F7788B;
+    --color-info: #58A6FF;
+
+    /* ── Borders ── */
+    --border-dim: rgba(255,255,255,0.05);
+    --border-default: #30363D;
+    --border-glow: rgba(86,211,100,0.12);
+
+    /* ── Glow effects (subtle) ── */
+    --glow-neon: 0 0 6px rgba(86,211,100,0.2);
+    --glow-cyan: 0 0 6px rgba(88,166,255,0.2);
+    --glow-purple: 0 0 6px rgba(188,140,255,0.2);
+
+    /* ── Radii ── */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 12px;
+
     margin: 0;
-    background: #1e1e1e;
-    color: #e4e4e4;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg-void);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     font-size: 13px;
+    -webkit-font-smoothing: antialiased;
   }
+
+  /* ═══ Subtle scanline texture ═══ */
+  :global(body)::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 99999;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(0,0,0,0.015) 3px,
+      rgba(0,0,0,0.015) 6px
+    );
+  }
+
   main {
     display: flex;
     flex-direction: column;
     height: 100vh;
   }
 
-  /* ── 顶栏 ── */
+  /* ══════════════════════════════════════
+     TOPBAR — Gradient + subtle edge accent
+     ══════════════════════════════════════ */
   .topbar {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 8px 14px;
-    background: #252525;
-    border-bottom: 1px solid #383838;
+    background: linear-gradient(135deg, #0D111A 0%, #141C28 40%, #111928 70%, #0D111A 100%);
+    border-bottom: 1px solid var(--border-default);
     flex-shrink: 0;
+    position: relative;
+    z-index: 2;
   }
-  /* ── 标签栏 ── */
-  .tab-bar {
-    display: flex;
-    background: #1e1e1e;
-    border-bottom: 1px solid #383838;
-    flex-shrink: 0;
-  }
-  .tab-btn {
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: #888;
-    cursor: pointer;
-    font-size: 13px;
-    padding: 8px 18px;
-    transition:
-      color 0.15s,
-      border-color 0.15s;
-  }
-  .tab-btn:hover {
-    color: #ccc;
-  }
-  .tab-active {
-    color: #e4e4e4;
-    border-bottom-color: #0e639c;
+  /* Subtle top-edge accent line */
+  .topbar::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
+    opacity: 0.2;
+    pointer-events: none;
   }
 
   .logo {
-    font-weight: 700;
+    font-weight: 800;
     font-size: 15px;
-    color: #ccc;
+    letter-spacing: 0.02em;
+    background: linear-gradient(135deg, var(--accent-neon), var(--accent-cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+    flex-shrink: 0;
   }
+
   .path-bar {
     display: flex;
     gap: 6px;
@@ -1461,145 +1527,192 @@
   .current-path {
     flex: 1;
     max-width: 360px;
-    background: #2a2a2a !important;
-    border: 1px solid #444 !important;
-    border-radius: 6px;
-    color: #e4e4e4 !important;
+    background: var(--bg-surface) !important;
+    border: 1px solid var(--border-default) !important;
+    border-radius: var(--radius-md);
+    color: var(--text-primary) !important;
     padding: 6px 10px !important;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     text-align: left;
     cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
   }
   .current-path:hover:not(:disabled) {
-    border-color: #0e639c !important;
-    background: #303030 !important;
+    border-color: var(--accent-cyan) !important;
+    box-shadow: 0 0 8px rgba(88,166,255,0.15);
+    background: var(--bg-elevated) !important;
   }
   .current-path-empty {
     flex: 1;
     max-width: 360px;
-    background: #2a2a2a !important;
-    border: 1px dashed #555 !important;
-    border-radius: 6px;
-    color: #999 !important;
+    background: var(--bg-surface) !important;
+    border: 1px dashed var(--border-default) !important;
+    border-radius: var(--radius-md);
+    color: var(--text-muted) !important;
     padding: 6px 10px !important;
     font-size: 12px;
     text-align: left;
     cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
   }
   .current-path-empty:hover:not(:disabled) {
-    border-color: #0e639c !important;
+    border-color: var(--accent-cyan) !important;
+    box-shadow: 0 0 8px rgba(88,166,255,0.15);
   }
   .path-bar button {
-    background: #0e639c;
-    border: none;
-    border-radius: 6px;
-    color: #fff;
+    background: var(--bg-elevated);
+    border: 1px solid var(--accent-cyan);
+    border-radius: var(--radius-md);
+    color: var(--accent-cyan);
     padding: 6px 14px;
     font-size: 12px;
     cursor: pointer;
+    transition: all 0.2s;
+  }
+  .path-bar button:hover:not(:disabled) {
+    background: var(--accent-cyan);
+    color: #000;
+    box-shadow: var(--glow-cyan);
   }
   .path-bar button:disabled {
-    opacity: 0.5;
+    opacity: 0.4;
     cursor: default;
   }
   .btn-refresh {
-    background: #2a2a2a !important;
-    border: 1px solid #444 !important;
-    color: #e4e4e4 !important;
+    background: var(--bg-surface) !important;
+    border: 1px solid var(--border-default) !important;
+    color: var(--text-secondary) !important;
     padding: 6px 10px !important;
     flex-shrink: 0;
   }
+  .btn-refresh:hover:not(:disabled) {
+    border-color: var(--accent-neon) !important;
+    color: var(--accent-neon) !important;
+    box-shadow: 0 0 8px rgba(86,211,100,0.12);
+  }
 
-  /* ── 项目选择器覆盖层 ── */
+  /* ═══ TAB BAR ═══ */
+  .tab-bar {
+    display: flex;
+    background: var(--bg-base);
+    border-bottom: 1px solid var(--border-default);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 8px 18px;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .tab-btn:hover {
+    color: var(--text-secondary);
+  }
+  .tab-active {
+    color: var(--accent-neon);
+    border-bottom-color: var(--accent-neon);
+    text-shadow: 0 0 6px rgba(86,211,100,0.25);
+  }
+
+  /* ═══ PROJECT PICKER ═══ */
   .picker-overlay {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
   }
   .picker-modal {
-    background: #1e1e1e;
-    border: 1px solid #444;
-    border-radius: 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
     padding: 24px;
     max-width: 90%;
     max-height: 90%;
     overflow-y: auto;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
   }
 
-  /* ── 全部更新弹层 ── */
+  /* ═══ UPDATE OVERLAY ═══ */
   .update-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
   }
   .update-modal {
-    background: #1e1e1e;
-    border: 1px solid #444;
-    border-radius: 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
     width: 540px;
     max-width: 92%;
     max-height: 90%;
     overflow-y: auto;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
   }
 
-  /* ── 分支↔工作区差异弹层 ── */
+  /* ═══ BRANCH DIFF MODAL ═══ */
   .branch-diff-modal {
-    background: #1e1e1e;
-    border: 1px solid #444;
-    border-radius: 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
     width: 760px;
     max-width: 94%;
     max-height: 88%;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
   }
   .bd-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid #383838;
+    border-bottom: 1px solid var(--border-default);
     flex-shrink: 0;
   }
   .bd-title {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: #ccc;
+    color: var(--text-primary);
   }
   .bd-branch {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #e2c47a;
+    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    color: var(--accent-gold);
   }
   .bd-close {
     background: transparent;
     border: none;
-    color: #888;
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 16px;
     line-height: 1;
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s;
   }
   .bd-close:hover {
-    background: #383838;
-    color: #e4e4e4;
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
   .branch-diff-body {
     flex: 1;
@@ -1607,14 +1720,14 @@
     padding: 12px 14px;
   }
   .diff-empty {
-    color: #666;
+    color: var(--text-muted);
     font-size: 12px;
     text-align: center;
     padding: 32px 18px;
     margin: 0;
   }
 
-  /* ── 提交对比(Compare with Current) ── */
+  /* ═══ COMMIT COMPARE ═══ */
   .cmp-section {
     margin-bottom: 18px;
   }
@@ -1625,23 +1738,24 @@
     margin: 0 0 8px;
     font-size: 12px;
     font-weight: 600;
-    color: #bbb;
-    border-bottom: 1px solid #383838;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-default);
     padding-bottom: 6px;
   }
   .cmp-branch {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #e2c47a;
+    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    color: var(--accent-gold);
   }
   .cmp-count {
-    background: #2d1d3a;
-    color: #c49ae2;
+    background: rgba(188,140,255,0.15);
+    color: var(--accent-purple);
     font-size: 11px;
     border-radius: 10px;
     padding: 1px 8px;
+    border: 1px solid rgba(188,140,255,0.2);
   }
   .cmp-none {
-    color: #666;
+    color: var(--text-muted);
     font-size: 12px;
     margin: 0 0 4px;
     padding-left: 2px;
@@ -1656,73 +1770,78 @@
     align-items: baseline;
     gap: 10px;
     padding: 4px 2px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     font-size: 12px;
-    border-bottom: 1px solid #2a2a2a;
+    border-bottom: 1px solid var(--border-dim);
   }
   .cmp-sha {
-    color: #e2c47a;
+    color: var(--accent-gold);
     flex-shrink: 0;
   }
   .cmp-msg {
     flex: 1;
-    color: #ddd;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .cmp-rmeta {
-    color: #777;
+    color: var(--text-muted);
     flex-shrink: 0;
     font-size: 11px;
   }
 
-  .branch {
-    font-weight: 600;
-    font-size: 13px;
-  }
+  /* ═══ BADGES ═══ */
   .badge {
     font-size: 11px;
     border-radius: 10px;
     padding: 1px 8px;
   }
   .ahead {
-    background: #1d3a24;
-    color: #7ee29a;
+    background: rgba(86,211,100,0.12);
+    color: var(--accent-neon);
+    border: 1px solid rgba(86,211,100,0.2);
   }
   .behind {
-    background: #1d2b3a;
-    color: #7ab8e2;
+    background: rgba(88,166,255,0.12);
+    color: var(--accent-cyan);
+    border: 1px solid rgba(88,166,255,0.2);
   }
+
+  /* ═══ REMOTE ACTIONS ═══ */
   .remote-actions {
     display: flex;
     gap: 6px;
-    margin-left: 4px;
+    margin-left: 8px;
     flex-shrink: 0;
   }
   .btn-remote {
-    background: #2a2a2a;
-    border: 1px solid #0e639c;
-    border-radius: 6px;
-    color: #9ecbff;
+    background: var(--bg-surface);
+    border: 1px solid var(--accent-cyan);
+    border-radius: var(--radius-md);
+    color: var(--accent-cyan);
     cursor: pointer;
     font-size: 12px;
     padding: 5px 12px;
     white-space: nowrap;
+    transition: all 0.2s;
   }
   .btn-remote:hover:not(:disabled) {
-    background: #0e639c;
-    color: #fff;
+    background: var(--accent-cyan);
+    color: #000;
+    box-shadow: var(--glow-cyan);
   }
   .btn-remote:disabled {
-    opacity: 0.5;
+    opacity: 0.4;
     cursor: default;
   }
   .btn-remote.active {
-    background: #0e639c;
-    color: #fff;
+    background: var(--accent-cyan);
+    color: #000;
+    box-shadow: var(--glow-cyan);
   }
-  /* ── 「⋯ 更多」下拉 ── */
+
+  /* ═══ MORE DROPDOWN ═══ */
   .more-wrap {
     position: relative;
     display: inline-flex;
@@ -1744,53 +1863,56 @@
     display: flex;
     flex-direction: column;
     min-width: 132px;
-    background: #1e1e1e;
-    border: 1px solid #444;
-    border-radius: 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
     padding: 4px;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.6);
   }
   .more-item {
     background: transparent;
     border: none;
-    border-radius: 4px;
-    color: #ddd;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
     cursor: pointer;
     font-size: 12px;
     text-align: left;
     padding: 6px 10px;
     white-space: nowrap;
+    transition: background 0.15s;
   }
   .more-item:hover:not(:disabled) {
-    background: #2d2d2d;
+    background: var(--bg-hover);
   }
   .more-item:disabled {
-    opacity: 0.4;
+    opacity: 0.35;
     cursor: default;
   }
   .btn-settings {
     margin-left: auto;
     background: transparent;
     border: none;
-    color: #999;
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 17px;
     line-height: 1;
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     flex-shrink: 0;
+    transition: all 0.15s;
   }
   .btn-settings:hover {
-    color: #e4e4e4;
-    background: #333;
+    color: var(--accent-neon);
+    background: var(--bg-hover);
+    text-shadow: 0 0 6px rgba(86,211,100,0.25);
   }
 
-  /* ── 错误 ── */
+  /* ═══ ERROR & OP MESSAGE ═══ */
   .error {
-    background: #3a1d1d;
-    border-bottom: 1px solid #6a2b2b;
+    background: rgba(247,120,139,0.1);
+    border-bottom: 1px solid rgba(247,120,139,0.25);
     padding: 8px 14px;
-    color: #f3b4b4;
+    color: var(--color-error);
     white-space: pre-wrap;
     font-size: 12px;
     margin: 0;
@@ -1799,14 +1921,14 @@
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    background: #1d3a24;
-    border-bottom: 1px solid #2b6a3b;
+    background: rgba(86,211,100,0.08);
+    border-bottom: 1px solid rgba(86,211,100,0.2);
     padding: 8px 14px;
     margin: 0;
   }
   .op-message-text {
     flex: 1;
-    color: #7ee29a;
+    color: var(--accent-neon);
     font-size: 12px;
     white-space: pre-wrap;
     min-width: 0;
@@ -1815,38 +1937,42 @@
     flex-shrink: 0;
     background: transparent;
     border: none;
-    color: #7ee29a;
+    color: var(--accent-neon);
     font-size: 16px;
     line-height: 1;
     cursor: pointer;
     padding: 0 2px;
     opacity: 0.7;
+    transition: opacity 0.15s;
   }
   .op-message-close:hover {
     opacity: 1;
   }
 
-  /* ── 分栏 ── */
+  /* ═══ SPLIT LAYOUT ═══ */
   .split {
     display: flex;
     flex: 1;
     overflow: hidden;
   }
 
-  /* ── 左侧文件列表 ── */
+  /* ═══ FILE LIST (LEFT PANEL) ═══ */
   .file-list {
-    width: 270px;
+    width: 280px;
     flex-shrink: 0;
-    border-right: 1px solid #383838;
+    border-right: 1px solid var(--border-default);
     display: flex;
     flex-direction: column;
-    background: #212121;
+    background: var(--bg-base);
   }
   .repo-scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 0 0 10px; /* 顶部不留白:否则 sticky 的 .zone-title 吸顶时上方会漏出滚动内容 */
-    contain: layout paint; /* 与右侧 diff 互相隔离重绘,大 diff 不拖累左侧滚动 */
+    padding: 0 0 10px;
+    contain: layout paint;
+  }
+  .zone:first-child {
+    margin-top: 6px;
   }
   .file-list ul {
     list-style: none;
@@ -1857,172 +1983,271 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 14px;
+    padding: 4px 14px 4px 20px;
     cursor: pointer;
     min-height: 26px;
+    transition: background 0.15s;
+    border-radius: 0;
   }
   .file-item:hover {
-    background: #2a2a2a;
+    background: var(--bg-hover);
   }
   .file-item.conflict {
-    color: #f3b4b4;
+    color: var(--color-error);
   }
   .muted {
-    color: #666;
+    color: var(--text-muted);
     font-size: 12px;
     padding: 4px 14px;
   }
+  .repo-group .muted {
+    padding: 8px 14px;
+    margin: 0;
+    font-style: italic;
+    font-size: 11px;
+  }
 
-  /* ── 暂存状态分区 + 仓库分组 ── */
+  /* ═══ ZONES ═══ */
   .zone {
-    margin-bottom: 10px;
+    margin-bottom: 4px;
   }
   .zone-title {
-    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #bbb;
-    font-weight: 600;
+    letter-spacing: 0.08em;
     margin: 0;
-    padding: 8px 14px 6px;
+    padding: 10px 14px 8px;
     position: sticky;
     top: 0;
-    background: #212121;
-    z-index: 1;
+    background: var(--bg-base);
+    z-index: 2;
+    border-bottom: 1px solid var(--border-dim);
   }
+  .zone-icon {
+    font-size: 12px;
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .zone-badge {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    font-size: 10px;
+    padding: 1px 8px;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+  /* Zone accent colors */
+  .zone-unstaged {
+    color: var(--accent-gold);
+    border-left: 3px solid var(--accent-gold);
+  }
+  .zone-unstaged .zone-icon { color: var(--accent-gold); }
+  .zone-unstaged .zone-badge { color: var(--accent-gold); border-color: rgba(227,179,65,0.25); }
+
+  .zone-staged {
+    color: var(--accent-neon);
+    border-left: 3px solid var(--accent-neon);
+  }
+  .zone-staged .zone-icon { color: var(--accent-neon); }
+  .zone-staged .zone-badge { color: var(--accent-neon); border-color: rgba(86,211,100,0.25); }
+
+  .zone-conflict {
+    color: var(--color-error);
+    border-left: 3px solid var(--color-error);
+  }
+  .zone-conflict .zone-icon { color: var(--color-error); }
+  .zone-conflict .zone-badge { color: var(--color-error); border-color: rgba(247,120,139,0.25); }
+
+  /* ═══ REPO GROUPS ═══ */
   .repo-group {
-    margin-bottom: 6px;
+    margin: 4px 8px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-dim);
+    border-radius: var(--radius-md);
+    overflow: hidden;
   }
   .repo-grouphead {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 12px 3px;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--bg-void);
+    border-bottom: 1px solid var(--border-dim);
   }
   .repo-title {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
     font-weight: 600;
-    color: #cdcdcd;
+    color: var(--text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+    flex: 1;
   }
   .repo-title.main {
-    color: #9ecbff;
+    color: var(--accent-cyan);
   }
   .repo-branch {
-    font-size: 11px;
-    color: #aaa;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     flex-shrink: 0;
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .repo-branch.detached {
-    color: #f3b4b4;
+    color: var(--color-error);
     font-style: italic;
   }
   .repo-branch-btn {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 4px;
+    gap: 3px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    padding: 1px 6px;
-    margin-left: 4px;
+    padding: 2px 6px;
+    margin-left: auto;
     flex-shrink: 0;
     min-width: 0;
+    transition: all 0.15s;
   }
   .repo-branch-btn:hover {
-    background: #333;
-    border-color: #0e639c;
+    background: var(--bg-hover);
+    border-color: var(--accent-cyan);
   }
   .repo-manage {
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
-    padding: 0 14px 6px 32px;
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--border-dim);
   }
   .sub-dot {
-    font-size: 10px;
+    font-size: 8px;
     flex-shrink: 0;
   }
   .sub-clean {
-    color: #7ee29a;
+    color: var(--accent-neon);
   }
   .sub-dirty {
-    color: #e2c47a;
+    color: var(--accent-gold);
   }
   .sub-detached {
-    color: #f3b4b4;
+    color: var(--color-error);
   }
   .sub-uninitialized {
-    color: #777;
+    color: var(--text-muted);
   }
   .sub-state {
-    font-size: 11px;
-    color: #888;
+    font-size: 10px;
+    color: var(--text-muted);
     margin-left: auto;
     flex-shrink: 0;
   }
   .sub-btn {
-    background: #333;
-    border: 1px solid #555;
-    border-radius: 4px;
-    color: #ddd;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
     cursor: pointer;
-    font-size: 11px;
+    font-size: 10px;
+    font-weight: 500;
     padding: 3px 10px;
     line-height: 1.4;
+    transition: all 0.15s;
   }
   .sub-btn:hover {
-    background: #3d4f63;
-    border-color: #0e639c;
-    color: #fff;
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
   .sub-btn:disabled {
-    opacity: 0.35;
+    opacity: 0.3;
     cursor: default;
   }
+  /* Action-specific accents */
+  .sub-btn-update {
+    border-color: rgba(86,211,100,0.3);
+    color: var(--accent-neon);
+  }
+  .sub-btn-update:hover {
+    background: rgba(86,211,100,0.12);
+    border-color: var(--accent-neon);
+  }
+  .sub-btn-push {
+    border-color: rgba(88,166,255,0.3);
+    color: var(--accent-cyan);
+  }
+  .sub-btn-push:hover {
+    background: rgba(88,166,255,0.12);
+    border-color: var(--accent-cyan);
+  }
+  .sub-btn-sync {
+    border-color: rgba(188,140,255,0.3);
+    color: var(--accent-purple);
+  }
+  .sub-btn-sync:hover {
+    background: rgba(188,140,255,0.12);
+    border-color: var(--accent-purple);
+  }
 
-  /* ── commit ── */
+  /* ═══ COMMIT AREA ═══ */
   .commit-area {
     flex-shrink: 0;
-    border-top: 1px solid #383838;
-    padding: 10px 14px 14px;
+    border-top: 2px solid var(--border-default);
+    background: var(--bg-void);
+    padding: 12px 14px 14px;
+    box-shadow: 0 -4px 12px rgba(0,0,0,0.3);
+    position: relative;
+    z-index: 1;
   }
   .amend-toggle {
     display: flex;
     align-items: center;
     gap: 6px;
     font-size: 12px;
-    color: #aaa;
+    color: var(--text-secondary);
     margin-bottom: 8px;
     cursor: pointer;
   }
   .commit-targets {
     font-size: 11px;
-    color: #888;
+    color: var(--text-muted);
     margin: 6px 0 0;
     word-break: break-all;
   }
   .commit-area textarea {
     width: 100%;
     box-sizing: border-box;
-    background: #2a2a2a;
-    border: 1px solid #444;
-    border-radius: 6px;
-    color: #e4e4e4;
-    padding: 8px 10px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    padding: 10px 12px;
+    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     resize: vertical;
-    margin-top: 4px;
+    margin-top: 6px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .commit-area textarea:focus {
+    outline: none;
+    border-color: var(--accent-neon);
+    box-shadow: 0 0 0 2px rgba(86,211,100,0.1);
   }
   .commit-area textarea:disabled {
-    opacity: 0.5;
+    opacity: 0.4;
   }
   .commit-bar {
     margin-top: 6px;
@@ -2031,33 +2256,38 @@
     align-items: center;
   }
   .btn-commit {
-    background: #1d5a1d;
-    border: 1px solid #3a7a3a;
-    border-radius: 6px;
-    color: #fff;
-    padding: 6px 14px;
+    background: rgba(86,211,100,0.1);
+    border: 1px solid var(--accent-neon);
+    border-radius: var(--radius-md);
+    color: var(--accent-neon);
+    padding: 6px 18px;
     font-size: 12px;
+    font-weight: 600;
     cursor: pointer;
+    transition: all 0.2s;
   }
-  .btn-commit:hover {
-    background: #256a25;
+  .btn-commit:hover:not(:disabled) {
+    background: var(--accent-neon);
+    color: #000;
+    box-shadow: var(--glow-neon);
   }
   .btn-commit:disabled {
-    opacity: 0.4;
+    opacity: 0.35;
     cursor: default;
   }
   .commit-ok {
-    color: #7ee29a;
+    color: var(--accent-neon);
     font-size: 12px;
     margin: 6px 0 0;
+    text-shadow: 0 0 4px rgba(86,211,100,0.2);
   }
 
-  /* ── 右侧 diff ── */
+  /* ═══ DIFF VIEW (RIGHT PANEL) ═══ */
   .diff-view {
     flex: 1;
     overflow-y: auto;
     padding: 12px 16px;
-    contain: layout paint; /* 隔离右侧大 diff 的重绘,左侧滚动更流畅 */
+    contain: layout paint;
   }
   .placeholder {
     margin-top: 40px;
@@ -2065,7 +2295,7 @@
   }
 
   .hint {
-    color: #888;
+    color: var(--text-muted);
     font-size: 13px;
     text-align: center;
     margin-top: 60px;

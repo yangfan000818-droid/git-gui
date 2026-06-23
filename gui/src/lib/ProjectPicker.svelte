@@ -122,15 +122,15 @@
   .header h2 {
     font-size: 24px;
     font-weight: 600;
-    color: #e4e4e4;
+    color: var(--text-primary);
     margin: 0;
   }
 
   .btn-browse {
-    background: #0e639c;
-    border: 1px solid #1177bb;
+    background: var(--accent-cyan);
+    border: 1px solid #58A6FF;
     border-radius: 6px;
-    color: #fff;
+    color: var(--text-primary);
     padding: 8px 16px;
     font-size: 13px;
     cursor: pointer;
@@ -138,7 +138,7 @@
   }
 
   .btn-browse:hover:not(:disabled) {
-    background: #1177bb;
+    background: #58A6FF;
   }
 
   .btn-browse:disabled {
@@ -147,10 +147,10 @@
   }
 
   .error {
-    background: #5a1e1e;
-    border: 1px solid #8b3a3a;
+    background: rgba(247,120,139,0.12);
+    border: 1px solid rgba(247,120,139,0.25);
     border-radius: 6px;
-    color: #f88;
+    color: var(--color-error);
     padding: 12px;
     margin-bottom: 16px;
     font-size: 13px;
@@ -159,7 +159,7 @@
   .recent-section h3 {
     font-size: 14px;
     font-weight: 500;
-    color: #aaa;
+    color: var(--text-secondary);
     margin: 0 0 12px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -179,10 +179,10 @@
 
   .project-btn {
     flex: 1;
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 6px;
-    color: #e4e4e4;
+    color: var(--text-primary);
     padding: 12px 16px;
     text-align: left;
     cursor: pointer;
@@ -192,8 +192,8 @@
   }
 
   .project-btn:hover:not(:disabled) {
-    background: #333;
-    border-color: #0e639c;
+    background: var(--bg-hover);
+    border-color: var(--accent-cyan);
   }
 
   .project-btn:disabled {
@@ -209,10 +209,10 @@
   }
 
   .btn-remove {
-    background: #3a2020;
-    border: 1px solid #5a3030;
+    background: rgba(247,120,139,0.15);
+    border: 1px solid rgba(247,120,139,0.25);
     border-radius: 6px;
-    color: #f88;
+    color: var(--color-error);
     width: 36px;
     height: 36px;
     display: flex;
@@ -226,8 +226,8 @@
   }
 
   .btn-remove:hover:not(:disabled) {
-    background: #5a2020;
-    border-color: #8b3a3a;
+    background: rgba(247,120,139,0.18);
+    border-color: rgba(247,120,139,0.25);
   }
 
   .btn-remove:disabled {
@@ -238,7 +238,7 @@
   .empty-state {
     text-align: center;
     padding: 60px 20px;
-    color: #888;
+    color: var(--text-muted);
   }
 
   .empty-state p {
@@ -248,6 +248,6 @@
 
   .empty-state .hint {
     font-size: 12px;
-    color: #666;
+    color: var(--text-muted);
   }
 </style>

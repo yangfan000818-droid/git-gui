@@ -184,15 +184,16 @@
   .tv-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
   }
   .tv-panel {
-    background: #1e1e1e;
-    border: 1px solid #444;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     border-radius: 8px;
     width: 480px;
     max-width: 92%;
@@ -208,32 +209,32 @@
   .tv-header h3 {
     font-size: 15px;
     font-weight: 600;
-    color: #e4e4e4;
+    color: var(--text-primary);
     margin: 0;
   }
   .tv-close {
     background: transparent;
     border: none;
-    color: #888;
+    color: var(--text-muted);
     font-size: 18px;
     cursor: pointer;
     padding: 0 4px;
     line-height: 1;
   }
   .tv-close:hover {
-    color: #e4e4e4;
+    color: var(--text-primary);
   }
   .tv-error {
     background: #3a1d1d;
-    border-top: 1px solid #6a2b2b;
-    border-bottom: 1px solid #6a2b2b;
+    border-top: 1px solid rgba(247,120,139,0.25);
+    border-bottom: 1px solid rgba(247,120,139,0.25);
     padding: 8px 18px;
-    color: #f3b4b4;
+    color: var(--color-error);
     font-size: 12px;
     white-space: pre-wrap;
   }
   .tv-muted {
-    color: #666;
+    color: var(--text-muted);
     font-size: 12px;
     text-align: center;
     padding: 22px 18px;
@@ -243,13 +244,13 @@
     display: flex;
     gap: 8px;
     padding: 8px 18px 12px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--bg-hover);
   }
   .tv-input {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #e4e4e4;
+    color: var(--text-primary);
     font-size: 12px;
     padding: 6px 8px;
     min-width: 0;
@@ -264,8 +265,8 @@
     opacity: 0.5;
   }
   .tv-create-btn {
-    background: #1d5a1d;
-    border: 1px solid #3a7a3a;
+    background: rgba(86,211,100,0.12);
+    border: 1px solid rgba(86,211,100,0.12);
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
@@ -293,7 +294,7 @@
     padding: 7px 18px;
   }
   .tv-item:hover {
-    background: #252525;
+    background: var(--bg-elevated);
   }
   .tv-info {
     flex: 1;
@@ -304,8 +305,8 @@
   }
   .tv-name {
     font-size: 13px;
-    color: #e2c47a;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent-gold);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -317,21 +318,21 @@
     font-size: 11px;
   }
   .tv-target {
-    color: #888;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-muted);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     flex-shrink: 0;
   }
   .tv-msg {
-    color: #999;
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .tv-push {
     background: transparent;
-    border: 1px solid #444;
+    border: 1px solid var(--border-default);
     border-radius: 3px;
-    color: #bbb;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 11px;
     padding: 3px 8px;
@@ -348,9 +349,9 @@
   }
   .tv-del {
     background: transparent;
-    border: 1px solid #444;
+    border: 1px solid var(--border-default);
     border-radius: 3px;
-    color: #999;
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 11px;
     padding: 3px 8px;

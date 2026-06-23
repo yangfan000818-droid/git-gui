@@ -85,6 +85,11 @@
   let loading = $state(false);
   let error = $state("");
   let maxCount = $state(50);
+
+  function fmtDate(s: string): string {
+    // "2025-06-20 14:30:00 +0800" → "2025-06-20 14:30"
+    return s.replace(/(\d{2}:\d{2}):\d{2}.*/, "$1");
+  }
   let selectedCommit = $state<LogEntry | null>(null);
   let commitMsg = $state("");
   let commitDiffs = $state<FileDiff[]>([]);
@@ -157,7 +162,15 @@
     }
   }
 
+  function onCommitScroll(e: Event) {
+    const el = e.target as HTMLElement;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
+      loadMore();
+    }
+  }
+
   async function loadMore() {
+    if (loading || filtering) return;
     maxCount += 50;
     await load();
   }
@@ -377,16 +390,16 @@
   const NODE_R = 5;
 
   const LANE_COLORS = [
-    "#e2c47a", // gold
-    "#7ac4e2", // light blue
-    "#7ae2a4", // green
-    "#e27ac4", // pink
-    "#c4e27a", // lime
-    "#7a9fe2", // blue
-    "#e29f7a", // orange
-    "#b47ae2", // purple
-    "#e27a7a", // red
-    "#7ae2e2", // cyan
+    "#56D364", // soft green
+    "#58A6FF", // soft blue
+    "#BC8CFF", // soft purple
+    "#E3B341", // soft amber
+    "#F7788B", // soft red
+    "#F0883E", // soft orange
+    "#79C0FF", // light blue
+    "#FFA198", // salmon
+    "#A5D6FF", // pale blue
+    "#7EE787", // pale green
   ];
 
   function laneColor(lane: number): string {
@@ -472,12 +485,6 @@
           title="查看 HEAD 走过的历史(reflog),可从中恢复被变基/重置丢掉的状态"
           >Reflog</button
         >
-        <button
-          class="btn-load-more"
-          disabled={loading}
-          onclick={loadMore}
-          title="再加载 50 条更早的提交">加载更多</button
-        >
       </div>
 
       <!-- 筛选栏 -->
@@ -503,7 +510,7 @@
       {#if commits.length === 0 && !loading}
         <p class="muted">无提交记录</p>
       {:else}
-        <div class="log-scroll">
+        <div class="log-scroll" onscroll={onCommitScroll}>
           {#if !filtering}
             <!-- SVG 拓扑图 -->
             <svg
@@ -558,7 +565,7 @@
               >
                 <span class="log-sha">{entry.sha}</span>
                 <span class="log-author">{entry.author}</span>
-                <span class="log-date">{entry.date}</span>
+                <span class="log-date">{fmtDate(entry.date)}</span>
                 <span class="log-msg">{entry.message}</span>
               </div>
             {/each}
@@ -590,63 +597,70 @@
         <div class="commit-header">
           <div class="commit-title-row">
             <h3 class="commit-title">{selectedCommit.message}</h3>
-            <div class="action-buttons">
-              <button
-                class="btn-action"
-                disabled={operationInProgress}
-                onclick={() => doOperation("repo_cherry_pick")}
-                title="把该提交拣选应用到当前分支（git cherry-pick）"
-                >Cherry-pick</button
-              >
-              <button
-                class="btn-action"
-                disabled={operationInProgress}
-                onclick={() => doOperation("repo_revert")}
-                title="生成一个撤销该提交改动的新提交（git revert）"
-                >Revert</button
-              >
-              <button
-                class="btn-action"
-                disabled={operationInProgress}
-                onclick={doCheckout}
-                title="检出该提交，进入 detached HEAD（git checkout <sha>）"
-                >检出</button
-              >
-              <button
-                class="btn-action btn-reset"
-                class:active={resetting}
-                disabled={operationInProgress}
-                onclick={() => (resetting = !resetting)}
-                title="把当前分支重置到该提交（git reset）">重置到此</button
-              >
-              <button
-                class="btn-action btn-tag"
-                class:active={tagging}
-                disabled={operationInProgress}
-                onclick={() => (tagging = !tagging)}
-                title="在该提交创建 tag（git tag）">打 Tag</button
-              >
-              <button
-                class="btn-action"
-                disabled={operationInProgress}
-                onclick={() => (rebasing = true)}
-                title="从该提交起交互式变基：reword/squash/fixup/drop/重排（git rebase -i）"
-                >交互式变基</button
-              >
-              <button
-                class="btn-copy"
-                onclick={copySha}
-                title="复制该提交的完整 SHA"
-                >{copied ? "已复制 ✓" : "复制 SHA"}</button
-              >
-            </div>
           </div>
           <div class="commit-meta">
-            <span class="meta-sha" title={selectedCommit.full_sha}
-              >{selectedCommit.full_sha}</span
+            <div class="meta-row">
+              <span class="meta-label">SHA</span>
+              <span class="meta-sha" title={selectedCommit.full_sha}>{selectedCommit.full_sha}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">作者</span>
+              <span class="meta-author">{selectedCommit.author}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">日期</span>
+              <span class="meta-date">{fmtDate(selectedCommit.date)}</span>
+            </div>
+          </div>
+          <div class="commit-toolbar">
+            <button
+              class="btn-action"
+              disabled={operationInProgress}
+              onclick={() => doOperation("repo_cherry_pick")}
+              title="把该提交拣选应用到当前分支（git cherry-pick）"
+              >Cherry-pick</button
             >
-            <span class="meta-author">{selectedCommit.author}</span>
-            <span class="meta-date">{selectedCommit.date}</span>
+            <button
+              class="btn-action"
+              disabled={operationInProgress}
+              onclick={() => doOperation("repo_revert")}
+              title="生成一个撤销该提交改动的新提交（git revert）"
+              >Revert</button
+            >
+            <button
+              class="btn-action"
+              disabled={operationInProgress}
+              onclick={doCheckout}
+              title="检出该提交，进入 detached HEAD（git checkout <sha>）"
+              >检出</button
+            >
+            <button
+              class="btn-action btn-reset"
+              class:active={resetting}
+              disabled={operationInProgress}
+              onclick={() => (resetting = !resetting)}
+              title="把当前分支重置到该提交（git reset）">重置到此</button
+            >
+            <button
+              class="btn-action btn-tag"
+              class:active={tagging}
+              disabled={operationInProgress}
+              onclick={() => (tagging = !tagging)}
+              title="在该提交创建 tag（git tag）">打 Tag</button
+            >
+            <button
+              class="btn-action"
+              disabled={operationInProgress}
+              onclick={() => (rebasing = true)}
+              title="从该提交起交互式变基：reword/squash/fixup/drop/重排（git rebase -i）"
+              >交互式变基</button
+            >
+            <button
+              class="btn-copy"
+              onclick={copySha}
+              title="复制该提交的完整 SHA"
+              >{copied ? "已复制 ✓" : "复制 SHA"}</button
+            >
           </div>
         </div>
 
@@ -787,7 +801,7 @@
                         <li class="sub-commit">
                           <span class="sub-c-sha">{c.sha}</span>
                           <span class="sub-c-msg">{c.message}</span>
-                          <span class="sub-c-meta">{c.author} · {c.date}</span>
+                          <span class="sub-c-meta">{c.author} · {fmtDate(c.date)}</span>
                         </li>
                       {/each}
                     </ul>
@@ -849,10 +863,10 @@
     overflow: hidden;
   }
   .error {
-    background: #3a1d1d;
-    border-bottom: 1px solid #6a2b2b;
+    background: rgba(247,120,139,0.12);
+    border-bottom: 1px solid rgba(247,120,139,0.25);
     padding: 8px 14px;
-    color: #f3b4b4;
+    color: var(--color-error);
     white-space: pre-wrap;
     font-size: 12px;
     margin: 0;
@@ -867,9 +881,9 @@
   .commit-list {
     width: 420px;
     flex-shrink: 0;
-    border-right: 1px solid #383838;
+    border-right: 1px solid var(--border-default);
     overflow-y: auto;
-    background: #212121;
+    background: var(--bg-base);
     display: flex;
     flex-direction: column;
   }
@@ -878,26 +892,26 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 12px;
-    border-bottom: 1px solid #383838;
+    border-bottom: 1px solid var(--border-default);
     flex-shrink: 0;
   }
   .list-title {
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: #888;
+    color: var(--text-muted);
   }
   .btn-load-more {
-    background: #333;
-    border: 1px solid #555;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 11px;
     padding: 3px 10px;
   }
   .btn-load-more:hover {
-    background: #444;
+    background: var(--bg-hover);
   }
   .btn-load-more:disabled {
     opacity: 0.4;
@@ -909,24 +923,24 @@
     display: flex;
     gap: 8px;
     padding: 8px 12px;
-    border-bottom: 1px solid #383838;
+    border-bottom: 1px solid var(--border-default);
     flex-shrink: 0;
   }
   .filter-input {
     flex: 1;
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--bg-hover);
     border-radius: 4px;
-    color: #ddd;
+    color: var(--text-primary);
     font-size: 12px;
     padding: 4px 8px;
   }
   .filter-input:focus {
     outline: none;
-    border-color: #0e639c;
+    border-color: var(--accent-cyan);
   }
   .filter-input::placeholder {
-    color: #666;
+    color: var(--text-muted);
   }
 
   /* ── SVG + 信息行(同滚容器) ── */
@@ -952,35 +966,35 @@
     align-items: center;
     gap: 6px;
     padding: 0 8px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     line-height: 1;
     white-space: nowrap;
   }
   .log-row:hover {
-    background: #2a2a2a;
+    background: var(--bg-surface);
     cursor: pointer;
   }
   .log-row.selected {
-    background: #0e639c55;
+    background: rgba(88,166,255,0.15);
   }
   .log-sha {
-    color: #e2c47a;
+    color: var(--accent-gold);
     flex-shrink: 0;
   }
   .log-author {
-    color: #888;
+    color: var(--text-muted);
     flex-shrink: 0;
     max-width: 80px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .log-date {
-    color: #666;
+    color: var(--text-muted);
     flex-shrink: 0;
   }
   .log-msg {
-    color: #ddd;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -999,55 +1013,58 @@
     margin-bottom: 16px;
   }
   .commit-title-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
   .commit-title {
     margin: 0;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
-    color: #e4e4e4;
-    line-height: 1.35;
+    color: var(--text-primary);
+    line-height: 1.4;
+    word-break: break-word;
   }
-  .action-buttons {
+  .commit-toolbar {
     display: flex;
-    gap: 8px;
-    flex-shrink: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 10px 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-default);
   }
   .btn-action {
-    background: #0e639c;
-    border: 1px solid #0e639c;
+    background: transparent;
+    border: 1px solid rgba(88,166,255,0.3);
     border-radius: 4px;
-    color: #fff;
+    color: var(--accent-cyan);
     cursor: pointer;
     font-size: 11px;
     padding: 3px 10px;
+    transition: all 0.15s;
   }
   .btn-action:hover:not(:disabled) {
-    background: #1177b8;
+    background: rgba(88,166,255,0.15);
+    border-color: var(--accent-cyan);
   }
   .btn-action:disabled {
-    opacity: 0.5;
+    opacity: 0.4;
     cursor: not-allowed;
   }
   .btn-reset {
-    background: #5a4a1d;
-    border-color: #7a6a3a;
+    border-color: rgba(227,179,65,0.3);
+    color: var(--accent-gold);
   }
   .btn-reset:hover:not(:disabled) {
-    background: #6a5a2d;
+    background: rgba(227,179,65,0.12);
+    border-color: var(--accent-gold);
   }
   .btn-reset.active {
-    background: #7a6a3a;
+    background: rgba(227,179,65,0.2);
   }
 
   /* ── 重置面板 ── */
   .reset-panel {
-    background: #252525;
-    border: 1px solid #5a4a2a;
+    background: var(--bg-elevated);
+    border: 1px solid rgba(227,179,65,0.15);
     border-radius: 6px;
     padding: 12px 14px;
     margin-bottom: 14px;
@@ -1055,11 +1072,11 @@
   .reset-title {
     margin: 0 0 8px;
     font-size: 12px;
-    color: #ccc;
+    color: var(--text-secondary);
   }
   .reset-title code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #e2c47a;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent-gold);
   }
   .reset-mode {
     display: flex;
@@ -1079,15 +1096,15 @@
   }
   .reset-mode b {
     font-size: 12px;
-    color: #e4e4e4;
+    color: var(--text-primary);
     font-weight: 600;
   }
   .reset-mode small {
     font-size: 11px;
-    color: #888;
+    color: var(--text-muted);
   }
   .reset-mode .reset-danger {
-    color: #e0a0a0;
+    color: var(--color-error);
   }
   .reset-actions {
     display: flex;
@@ -1095,8 +1112,8 @@
     margin-top: 10px;
   }
   .btn-reset-confirm {
-    background: #5a4a1d;
-    border: 1px solid #7a6a3a;
+    background: rgba(227,179,65,0.12);
+    border: 1px solid rgba(227,179,65,0.25);
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
@@ -1104,46 +1121,47 @@
     padding: 5px 14px;
   }
   .btn-reset-confirm:hover:not(:disabled) {
-    background: #6a5a2d;
+    background: rgba(227,179,65,0.18);
   }
   .btn-reset-confirm.danger {
-    background: #8b2a2a;
-    border-color: #a33;
+    background: rgba(247,120,139,0.25);
+    border-color: rgba(247,120,139,0.4);
   }
   .btn-reset-confirm.danger:hover:not(:disabled) {
-    background: #a33;
+    background: var(--color-error);
   }
   .btn-reset-confirm:disabled {
     opacity: 0.5;
     cursor: default;
   }
   .btn-reset-cancel {
-    background: #383838;
-    border: 1px solid #555;
+    background: var(--border-default);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 12px;
     padding: 5px 14px;
   }
   .btn-reset-cancel:hover:not(:disabled) {
-    background: #444;
+    background: var(--bg-hover);
   }
   .btn-tag {
-    background: #1d4a3a;
-    border-color: #2a6a52;
+    border-color: rgba(86,211,100,0.3);
+    color: var(--accent-neon);
   }
   .btn-tag:hover:not(:disabled) {
-    background: #245a48;
+    background: rgba(86,211,100,0.12);
+    border-color: var(--accent-neon);
   }
   .btn-tag.active {
-    background: #2a6a52;
+    background: rgba(86,211,100,0.2);
   }
 
   /* ── 打 Tag 面板 ── */
   .tag-panel {
-    background: #252525;
-    border: 1px solid #2a5a48;
+    background: var(--bg-elevated);
+    border: 1px solid rgba(86,211,100,0.15);
     border-radius: 6px;
     padding: 12px 14px;
     margin-bottom: 14px;
@@ -1151,11 +1169,11 @@
   .tag-title {
     margin: 0 0 8px;
     font-size: 12px;
-    color: #ccc;
+    color: var(--text-secondary);
   }
   .tag-title code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #e2c47a;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent-gold);
   }
   .tag-inputs {
     display: flex;
@@ -1163,10 +1181,10 @@
   }
   .tag-name,
   .tag-msg {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--bg-hover);
     border-radius: 4px;
-    color: #e4e4e4;
+    color: var(--text-primary);
     font-size: 12px;
     padding: 5px 8px;
     min-width: 0;
@@ -1187,8 +1205,8 @@
     margin-top: 10px;
   }
   .btn-tag-confirm {
-    background: #1d5a1d;
-    border: 1px solid #3a7a3a;
+    background: rgba(86,211,100,0.12);
+    border: 1px solid rgba(86,211,100,0.25);
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
@@ -1196,57 +1214,81 @@
     padding: 5px 14px;
   }
   .btn-tag-confirm:hover:not(:disabled) {
-    background: #256a25;
+    background: rgba(86,211,100,0.18);
   }
   .btn-tag-confirm:disabled {
     opacity: 0.5;
     cursor: default;
   }
   .btn-tag-cancel {
-    background: #383838;
-    border: 1px solid #555;
+    background: var(--border-default);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 12px;
     padding: 5px 14px;
   }
   .btn-tag-cancel:hover:not(:disabled) {
-    background: #444;
+    background: var(--bg-hover);
   }
   .btn-copy {
     flex-shrink: 0;
-    background: #333;
-    border: 1px solid #555;
+    background: transparent;
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 11px;
     padding: 3px 10px;
+    transition: all 0.15s;
   }
   .btn-copy:hover {
-    background: #444;
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
+    color: var(--text-secondary);
   }
   .commit-meta {
     display: flex;
-    gap: 16px;
+    flex-direction: column;
+    gap: 2px;
     font-size: 12px;
-    color: #888;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .meta-row {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+  }
+  .meta-label {
+    flex-shrink: 0;
+    width: 28px;
+    color: var(--text-muted);
+    font-size: 11px;
   }
   .meta-sha {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #e2c47a;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent-gold);
+    font-size: 11px;
+    word-break: break-all;
+  }
+  .meta-author {
+    color: var(--text-secondary);
+  }
+  .meta-date {
+    color: var(--text-muted);
   }
   .commit-message {
     margin: 0 0 20px;
     padding: 12px;
-    background: #252525;
-    border: 1px solid #383838;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     border-radius: 6px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     line-height: 1.55;
-    color: #ccc;
+    color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -1259,9 +1301,9 @@
     margin-bottom: 12px;
   }
   .sub-change {
-    border: 1px solid #383838;
+    border: 1px solid var(--border-default);
     border-radius: 6px;
-    background: #232323;
+    background: var(--bg-surface);
     overflow: hidden;
   }
   .sub-change-head {
@@ -1269,12 +1311,12 @@
     align-items: center;
     gap: 8px;
     padding: 7px 12px;
-    background: #2a2a2a;
-    border-bottom: 1px solid #333;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-default);
     font-size: 12px;
   }
   .sub-tag {
-    background: #2d1d3a;
+    background: rgba(188,140,255,0.12);
     color: #c49ae2;
     font-size: 10px;
     border-radius: 4px;
@@ -1282,16 +1324,16 @@
     flex-shrink: 0;
   }
   .sub-path {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #e4e4e4;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-primary);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .sub-range {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #e2c47a;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent-gold);
     flex-shrink: 0;
   }
   .sub-commit-list {
@@ -1304,27 +1346,27 @@
     align-items: baseline;
     gap: 10px;
     padding: 4px 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
   }
   .sub-c-sha {
-    color: #e2c47a;
+    color: var(--accent-gold);
     flex-shrink: 0;
   }
   .sub-c-msg {
     flex: 1;
-    color: #ddd;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .sub-c-meta {
-    color: #777;
+    color: var(--text-muted);
     flex-shrink: 0;
     font-size: 11px;
   }
   .sub-none {
-    color: #666;
+    color: var(--text-muted);
     font-size: 12px;
     padding: 6px 12px;
     margin: 0;
@@ -1337,7 +1379,7 @@
     gap: 8px;
   }
   .muted {
-    color: #666;
+    color: var(--text-muted);
     font-size: 12px;
     padding: 4px 14px;
   }

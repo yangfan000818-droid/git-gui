@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import ConflictView from "$lib/ConflictView.svelte";
 
   // ── 类型 ──
@@ -269,6 +269,7 @@
   async function proceedToSubmodules() {
     if (submodules.length === 0) {
       phase = "outcome";
+      if (canAutoClose()) { await tick(); await finishAndRefresh(); }
       return;
     }
     subResults = [];
@@ -324,6 +325,7 @@
     }
     subCurrent = "";
     phase = "outcome";
+    if (canAutoClose()) { await tick(); await finishAndRefresh(); }
   }
 
   // 子仓冲突解决/放弃后:记录该子仓结果,从下一个子仓继续。
@@ -400,6 +402,17 @@
     await onRefresh();
     reset();
     onClose();
+  }
+
+  // 是否可以自动关闭：成功类 outcome 且子仓无失败/警告
+  function canAutoClose(): boolean {
+    if (!outcome) return false;
+    const v = outcomeVariant(outcome);
+    if (v !== "AlreadyUpToDate" && v !== "FastForwarded" && v !== "Integrated" && v !== "Resolved")
+      return false;
+    if (subResults.some((r) => r.status === "fail" || r.status === "warn"))
+      return false;
+    return true;
   }
 
   function reset() {
@@ -656,7 +669,7 @@
         onclick={finishAndRefresh}
         title="完成,刷新仓库状态"
       >
-        刷新
+        完成
       </button>
     </div>
   {/if}
@@ -695,12 +708,12 @@
   .update-title {
     margin: 0;
     font-size: 15px;
-    color: #e4e4e4;
+    color: var(--text-primary);
   }
   .btn-close {
     background: transparent;
     border: none;
-    color: #888;
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 16px;
     line-height: 1;
@@ -708,15 +721,15 @@
     border-radius: 4px;
   }
   .btn-close:hover {
-    background: #383838;
-    color: #e4e4e4;
+    background: var(--border-default);
+    color: var(--text-primary);
   }
   .btn-close:disabled {
     opacity: 0.35;
     cursor: default;
   }
   .update-scope {
-    color: #aaa;
+    color: var(--text-secondary);
     font-size: 12px;
     margin: 0 0 10px;
   }
@@ -726,7 +739,7 @@
     max-width: 480px;
   }
   .sub-updating-title {
-    color: #ccc;
+    color: var(--text-secondary);
     margin: 0 0 8px;
   }
   .sub-progress-list,
@@ -734,7 +747,7 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
   }
   .sub-progress-list li,
@@ -743,24 +756,24 @@
     align-items: center;
     gap: 8px;
     padding: 3px 0;
-    color: #7ee29a;
+    color: var(--accent-neon);
   }
   .sub-progress-list li.sub-fail,
   .sub-result-list li.sub-fail {
-    color: #f3b4b4;
+    color: var(--color-error);
   }
   .sub-progress-list li.sub-warn,
   .sub-result-list li.sub-warn {
-    color: #e0c178;
+    color: var(--accent-gold);
   }
   .sub-current {
-    color: #888 !important;
+    color: var(--text-muted) !important;
   }
   .sub-conflict-banner {
     background: #3a2f1d;
     border: 1px solid #6a542b;
     border-radius: 6px;
-    color: #e0c178;
+    color: var(--accent-gold);
     font-size: 12px;
     padding: 8px 12px;
     margin: 0 0 12px;
@@ -776,14 +789,14 @@
   .sub-results h4 {
     margin: 0 0 6px;
     font-size: 12px;
-    color: #bbb;
+    color: var(--text-secondary);
     font-weight: 600;
   }
   .sub-label {
     flex-shrink: 0;
   }
   .sub-detail {
-    color: #999;
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -791,22 +804,22 @@
   }
   .update-error {
     background: #3a1d1d;
-    border: 1px solid #6a2b2b;
+    border: 1px solid rgba(247,120,139,0.25);
     border-radius: 6px;
     padding: 8px 12px;
-    color: #f3b4b4;
+    color: var(--color-error);
     white-space: pre-wrap;
     font-size: 12px;
     margin: 0 0 12px;
   }
   .hint {
-    color: #888;
+    color: var(--text-muted);
     font-size: 12px;
   }
 
   /* ── 按钮 ── */
   .btn-primary {
-    background: #0e639c;
+    background: var(--accent-cyan);
     border: none;
     border-radius: 6px;
     color: #fff;
@@ -815,14 +828,14 @@
     cursor: pointer;
   }
   .btn-primary:hover {
-    background: #1177bb;
+    background: #58A6FF;
   }
   .btn-primary:disabled {
     opacity: 0.5;
     cursor: default;
   }
   .btn-danger {
-    background: #8b2a2a;
+    background: rgba(247,120,139,0.2);
     border: none;
     border-radius: 6px;
     color: #fff;
@@ -831,7 +844,7 @@
     cursor: pointer;
   }
   .btn-danger:hover {
-    background: #a33;
+    background: rgba(247,120,139,0.25);
   }
   /* ── 进度条(executing) ── */
   .executing {
@@ -839,15 +852,15 @@
   }
   .progress-bar-wrap {
     position: relative;
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 6px;
     height: 28px;
     overflow: hidden;
     margin-bottom: 8px;
   }
   .progress-bar-fill {
-    background: #0e639c;
+    background: var(--accent-cyan);
     height: 100%;
     transition: width 0.3s ease;
     border-radius: 5px 0 0 5px;
@@ -858,27 +871,27 @@
     top: 50%;
     left: 12px;
     transform: translateY(-50%);
-    color: #e4e4e4;
+    color: var(--text-primary);
     font-size: 12px;
   }
   .progress-raw {
-    color: #666;
+    color: var(--text-muted);
     font-size: 11px;
     margin: 4px 0 8px;
     white-space: pre-wrap;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   /* ── 终态卡片 ── */
   .outcome-card {
-    background: #252525;
-    border: 1px solid #383838;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     border-radius: 8px;
     padding: 14px 18px;
     max-width: 480px;
   }
   .outcome-success {
-    border-color: #2d5a2d;
+    border-color: rgba(86,211,100,0.2);
   }
   .outcome-warn {
     border-color: #5a4a2d;
@@ -891,8 +904,8 @@
     margin: 4px 0;
   }
   .outcome-card .file-list {
-    color: #f3b4b4;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--color-error);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     padding-left: 20px;
   }

@@ -250,15 +250,16 @@
   .rb-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
   }
   .rb-panel {
-    background: #1e1e1e;
-    border: 1px solid #444;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     border-radius: 8px;
     width: 640px;
     max-width: 94%;
@@ -275,43 +276,43 @@
   .rb-header h3 {
     font-size: 15px;
     font-weight: 600;
-    color: #e4e4e4;
+    color: var(--text-primary);
     margin: 0;
   }
   .rb-close {
     background: transparent;
     border: none;
-    color: #888;
+    color: var(--text-muted);
     font-size: 18px;
     cursor: pointer;
     padding: 0 4px;
     line-height: 1;
   }
   .rb-close:hover:not(:disabled) {
-    color: #e4e4e4;
+    color: var(--text-primary);
   }
   .rb-close:disabled {
     opacity: 0.4;
     cursor: default;
   }
   .rb-hint {
-    color: #888;
+    color: var(--text-muted);
     font-size: 12px;
     margin: 0;
     padding: 0 18px 8px;
   }
   .rb-error {
-    background: #3a1d1d;
-    border-top: 1px solid #6a2b2b;
-    border-bottom: 1px solid #6a2b2b;
+    background: rgba(247,120,139,0.12);
+    border-top: 1px solid rgba(247,120,139,0.25);
+    border-bottom: 1px solid rgba(247,120,139,0.25);
     padding: 8px 18px;
-    color: #f3b4b4;
+    color: var(--color-error);
     font-size: 12px;
     white-space: pre-wrap;
     margin: 0;
   }
   .rb-muted {
-    color: #666;
+    color: var(--text-muted);
     font-size: 12px;
     text-align: center;
     padding: 22px 18px;
@@ -331,7 +332,7 @@
     border-radius: 4px;
   }
   .rb-item:hover {
-    background: #252525;
+    background: var(--bg-elevated);
   }
   .rb-drop {
     opacity: 0.5;
@@ -342,39 +343,39 @@
     gap: 1px;
   }
   .rb-mv {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 3px;
-    color: #bbb;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 9px;
     line-height: 1;
     padding: 1px 4px;
   }
   .rb-mv:hover:not(:disabled) {
-    background: #383838;
+    background: var(--bg-hover);
   }
   .rb-mv:disabled {
     opacity: 0.3;
     cursor: default;
   }
   .rb-action {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #e4e4e4;
+    color: var(--text-primary);
     font-size: 12px;
     padding: 4px 6px;
     flex-shrink: 0;
   }
   .rb-sha {
-    color: #888;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-muted);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     flex-shrink: 0;
   }
   .rb-subject {
-    color: #ccc;
+    color: var(--text-secondary);
     font-size: 13px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -385,21 +386,21 @@
   .rb-msg {
     flex: 1;
     min-width: 0;
-    background: #232323;
-    border: 1px solid #3a6a3a;
+    background: var(--bg-surface);
+    border: 1px solid rgba(86,211,100,0.15);
     border-radius: 4px;
-    color: #e4e4e4;
+    color: var(--text-primary);
     font-size: 12px;
     padding: 4px 8px;
   }
   .rb-summary {
-    color: #999;
+    color: var(--text-muted);
     font-size: 12px;
     padding: 8px 18px 0;
-    border-top: 1px solid #333;
+    border-top: 1px solid var(--border-default);
   }
   .rb-invalid {
-    color: #e2a04a;
+    color: var(--accent-gold);
   }
   .rb-actions {
     display: flex;
@@ -407,8 +408,8 @@
     padding: 12px 18px 16px;
   }
   .rb-start {
-    background: #1d5a1d;
-    border: 1px solid #3a7a3a;
+    background: rgba(86,211,100,0.12);
+    border: 1px solid rgba(86,211,100,0.25);
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
@@ -416,23 +417,23 @@
     padding: 6px 18px;
   }
   .rb-start:hover:not(:disabled) {
-    background: #256a25;
+    background: rgba(86,211,100,0.18);
   }
   .rb-start:disabled {
     opacity: 0.4;
     cursor: default;
   }
   .rb-cancel {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 13px;
     padding: 6px 16px;
   }
   .rb-cancel:hover:not(:disabled) {
-    background: #383838;
+    background: var(--bg-hover);
   }
   .rb-cancel:disabled {
     opacity: 0.4;

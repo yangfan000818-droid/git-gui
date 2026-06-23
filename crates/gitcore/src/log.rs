@@ -45,7 +45,7 @@ pub(crate) fn log(repo: &Repo, opts: &LogOptions) -> Result<Vec<LogEntry>, Error
     let max_count_str = format!("-{}", opts.max_count);
     let mut args = vec![
         "log",
-        "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ar",
+        "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ai",
         &max_count_str,
     ];
 
@@ -109,7 +109,7 @@ pub(crate) fn compare_commits(repo: &Repo, other: &str) -> Result<BranchComparis
 
 /// 取某个 `A..B` 范围的提交列表(newest first)。
 fn rev_range(repo: &Repo, range: &str) -> Result<Vec<LogEntry>, Error> {
-    let output = repo.git(&["log", "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ar", range])?;
+    let output = repo.git(&["log", "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ai", range])?;
     let entries = output
         .lines()
         .filter_map(|line| {
@@ -160,7 +160,7 @@ pub(crate) fn file_history(
     let mut args = vec![
         "log",
         "--follow",
-        "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ar",
+        "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ai",
         &max_count_str,
     ];
 
@@ -216,7 +216,7 @@ pub(crate) fn log_graph(repo: &Repo, opts: &LogOptions) -> Result<Vec<GraphRow>,
         "log",
         "--graph",
         "--color=never",
-        "--pretty=format:%x00%H%x00%h%x00%s%x00%an%x00%ar",
+        "--pretty=format:%x00%H%x00%h%x00%s%x00%an%x00%ai",
         &max_count_str,
     ];
 

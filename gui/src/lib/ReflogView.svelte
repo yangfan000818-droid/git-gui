@@ -128,15 +128,16 @@
   .rl-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
   }
   .rl-panel {
-    background: #1e1e1e;
-    border: 1px solid #444;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     border-radius: 8px;
     width: 620px;
     max-width: 94%;
@@ -153,43 +154,43 @@
   .rl-header h3 {
     font-size: 15px;
     font-weight: 600;
-    color: #e4e4e4;
+    color: var(--text-primary);
     margin: 0;
   }
   .rl-close {
     background: transparent;
     border: none;
-    color: #888;
+    color: var(--text-muted);
     font-size: 18px;
     cursor: pointer;
     padding: 0 4px;
     line-height: 1;
   }
   .rl-close:hover:not(:disabled) {
-    color: #e4e4e4;
+    color: var(--text-primary);
   }
   .rl-close:disabled {
     opacity: 0.4;
     cursor: default;
   }
   .rl-hint {
-    color: #888;
+    color: var(--text-muted);
     font-size: 12px;
     margin: 0;
     padding: 0 18px 8px;
   }
   .rl-error {
-    background: #3a1d1d;
-    border-top: 1px solid #6a2b2b;
-    border-bottom: 1px solid #6a2b2b;
+    background: rgba(247,120,139,0.12);
+    border-top: 1px solid rgba(247,120,139,0.25);
+    border-bottom: 1px solid rgba(247,120,139,0.25);
     padding: 8px 18px;
-    color: #f3b4b4;
+    color: var(--color-error);
     font-size: 12px;
     white-space: pre-wrap;
     margin: 0;
   }
   .rl-muted {
-    color: #666;
+    color: var(--text-muted);
     font-size: 12px;
     text-align: center;
     padding: 22px 18px;
@@ -208,23 +209,23 @@
     padding: 6px 18px;
   }
   .rl-item:hover {
-    background: #252525;
+    background: var(--bg-elevated);
   }
   .rl-selector {
-    color: #5a8af0;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent-cyan);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     flex-shrink: 0;
     width: 92px;
   }
   .rl-sha {
-    color: #888;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-muted);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     flex-shrink: 0;
   }
   .rl-action {
-    color: #ccc;
+    color: var(--text-secondary);
     font-size: 13px;
     flex: 1;
     min-width: 0;
@@ -234,18 +235,18 @@
   }
   .rl-restore {
     background: transparent;
-    border: 1px solid #444;
+    border: 1px solid var(--border-default);
     border-radius: 3px;
-    color: #bbb;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 11px;
     padding: 3px 10px;
     flex-shrink: 0;
   }
   .rl-restore:hover:not(:disabled) {
-    background: #2a3a4a;
-    border-color: #3a5a7a;
-    color: #cfe2ff;
+    background: rgba(88,166,255,0.12);
+    border-color: rgba(88,166,255,0.2);
+    color: var(--accent-cyan);
   }
   .rl-restore:disabled {
     opacity: 0.4;

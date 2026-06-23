@@ -232,31 +232,30 @@
     align-items: center;
     gap: 6px;
     min-height: 26px;
-    padding-top: 3px;
-    padding-bottom: 3px;
-    padding-right: 10px;
+    padding: 3px 10px 3px 14px;
     cursor: pointer;
     user-select: none;
   }
   .row:hover {
-    background: #2a2a2a;
+    background: var(--bg-hover);
   }
   .file-row.selected {
-    background: #0e639c55;
+    background: rgba(88,166,255,0.1);
+    box-shadow: inset 3px 0 0 var(--accent-cyan);
   }
   .caret {
-    color: #aaa;
+    color: var(--text-secondary);
     font-size: 14px;
     width: 18px;
     flex-shrink: 0;
     text-align: center;
   }
   .dir-row:hover .caret {
-    color: #fff;
+    color: var(--text-primary);
   }
   .dname,
   .fname {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -264,11 +263,11 @@
     min-width: 0;
   }
   .dname {
-    color: #cfcfcf;
+    color: var(--text-primary);
   }
   .count {
     font-size: 10px;
-    color: #666;
+    color: var(--text-muted);
     flex-shrink: 0;
   }
   .actions {
@@ -282,12 +281,12 @@
   }
   .act {
     background: transparent;
-    border: 1px solid #555;
+    border: 1px solid var(--border-default);
     border-radius: 3px;
-    color: #ccc;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 13px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     width: 22px;
     height: 18px;
     display: flex;
@@ -297,31 +296,31 @@
     line-height: 1;
   }
   .act:hover {
-    background: #444;
+    background: var(--bg-hover);
   }
   .act:disabled {
     opacity: 0.3;
     cursor: default;
   }
   .stage {
-    color: #7ee29a;
-    border-color: #3a5a3a;
+    color: var(--accent-neon);
+    border-color: rgba(86,211,100,0.25);
   }
   .stage:hover {
-    background: #1d3a24;
+    background: rgba(86,211,100,0.1);
   }
   .unstage {
-    color: #e2c47a;
-    border-color: #5a4a3a;
+    color: var(--accent-gold);
+    border-color: rgba(227,179,65,0.25);
   }
   .unstage:hover {
-    background: #3a311d;
+    background: rgba(227,179,65,0.1);
   }
   .discard {
-    color: #f3b4b4;
-    border-color: #5a3a3a;
+    color: var(--color-error);
+    border-color: rgba(247,120,139,0.25);
   }
   .discard:hover {
-    background: #3a1d1d;
+    background: rgba(247,120,139,0.1);
   }
 </style>

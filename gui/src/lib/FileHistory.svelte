@@ -46,6 +46,10 @@
   let error = $state(""); // 列表加载错误
   let diffError = $state(""); // diff 加载错误(独立,避免污染左侧列表)
 
+  function fmtDate(s: string): string {
+    return s.replace(/(\d{2}:\d{2}):\d{2}.*/, "$1");
+  }
+
   onMount(async () => {
     try {
       commits = await invoke<LogEntry[]>("repo_file_history", {
@@ -114,7 +118,7 @@
               <span class="commit-sha">{commit.sha}</span>
               <span class="commit-message">{commit.message}</span>
               <span class="commit-author">{commit.author}</span>
-              <span class="commit-date">{commit.date}</span>
+              <span class="commit-date">{fmtDate(commit.date)}</span>
             </div>
           {/each}
         {/if}
@@ -128,7 +132,7 @@
         {:else if selectedCommit && diff === null}
           <p class="placeholder">该提交未改动此文件</p>
         {:else if diff}
-          <DiffView files={[diff]} />
+          <DiffView files={[diff]} compact />
         {:else}
           <p class="placeholder">选择一个提交查看 diff</p>
         {/if}
@@ -141,15 +145,16 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
   }
   .panel {
-    background: #1a1a1a;
-    border: 1px solid #383838;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     border-radius: 8px;
     width: 90vw;
     height: 85vh;
@@ -162,19 +167,19 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid #383838;
-    background: #252525;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-elevated);
   }
   .header h2 {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: #ddd;
+    color: var(--text-primary);
   }
   .close-btn {
     background: transparent;
     border: none;
-    color: #aaa;
+    color: var(--text-secondary);
     font-size: 18px;
     cursor: pointer;
     padding: 4px 8px;
@@ -182,7 +187,7 @@
     transition: color 0.15s;
   }
   .close-btn:hover {
-    color: #fff;
+    color: var(--text-primary);
   }
 
   .content {
@@ -192,7 +197,7 @@
   }
   .commits-list {
     width: 40%;
-    border-right: 1px solid #383838;
+    border-right: 1px solid var(--border-default);
     overflow-y: auto;
     padding: 8px;
   }
@@ -213,39 +218,39 @@
     transition: background 0.15s;
   }
   .commit-row:hover {
-    background: #252525;
+    background: var(--bg-elevated);
   }
   .commit-row.selected {
-    background: #2a3a4a;
+    background: rgba(88, 166, 255, 0.12);
   }
   .commit-sha {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #888;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-muted);
   }
   .commit-message {
-    color: #ddd;
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .commit-author {
-    color: #aaa;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .commit-date {
-    color: #888;
+    color: var(--text-muted);
     text-align: right;
   }
 
   .placeholder {
-    color: #666;
+    color: var(--text-muted);
     font-size: 12px;
     padding: 12px;
   }
   .error {
-    color: #d88;
+    color: var(--color-error);
     font-size: 12px;
     padding: 12px;
   }

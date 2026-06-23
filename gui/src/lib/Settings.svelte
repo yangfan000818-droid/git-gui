@@ -145,15 +145,16 @@
   .st-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
   }
   .st-panel {
-    background: #1e1e1e;
-    border: 1px solid #444;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     border-radius: 8px;
     width: 440px;
     max-width: 92%;
@@ -169,32 +170,32 @@
   .st-header h3 {
     font-size: 15px;
     font-weight: 600;
-    color: #e4e4e4;
+    color: var(--text-primary);
     margin: 0;
   }
   .st-close {
     background: transparent;
     border: none;
-    color: #888;
+    color: var(--text-muted);
     font-size: 18px;
     cursor: pointer;
     padding: 0 4px;
     line-height: 1;
   }
   .st-close:hover {
-    color: #e4e4e4;
+    color: var(--text-primary);
   }
   .st-error {
-    background: #3a1d1d;
-    border-top: 1px solid #6a2b2b;
-    border-bottom: 1px solid #6a2b2b;
+    background: rgba(247, 120, 139, 0.12);
+    border-top: 1px solid rgba(247, 120, 139, 0.25);
+    border-bottom: 1px solid rgba(247, 120, 139, 0.25);
     padding: 8px 18px;
-    color: #f3b4b4;
+    color: var(--color-error);
     font-size: 12px;
     white-space: pre-wrap;
   }
   .st-muted {
-    color: #666;
+    color: var(--text-muted);
     font-size: 12px;
     text-align: center;
     padding: 24px 18px;
@@ -204,7 +205,7 @@
     padding: 6px 18px 4px;
   }
   .st-group {
-    border: 1px solid #383838;
+    border: 1px solid var(--border-default);
     border-radius: 6px;
     padding: 8px 12px 12px;
     margin: 0 0 14px;
@@ -212,12 +213,12 @@
   .st-group legend {
     font-size: 12px;
     font-weight: 600;
-    color: #bbb;
+    color: var(--text-secondary);
     padding: 0 6px;
   }
   .st-hint {
     font-size: 11px;
-    color: #888;
+    color: var(--text-muted);
     margin: 0 0 10px;
     line-height: 1.5;
   }
@@ -243,13 +244,13 @@
   .st-radio b,
   .st-check b {
     font-size: 13px;
-    color: #e4e4e4;
+    color: var(--text-primary);
     font-weight: 600;
   }
   .st-radio small,
   .st-check small {
     font-size: 11px;
-    color: #888;
+    color: var(--text-muted);
     line-height: 1.4;
   }
   .st-check {
@@ -262,8 +263,8 @@
     padding: 4px 18px 16px;
   }
   .st-save {
-    background: #1d5a1d;
-    border: 1px solid #3a7a3a;
+    background: rgba(86, 211, 100, 0.12);
+    border: 1px solid rgba(86, 211, 100, 0.25);
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
@@ -271,22 +272,22 @@
     padding: 6px 16px;
   }
   .st-save:hover:not(:disabled) {
-    background: #256a25;
+    background: rgba(86, 211, 100, 0.18);
   }
   .st-save:disabled {
     opacity: 0.5;
     cursor: default;
   }
   .st-cancel {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 12px;
     padding: 6px 16px;
   }
   .st-cancel:hover:not(:disabled) {
-    background: #333;
+    background: var(--bg-hover);
   }
 </style>

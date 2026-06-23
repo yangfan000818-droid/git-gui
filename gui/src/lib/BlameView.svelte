@@ -108,7 +108,7 @@
           {#if detailMsg}
             <pre class="detail-msg">{detailMsg}</pre>
           {/if}
-          <DiffView files={detailDiffs} />
+          <DiffView files={detailDiffs} compact />
         {/if}
       {:else if loading}
         <p class="placeholder">加载中…</p>
@@ -144,15 +144,16 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
   }
   .panel {
-    background: #1a1a1a;
-    border: 1px solid #383838;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     border-radius: 8px;
     width: 90vw;
     height: 85vh;
@@ -165,8 +166,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid #383838;
-    background: #252525;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-elevated);
   }
   .header-left {
     display: flex;
@@ -176,46 +177,46 @@
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: #ddd;
+    color: var(--text-primary);
   }
   .back-btn {
-    background: #333;
-    border: 1px solid #444;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-default);
     border-radius: 4px;
-    color: #ddd;
+    color: var(--text-primary);
     cursor: pointer;
     font-size: 12px;
     padding: 3px 10px;
     margin-right: 10px;
   }
   .back-btn:hover {
-    background: #3a3a3a;
+    background: var(--bg-hover);
   }
   .close-btn {
     background: transparent;
     border: none;
-    color: #aaa;
+    color: var(--text-secondary);
     font-size: 18px;
     cursor: pointer;
     padding: 4px 8px;
     line-height: 1;
   }
   .close-btn:hover {
-    color: #fff;
+    color: var(--text-primary);
   }
   .content {
     flex: 1;
     overflow: auto;
     padding: 8px 0;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
   }
   .detail-msg {
     margin: 0 0 12px;
     padding: 10px 14px;
-    background: #222;
+    background: var(--bg-elevated);
     border-radius: 4px;
-    color: #ddd;
+    color: var(--text-primary);
     font-size: 12px;
     white-space: pre-wrap;
   }
@@ -225,19 +226,19 @@
     line-height: 1.5;
   }
   .blame-row:hover {
-    background: #232323;
+    background: var(--bg-surface);
   }
   .blame-anno {
     display: flex;
     gap: 8px;
     padding: 0 10px;
-    color: #777;
+    color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
-    border-right: 1px solid #333;
+    border-right: 1px solid var(--border-default);
   }
   .anno-sha {
-    color: #cc8899;
+    color: #d48899;
     flex-shrink: 0;
     background: none;
     border: none;
@@ -249,31 +250,31 @@
     text-decoration: underline;
   }
   .anno-author {
-    color: #888;
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .anno-date {
-    color: #666;
+    color: var(--text-muted);
     flex-shrink: 0;
   }
   .blame-lineno {
-    color: #555;
+    color: var(--text-muted);
     text-align: right;
     padding-right: 10px;
     user-select: none;
   }
   .blame-content {
-    color: #ddd;
+    color: var(--text-primary);
     white-space: pre;
     overflow-x: auto;
   }
   .placeholder {
-    color: #666;
+    color: var(--text-muted);
     padding: 12px;
   }
   .error {
-    color: #d88;
+    color: var(--color-error);
     padding: 12px;
   }
 </style>
