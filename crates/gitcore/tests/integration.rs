@@ -1202,6 +1202,47 @@ fn smart_switch_clean_worktree_switches() {
 }
 
 #[test]
+fn switch_branch_ignores_dirty_submodule_pointer() {
+    // 子模块工作树指向与主仓记录的 gitlink 不一致时,主仓切换分支不应被预检
+    // 拦下报"工作区有未提交改动"——git 本身允许此切换(回归:--ignore-submodules=all)。
+    let main = init_repo("subptr-main");
+    write(&main, "a.txt", "base");
+    commit_all(&main, "init");
+
+    // 独立子仓,两个提交(供回退制造指针不匹配)。
+    let sub = init_repo("subptr-sub");
+    git(&sub, &["commit", "--allow-empty", "-qm", "s1"]);
+    git(&sub, &["commit", "--allow-empty", "-qm", "s2"]);
+
+    // 主仓加子模块(file 协议需放行)并提交,再建一个目标分支。
+    let sub_url = sub.to_string_lossy().to_string();
+    git(
+        &main,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            &sub_url,
+            "sub",
+        ],
+    );
+    commit_all(&main, "add submodule");
+    git(&main, &["branch", "feat"]);
+
+    // 子模块工作树退回上一个提交 → 主仓 `git status` 显示 " M sub"(指针不匹配)。
+    let subdir = main.join("sub");
+    git(&subdir, &["checkout", "-q", "HEAD~1"]);
+
+    // 预检忽略子模块,切换应成功。
+    let r = Repo::open(&main).unwrap().switch_branch("feat");
+    assert!(r.is_ok(), "子模块指针差异不应阻止主仓切换分支: {r:?}");
+    assert_eq!(head_branch(&main), "feat");
+
+    cleanup(&[&main, &sub]);
+}
+
+#[test]
 fn smart_switch_dirty_nonconflicting_carries_change() {
     // a.txt 两分支相同、b.txt 不同;脏改动落在 a.txt → 贴回不冲突。
     let dir = init_repo("sc-carry");

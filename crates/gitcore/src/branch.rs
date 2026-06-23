@@ -94,7 +94,11 @@ fn local_name_from_remote(remote_branch: &str) -> Option<&str> {
 /// 检出远程分支为本地跟踪分支(git checkout -b <local> --track <remote>)。
 pub(crate) fn checkout_remote(repo: &Repo, remote_branch: &str) -> Result<(), Error> {
     // 工作区脏时拒绝(与 switch_branch 一致)
-    let dirty = !repo.git(&["status", "--porcelain"])?.trim().is_empty();
+    // 忽略子模块状态:切换主仓分支不要求子模块干净(git 本身允许),否则子模块指针差异会被误判为脏。
+    let dirty = !repo
+        .git(&["status", "--porcelain", "--ignore-submodules=all"])?
+        .trim()
+        .is_empty();
     if dirty {
         return Err(Error::Precondition(
             "工作区有未提交改动，请先提交或暂存".into(),
@@ -150,7 +154,11 @@ pub(crate) fn create_branch(repo: &Repo, name: &str, start: Option<&str>) -> Res
 /// 切换到指定分支。
 pub(crate) fn switch_branch(repo: &Repo, name: &str) -> Result<(), Error> {
     // 检查工作区是否脏
-    let dirty = !repo.git(&["status", "--porcelain"])?.trim().is_empty();
+    // 忽略子模块状态:切换主仓分支不要求子模块干净(git 本身允许),否则子模块指针差异会被误判为脏。
+    let dirty = !repo
+        .git(&["status", "--porcelain", "--ignore-submodules=all"])?
+        .trim()
+        .is_empty();
     if dirty {
         return Err(Error::Precondition(
             "工作区有未提交改动，请先提交或暂存".into(),
@@ -163,7 +171,11 @@ pub(crate) fn switch_branch(repo: &Repo, name: &str) -> Result<(), Error> {
 /// 检出某个提交,进入 detached HEAD(对标 WebStorm Checkout Revision)。
 /// 脏工作区先拒绝,提示提交或暂存(与 [`switch_branch`] 一致,不自动 stash)。
 pub(crate) fn checkout_commit(repo: &Repo, sha: &str) -> Result<(), Error> {
-    let dirty = !repo.git(&["status", "--porcelain"])?.trim().is_empty();
+    // 忽略子模块状态:切换主仓分支不要求子模块干净(git 本身允许),否则子模块指针差异会被误判为脏。
+    let dirty = !repo
+        .git(&["status", "--porcelain", "--ignore-submodules=all"])?
+        .trim()
+        .is_empty();
     if dirty {
         return Err(Error::Precondition(
             "工作区有未提交改动，请先提交或暂存".into(),
