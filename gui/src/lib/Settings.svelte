@@ -1,6 +1,8 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
+  import { openUrl } from "@tauri-apps/plugin-opener";
+  import { checkForUpdate } from "$lib/updateCheck";
 
   interface AppSettings {
     update_strategy: "Merge" | "Rebase";
@@ -141,6 +143,30 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") onClose();
+  }
+
+  // ── 手动检查更新 ──
+  let checking = $state(false);
+  let checkMsg = $state("");
+  let updateUrl = $state("");
+
+  async function manualCheck() {
+    checking = true;
+    checkMsg = "";
+    updateUrl = "";
+    try {
+      const u = await checkForUpdate();
+      if (u) {
+        checkMsg = `发现新版本 v${u.latest}（当前 v${u.current}）`;
+        updateUrl = u.url;
+      } else {
+        checkMsg = "已是最新版本";
+      }
+    } catch (e) {
+      checkMsg = "检查失败：" + String(e);
+    } finally {
+      checking = false;
+    }
   }
 </script>
 
@@ -335,6 +361,24 @@
             >
           </span>
         </label>
+
+        <!-- ─── 软件更新 ─── -->
+        <fieldset class="st-group">
+          <legend>🔄 软件更新</legend>
+          <div class="update-row">
+            <button class="st-cancel" disabled={checking} onclick={manualCheck}>
+              {checking ? "检查中…" : "检查更新"}
+            </button>
+            {#if checkMsg}
+              <span class="update-msg">{checkMsg}</span>
+            {/if}
+            {#if updateUrl}
+              <button class="seg-btn" onclick={() => openUrl(updateUrl)}
+                >打开下载页</button
+              >
+            {/if}
+          </div>
+        </fieldset>
       </div>
 
       <div class="st-actions">
@@ -588,6 +632,18 @@
   .seg-sm {
     padding: 4px 10px;
     font-size: var(--fs-xs, 11px);
+  }
+
+  /* ── 软件更新行 ── */
+  .update-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .update-msg {
+    font-size: var(--fs-sm, 12px);
+    color: var(--text-secondary);
   }
 
   /* ── Glow 行 ── */

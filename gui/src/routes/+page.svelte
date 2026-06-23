@@ -13,6 +13,7 @@
   import BranchPicker from "$lib/BranchPicker.svelte";
   import ConflictView from "$lib/ConflictView.svelte";
   import Settings from "$lib/Settings.svelte";
+  import UpdateBanner from "$lib/UpdateBanner.svelte";
   import StashView from "$lib/StashView.svelte";
   import TagView from "$lib/TagView.svelte";
   import "../lib/themes.css";
@@ -885,6 +886,9 @@
       </div>
     </div>
   {/if}
+
+  <!-- ── 新版本提醒条(有更新时显示) ── -->
+  <UpdateBanner />
 
   <!-- ── 顶栏 ── -->
   <header class="topbar">
