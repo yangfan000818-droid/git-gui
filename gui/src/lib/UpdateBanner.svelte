@@ -45,11 +45,11 @@
   .update-banner {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 14px;
-    background: rgba(86, 211, 100, 0.12);
-    border-bottom: 1px solid rgba(86, 211, 100, 0.25);
-    font-size: 12px;
+    gap: var(--space-md);
+    padding: var(--space-sm) 14px;
+    background: rgba(0, 255, 136, 0.12);
+    border-bottom: 1px solid rgba(0, 255, 136, 0.3);
+    font-size: var(--fs-sm);
     color: var(--text-primary);
     flex-shrink: 0;
   }
@@ -62,16 +62,16 @@
   }
   .ub-view {
     flex-shrink: 0;
-    background: rgba(86, 211, 100, 0.16);
-    border: 1px solid rgba(86, 211, 100, 0.3);
-    border-radius: 4px;
+    background: rgba(0, 255, 136, 0.2);
+    border: 1px solid rgba(0, 255, 136, 0.3);
+    border-radius: var(--radius-sm);
     color: var(--accent-neon, #56d364);
     cursor: pointer;
-    font-size: 11px;
-    padding: 3px 12px;
+    font-size: var(--fs-xs);
+    padding: 3px var(--space-md);
   }
   .ub-view:hover {
-    background: rgba(86, 211, 100, 0.24);
+    background: rgba(0, 255, 136, 0.3);
   }
   .ub-dismiss {
     flex-shrink: 0;
@@ -79,9 +79,9 @@
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 16px;
+    font-size: var(--fs-xl);
     line-height: 1;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
   }
   .ub-dismiss:hover {
     color: var(--text-primary);

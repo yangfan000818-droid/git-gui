@@ -260,7 +260,7 @@
   .rb-panel {
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     width: 640px;
     max-width: 94%;
     max-height: 86%;
@@ -271,10 +271,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 18px 6px;
+    padding: 14px 18px var(--space-sm);
   }
   .rb-header h3 {
-    font-size: 15px;
+    font-size: var(--fs-lg);
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
@@ -283,9 +283,9 @@
     background: transparent;
     border: none;
     color: var(--text-muted);
-    font-size: 18px;
+    font-size: var(--fs-xl);
     cursor: pointer;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     line-height: 1;
   }
   .rb-close:hover:not(:disabled) {
@@ -297,23 +297,23 @@
   }
   .rb-hint {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     margin: 0;
-    padding: 0 18px 8px;
+    padding: 0 18px var(--space-sm);
   }
   .rb-error {
-    background: rgba(247, 120, 139, 0.12);
-    border-top: 1px solid rgba(247, 120, 139, 0.25);
-    border-bottom: 1px solid rgba(247, 120, 139, 0.25);
-    padding: 8px 18px;
+    background: rgba(255, 51, 102, 0.12);
+    border-top: 1px solid rgba(255, 51, 102, 0.3);
+    border-bottom: 1px solid rgba(255, 51, 102, 0.3);
+    padding: var(--space-sm) 18px;
     color: var(--color-error);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     white-space: pre-wrap;
     margin: 0;
   }
   .rb-muted {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     text-align: center;
     padding: 22px 18px;
     margin: 0;
@@ -321,15 +321,15 @@
   .rb-list {
     list-style: none;
     margin: 0;
-    padding: 6px 12px;
+    padding: var(--space-sm) var(--space-md);
     overflow-y: auto;
   }
   .rb-item {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 6px;
-    border-radius: 4px;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
   }
   .rb-item:hover {
     background: var(--bg-elevated);
@@ -345,12 +345,12 @@
   .rb-mv {
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
     font-size: 9px;
     line-height: 1;
-    padding: 1px 4px;
+    padding: 1px var(--space-xs);
   }
   .rb-mv:hover:not(:disabled) {
     background: var(--bg-hover);
@@ -362,22 +362,22 @@
   .rb-action {
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-primary);
-    font-size: 12px;
-    padding: 4px 6px;
+    font-size: var(--fs-sm);
+    padding: var(--space-xs) var(--space-sm);
     flex-shrink: 0;
   }
   .rb-sha {
     color: var(--text-muted);
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--fs-code);
     flex-shrink: 0;
   }
   .rb-subject {
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: var(--fs-base);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -388,16 +388,16 @@
     flex: 1;
     min-width: 0;
     background: var(--bg-surface);
-    border: 1px solid rgba(86, 211, 100, 0.15);
-    border-radius: 4px;
+    border: 1px solid rgba(0, 255, 136, 0.2);
+    border-radius: var(--radius-sm);
     color: var(--text-primary);
-    font-size: 12px;
-    padding: 4px 8px;
+    font-size: var(--fs-sm);
+    padding: var(--space-xs) var(--space-sm);
   }
   .rb-summary {
     color: var(--text-muted);
-    font-size: 12px;
-    padding: 8px 18px 0;
+    font-size: var(--fs-sm);
+    padding: var(--space-sm) 18px 0;
     border-top: 1px solid var(--border-default);
   }
   .rb-invalid {
@@ -405,20 +405,20 @@
   }
   .rb-actions {
     display: flex;
-    gap: 8px;
-    padding: 12px 18px 16px;
+    gap: var(--space-sm);
+    padding: var(--space-md) 18px var(--space-lg);
   }
   .rb-start {
-    background: rgba(86, 211, 100, 0.12);
-    border: 1px solid rgba(86, 211, 100, 0.25);
-    border-radius: 4px;
+    background: rgba(0, 255, 136, 0.12);
+    border: 1px solid rgba(0, 255, 136, 0.3);
+    border-radius: var(--radius-sm);
     color: #fff;
     cursor: pointer;
-    font-size: 13px;
-    padding: 6px 18px;
+    font-size: var(--fs-base);
+    padding: var(--space-sm) 18px;
   }
   .rb-start:hover:not(:disabled) {
-    background: rgba(86, 211, 100, 0.18);
+    background: rgba(0, 255, 136, 0.2);
   }
   .rb-start:disabled {
     opacity: 0.4;
@@ -427,11 +427,11 @@
   .rb-cancel {
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 13px;
-    padding: 6px 16px;
+    font-size: var(--fs-base);
+    padding: var(--space-sm) var(--space-lg);
   }
   .rb-cancel:hover:not(:disabled) {
     background: var(--bg-hover);

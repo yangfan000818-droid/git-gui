@@ -184,7 +184,7 @@
   .clone-panel {
     background: var(--bg-base);
     border: 1px solid var(--border-default);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     width: 480px;
     max-width: 90vw;
     padding: 18px 20px;
@@ -194,21 +194,21 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 16px;
+    margin-bottom: var(--space-lg);
   }
   .clone-header h3 {
     margin: 0;
-    font-size: 16px;
+    font-size: var(--fs-xl);
     color: var(--text-primary);
   }
   .btn-close {
     background: transparent;
     border: none;
     color: var(--text-muted);
-    font-size: 22px;
+    font-size: var(--fs-xl);
     line-height: 1;
     cursor: pointer;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
   }
   .btn-close:hover:not(:disabled) {
     color: var(--text-primary);
@@ -224,16 +224,16 @@
     margin-bottom: 14px;
   }
   .field-label {
-    font-size: 12px;
+    font-size: var(--fs-sm);
     color: var(--text-secondary);
   }
   .field-input {
     background: var(--bg-surface);
     border: 1px solid var(--bg-hover);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-primary);
-    font-size: 13px;
-    padding: 7px 10px;
+    font-size: var(--fs-base);
+    padding: 7px var(--space-md);
   }
   .field-input:focus {
     outline: none;
@@ -244,7 +244,7 @@
   }
   .dir-row {
     display: flex;
-    gap: 8px;
+    gap: var(--space-sm);
     align-items: center;
   }
   .dir-path {
@@ -252,11 +252,11 @@
     min-width: 0;
     background: var(--bg-surface);
     border: 1px solid var(--bg-hover);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--fs-code);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    padding: 7px 10px;
+    padding: 7px var(--space-md);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -268,11 +268,11 @@
     flex-shrink: 0;
     background: var(--bg-hover);
     border: 1px solid var(--border-default);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 12px;
-    padding: 7px 12px;
+    font-size: var(--fs-sm);
+    padding: 7px var(--space-md);
   }
   .btn-dir:hover:not(:disabled) {
     border-color: var(--accent-cyan);
@@ -282,17 +282,17 @@
     cursor: default;
   }
   .dir-hint {
-    font-size: 11px;
+    font-size: var(--fs-xs);
     color: var(--text-muted);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   .clone-error {
-    background: rgba(247, 120, 139, 0.12);
-    border: 1px solid rgba(247, 120, 139, 0.25);
-    border-radius: 4px;
+    background: rgba(255, 51, 102, 0.12);
+    border: 1px solid rgba(255, 51, 102, 0.3);
+    border-radius: var(--radius-sm);
     color: var(--color-error);
-    font-size: 12px;
-    padding: 8px 10px;
+    font-size: var(--fs-sm);
+    padding: var(--space-sm) var(--space-md);
     margin: 0 0 14px;
     white-space: pre-wrap;
     word-break: break-word;
@@ -300,7 +300,7 @@
   .progress-bar-wrap {
     position: relative;
     background: var(--bg-surface);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     height: 24px;
     overflow: hidden;
     margin-bottom: 14px;
@@ -308,7 +308,7 @@
   .progress-bar-fill {
     position: absolute;
     inset: 0 auto 0 0;
-    background: rgba(88, 166, 255, 0.3);
+    background: rgba(0, 212, 255, 0.3);
     transition: width 0.2s;
   }
   .progress-text {
@@ -316,22 +316,22 @@
     inset: 0;
     display: flex;
     align-items: center;
-    padding: 0 10px;
-    font-size: 11px;
+    padding: 0 var(--space-md);
+    font-size: var(--fs-xs);
     color: var(--text-primary);
   }
   .clone-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-sm);
     justify-content: flex-end;
   }
   .btn-primary {
     background: var(--accent-cyan);
     border: 1px solid #58a6ff;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     cursor: pointer;
-    font-size: 13px;
+    font-size: var(--fs-base);
     padding: 7px 18px;
   }
   .btn-primary:hover:not(:disabled) {
@@ -345,10 +345,10 @@
   .btn-cancel {
     background: var(--border-default);
     border: 1px solid var(--border-default);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 13px;
+    font-size: var(--fs-base);
     padding: 7px 18px;
   }
   .btn-secondary:hover,

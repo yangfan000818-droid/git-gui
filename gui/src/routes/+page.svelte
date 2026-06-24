@@ -16,7 +16,16 @@
   import UpdateBanner from "$lib/UpdateBanner.svelte";
   import StashView from "$lib/StashView.svelte";
   import TagView from "$lib/TagView.svelte";
+  import Fireworks from "$lib/effects/Fireworks.svelte";
+  import MatrixRain from "$lib/effects/MatrixRain.svelte";
+
+  import Starfield from "$lib/effects/Starfield.svelte";
+  import ParticleNetwork from "$lib/effects/ParticleNetwork.svelte";
+  import CursorEffects from "$lib/effects/CursorEffects.svelte";
+  import TerminalBoot from "$lib/effects/TerminalBoot.svelte";
+  import ErrorBurst from "$lib/effects/ErrorBurst.svelte";
   import "../lib/themes.css";
+  import "../lib/effects/effects.css";
 
   // ── 外观设置接口（与 Rust AppSettings 外观字段对应） ──
   interface AppearanceSettings {
@@ -30,7 +39,7 @@
 
   function applyAppearance(s: AppearanceSettings) {
     const body = document.body;
-    body.setAttribute("data-theme", s.theme || "neon-dark");
+    body.setAttribute("data-theme", s.theme || "cyberpunk");
     body.setAttribute("data-density", s.density || "comfortable");
     body.setAttribute("data-font-size", s.font_size || "medium");
     body.setAttribute(
@@ -184,6 +193,29 @@
   let commitMessage = $state("");
   let amendMode = $state(false); // amend 模式:仅修改主仓库上次提交
   let commitResult = $state("");
+  let showFireworks = $state(false);
+  let matrixIntensity = $state<"subtle" | "medium" | "heavy">("subtle");
+  let showBoot = $state(true);
+  let errorBurst = $state(false);
+  let prevError = $state("");
+
+  $effect(() => {
+    if (showFireworks) {
+      matrixIntensity = "heavy";
+      setTimeout(() => {
+        showFireworks = false;
+        matrixIntensity = "subtle";
+      }, 2000);
+    }
+  });
+
+  $effect(() => {
+    if (error && error !== prevError) {
+      errorBurst = true;
+      prevError = error;
+      setTimeout(() => (errorBurst = false), 1200);
+    }
+  });
   let totalUnstaged = $derived(
     repos.reduce((n, r) => n + r.unstaged.length, 0),
   );
@@ -571,6 +603,7 @@
       commitMessage = "";
       amendMode = false;
       commitResult = "已修改主仓库上次提交";
+      showFireworks = true;
       await refresh();
     } catch (e) {
       error = String(e);
@@ -599,6 +632,7 @@
       }
       commitMessage = "";
       commitResult = `已提交 ${targets.length} 个仓库`;
+      showFireworks = true;
       await refresh();
     } catch (e) {
       error = String(e);
@@ -869,7 +903,12 @@
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && (showMore = false)} />
 
-<main>
+<!-- ── Terminal Boot Sequence ── -->
+{#if showBoot}
+  <TerminalBoot ondone={() => (showBoot = false)} />
+{/if}
+
+<main class="screen-tear rgb-split">
   <!-- ── 项目选择器覆盖层 ── -->
   {#if showProjectPicker}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -893,8 +932,8 @@
   <UpdateBanner />
 
   <!-- ── 顶栏 ── -->
-  <header class="topbar">
-    <span class="logo">git-gui</span>
+  <header class="topbar data-stream">
+    <span class="logo neon-flicker">git-gui</span>
     <div class="path-bar">
       {#if status}
         <button
@@ -984,7 +1023,7 @@
       </div>
     {/if}
     <button
-      class="btn-settings"
+      class="btn-settings energy-pulse"
       onclick={() => (showSettings = true)}
       title="设置:更新策略等全局配置"
       aria-label="设置">⚙</button
@@ -1030,7 +1069,7 @@
     {#if status}
       <div class="split">
         <!-- ── 左侧:主仓库 + 各子仓库,每个都能独立暂存/提交 ── -->
-        <aside class="file-list">
+        <aside class="file-list hud-brackets">
           <div class="repo-scroll">
             <!-- 未暂存区:各仓库分组(含仓库操作按钮) + 未暂存目录树 -->
             <section class="zone">
@@ -1263,7 +1302,7 @@
         </aside>
 
         <!-- ── 右侧:diff 视图 ── -->
-        <section class="diff-view">
+        <section class="diff-view glitch-block">
           {#if diffLoading}
             <p class="muted placeholder">加载 diff 中…</p>
           {:else if selectedFile}
@@ -1441,7 +1480,7 @@
   <!-- ── 分支 ↔ 工作区差异弹层(Show Diff with Working Tree) ── -->
   {#if branchDiff}
     <div class="update-overlay">
-      <div class="branch-diff-modal">
+      <div class="branch-diff-modal holo-scan">
         <div class="bd-header">
           <h2 class="bd-title">
             <span class="bd-branch">{branchDiff.branch}</span> ↔ 工作区
@@ -1466,7 +1505,7 @@
   <!-- ── 分支↔当前提交对比弹层(Compare with Current) ── -->
   {#if compareResult}
     <div class="update-overlay">
-      <div class="branch-diff-modal">
+      <div class="branch-diff-modal holo-scan">
         <div class="bd-header">
           <h2 class="bd-title">
             对比 <span class="bd-branch">{compareResult.branch}</span> ↔ 当前分支
@@ -1542,6 +1581,15 @@
   {#if showTags && status}
     <TagView {path} onClose={() => (showTags = false)} onChanged={refresh} />
   {/if}
+
+  <!-- ── Cyberpunk effects layer ── -->
+  <Starfield active={true} density={100} speed={0.12} />
+  <ParticleNetwork active={true} count={50} maxDist={140} />
+  <div class="scan-beam" aria-hidden="true"></div>
+  <CursorEffects active={true} />
+  <MatrixRain active={true} intensity={matrixIntensity} />
+  <Fireworks trigger={showFireworks} />
+  <ErrorBurst trigger={errorBurst} />
 </main>
 
 <style>
@@ -1550,17 +1598,16 @@
      Themes are imported via JS import "../lib/themes.css"
      ═══════════════════════════════════════════════════ */
   :global(body) {
-    /* ── Radii (theme-independent) ── */
-    --radius-sm: 4px;
-    --radius-md: 6px;
+    /* ── Radii: subtle rounding (softened cyberpunk) ── */
+    --radius-sm: 3px;
+    --radius-md: 5px;
     --radius-lg: 8px;
     --radius-xl: 12px;
 
     margin: 0;
     background: var(--bg-void);
     color: var(--text-primary);
-    font-family:
-      -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-family: var(--font-ui);
     font-size: var(--fs-base, 13px);
     -webkit-font-smoothing: antialiased;
     transition:
@@ -1568,19 +1615,34 @@
       color 0.35s ease;
   }
 
-  /* ═══ Subtle scanline texture (theme-aware) ═══ */
+  /* ═══ CRT Scanline texture (cyberpunk) ═══ */
   :global(body)::after {
     content: "";
     position: fixed;
     inset: 0;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 99998;
+    opacity: var(--scanline-opacity, 0.03);
     background: repeating-linear-gradient(
       0deg,
       transparent,
-      transparent 3px,
-      var(--scanline-color, rgba(0, 0, 0, 0.015)) 3px,
-      var(--scanline-color, rgba(0, 0, 0, 0.015)) 6px
+      transparent 2px,
+      rgba(0, 0, 0, 0.6) 2px,
+      rgba(0, 0, 0, 0.6) 4px
+    );
+  }
+
+  /* ═══ CRT Vignette ═══ */
+  :global(body)::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 99997;
+    background: radial-gradient(
+      ellipse at center,
+      transparent 55%,
+      rgba(0, 0, 0, 0.35) 100%
     );
   }
 
@@ -1590,11 +1652,11 @@
     height: 100vh;
   }
 
-  /* ═══ Global focus ring ═══ */
+  /* ═══ Global focus ring (neon glow) ═══ */
   :global(*:focus-visible) {
-    outline: 2px solid var(--accent-cyan);
-    outline-offset: 1px;
-    border-radius: 2px;
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 8px var(--accent);
   }
 
   /* ═══ Overlay fade-in ═══ */
@@ -1624,62 +1686,67 @@
   }
 
   /* ══════════════════════════════════════
-     TOPBAR — Gradient + subtle edge accent
+     TOPBAR — Cyberpunk command bar with glitched logo
      ══════════════════════════════════════ */
   .topbar {
     display: flex;
     align-items: center;
     gap: var(--space-md, 12px);
     padding: var(--topbar-py, 8px) var(--topbar-px, 14px);
-    background: var(
-      --topbar-bg,
-      linear-gradient(
-        135deg,
-        #0d111a 0%,
-        #141c28 40%,
-        #111928 70%,
-        #0d111a 100%
-      )
-    );
-    border-bottom: 1px solid var(--border-default);
+    background: var(--topbar-bg);
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     position: relative;
     z-index: 2;
   }
-  /* Subtle top-edge accent line */
+  /* Acid-edge accent line */
   .topbar::before {
     content: "";
     position: absolute;
     inset: 0 0 auto 0;
     height: 1px;
-    background: var(
-      --topbar-accent,
-      linear-gradient(
-        90deg,
-        transparent,
-        var(--accent-cyan),
-        var(--accent-purple),
-        transparent
-      )
-    );
-    opacity: 0.2;
+    background: var(--topbar-accent);
+    opacity: 0.5;
     pointer-events: none;
+    animation: rgbShift 3s steps(4) infinite;
   }
 
+  /* Glitched logo with chromatic aberration */
   .logo {
-    font-weight: 800;
+    font-family: var(--font-mono);
+    font-weight: 900;
     font-size: var(--fs-lg, 15px);
-    letter-spacing: 0.02em;
-    background: linear-gradient(135deg, var(--accent-neon), var(--accent-cyan));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    text-shadow: none;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    text-shadow:
+      0 0 10px var(--accent),
+      -2px 0 rgba(255, 0, 255, 0.5),
+      2px 0 rgba(0, 212, 255, 0.5);
     flex-shrink: 0;
-    transition: filter 0.3s;
+    position: relative;
+    animation: rgbShift 3s steps(4) infinite;
   }
-  .logo:hover {
-    filter: brightness(1.2);
+  @keyframes rgbShift {
+    0%,
+    100% {
+      text-shadow:
+        0 0 10px var(--accent),
+        -2px 0 rgba(255, 0, 255, 0.5),
+        2px 0 rgba(0, 212, 255, 0.5);
+    }
+    33% {
+      text-shadow:
+        0 0 8px var(--accent),
+        2px 0 rgba(255, 0, 255, 0.6),
+        -2px 0 rgba(0, 212, 255, 0.3);
+    }
+    66% {
+      text-shadow:
+        0 0 12px var(--accent),
+        -3px 0 rgba(255, 0, 255, 0.3),
+        3px 0 rgba(0, 212, 255, 0.6);
+    }
   }
 
   .path-bar {
@@ -1691,12 +1758,10 @@
     flex: 1;
     max-width: 360px;
     background: var(--bg-surface) !important;
-    border: 1px solid var(--border-default) !important;
-    border-radius: var(--radius-md);
+    border: 1px solid var(--border) !important;
     color: var(--text-primary) !important;
     padding: 6px 10px !important;
-    font-family:
-      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: var(--fs-code, 12px);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1704,179 +1769,199 @@
     text-align: left;
     cursor: pointer;
     transition:
-      border-color 0.2s,
-      box-shadow 0.2s;
+      border-color 100ms steps(4),
+      box-shadow 100ms steps(4);
   }
   .current-path:hover:not(:disabled) {
-    border-color: var(--accent-cyan) !important;
-    box-shadow: 0 0 8px rgba(88, 166, 255, 0.15);
+    border-color: var(--accent) !important;
+    box-shadow: var(--glow-neon);
     background: var(--bg-elevated) !important;
   }
   .current-path-empty {
     flex: 1;
     max-width: 360px;
     background: var(--bg-surface) !important;
-    border: 1px dashed var(--border-default) !important;
-    border-radius: var(--radius-md);
+    border: 1px dashed var(--border) !important;
     color: var(--text-muted) !important;
     padding: 6px 10px !important;
     font-size: 12px;
     text-align: left;
     cursor: pointer;
-    transition:
-      border-color 0.2s,
-      box-shadow 0.2s;
+    transition: border-color 100ms steps(4);
   }
   .current-path-empty:hover:not(:disabled) {
-    border-color: var(--accent-cyan) !important;
-    box-shadow: 0 0 8px rgba(88, 166, 255, 0.15);
+    border-color: var(--accent) !important;
+    box-shadow: var(--glow-neon);
   }
   .path-bar button {
-    background: var(--bg-elevated);
-    border: 1px solid var(--accent-cyan);
-    border-radius: var(--radius-md);
-    color: var(--accent-cyan);
-    padding: 6px 14px;
-    font-size: 12px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 11px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 6px 12px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 100ms steps(4);
   }
   .path-bar button:hover:not(:disabled) {
-    background: var(--accent-cyan);
-    color: #000;
-    box-shadow: var(--glow-cyan);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: var(--glow-neon);
   }
   .path-bar button:disabled {
-    opacity: 0.4;
+    opacity: 0.3;
     cursor: default;
   }
   .btn-refresh {
     background: var(--bg-surface) !important;
-    border: 1px solid var(--border-default) !important;
-    color: var(--text-secondary) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-muted) !important;
     padding: 6px 10px !important;
     flex-shrink: 0;
+    font-family: var(--font-mono);
   }
   .btn-refresh:hover:not(:disabled) {
-    border-color: var(--accent-neon) !important;
-    color: var(--accent-neon) !important;
-    box-shadow: 0 0 8px rgba(86, 211, 100, 0.12);
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+    box-shadow: var(--glow-neon);
   }
 
-  /* ═══ TAB BAR ═══ */
+  /* ═══ TAB BAR — Neon underline nav ═══ */
   .tab-bar {
     display: flex;
     background: var(--bg-base);
-    border-bottom: 1px solid var(--border-default);
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
   .tab-btn {
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
-    color: var(--text-primary);
+    color: var(--text-muted);
     cursor: pointer;
-    font-size: var(--fs-sm, 13px);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm, 12px);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
     padding: var(--tab-py, 8px) var(--tab-px, 18px);
-    transition:
-      color 0.2s,
-      border-color 0.2s,
-      text-shadow 0.2s,
-      background 0.15s;
+    transition: color 150ms steps(3);
     position: relative;
+  }
+  .tab-btn::after {
+    content: "";
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 100%;
+    height: 2px;
+    background: var(--accent);
+    transition: right 150ms steps(4);
   }
   .tab-btn:hover {
     color: var(--text-secondary);
-    background: rgba(255, 255, 255, 0.02);
+  }
+  .tab-btn:hover::after {
+    right: 0;
   }
   .tab-active {
-    color: var(--accent-neon);
-    border-bottom-color: var(--accent-neon);
-    text-shadow: 0 0 6px rgba(86, 211, 100, 0.25);
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    text-shadow: 0 0 8px rgba(0, 255, 136, 0.4);
+  }
+  .tab-active::after {
+    display: none;
   }
 
-  /* ═══ PROJECT PICKER ═══ */
+  /* ═══ PROJECT PICKER — Chamfered overlay ═══ */
   .picker-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(4px);
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(6px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
-    animation: overlay-in 0.2s ease;
+    animation: overlay-in 150ms steps(5);
   }
   .picker-modal {
     background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
+    border: 1px solid var(--accent);
     padding: 24px;
     max-width: 90%;
     max-height: 90%;
     overflow-y: auto;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
-    animation: modal-in 0.25s ease;
+    box-shadow:
+      0 0 15px rgba(0, 255, 136, 0.2),
+      0 0 30px rgba(0, 255, 136, 0.05),
+      0 8px 40px rgba(0, 0, 0, 0.6);
+    animation: modal-in 200ms steps(6);
+    border-radius: var(--radius-lg);
   }
 
   /* ═══ UPDATE OVERLAY ═══ */
   .update-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(4px);
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(6px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
-    animation: overlay-in 0.2s ease;
+    animation: overlay-in 150ms steps(5);
   }
   .update-modal {
     background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
+    border: 1px solid var(--accent);
     width: 540px;
     max-width: 92%;
     max-height: 90%;
     overflow-y: auto;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
-    animation: modal-in 0.25s ease;
+    box-shadow:
+      0 0 15px rgba(0, 255, 136, 0.2),
+      0 8px 40px rgba(0, 0, 0, 0.6);
+    animation: modal-in 200ms steps(6);
+    border-radius: var(--radius-lg);
   }
 
   /* ═══ BRANCH DIFF MODAL ═══ */
   .branch-diff-modal {
     background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
     width: 760px;
     max-width: 94%;
     max-height: 88%;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
-    animation: modal-in 0.25s ease;
+    box-shadow:
+      0 0 12px rgba(0, 255, 136, 0.15),
+      0 8px 40px rgba(0, 0, 0, 0.6);
+    animation: modal-in 200ms steps(6);
+    border-radius: var(--radius-lg);
   }
   .bd-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border-default);
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+    font-family: var(--font-mono);
   }
   .bd-title {
     margin: 0;
     font-size: var(--fs-lg, 14px);
     font-weight: 600;
-    color: var(--text-primary);
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
   .bd-branch {
-    font-family:
-      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     color: var(--accent-gold);
   }
   .bd-close {
@@ -1887,12 +1972,11 @@
     font-size: 16px;
     line-height: 1;
     padding: 4px 8px;
-    border-radius: var(--radius-sm);
-    transition: all 0.15s;
+    transition: all 100ms steps(4);
   }
   .bd-close:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+    color: var(--destructive);
+    text-shadow: var(--glow-error);
   }
   .branch-diff-body {
     flex: 1;
@@ -1901,6 +1985,7 @@
   }
   .diff-empty {
     color: var(--text-muted);
+    font-family: var(--font-mono);
     font-size: 12px;
     text-align: center;
     padding: 32px 18px;
@@ -1916,27 +2001,30 @@
     align-items: center;
     gap: 8px;
     margin: 0 0 8px;
+    font-family: var(--font-mono);
     font-size: 12px;
     font-weight: 600;
-    color: var(--text-secondary);
-    border-bottom: 1px solid var(--border-default);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
     padding-bottom: 6px;
   }
   .cmp-branch {
-    font-family:
-      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     color: var(--accent-gold);
   }
   .cmp-count {
-    background: rgba(188, 140, 255, 0.15);
-    color: var(--accent-purple);
+    background: rgba(255, 0, 255, 0.12);
+    color: var(--accent-secondary);
+    font-family: var(--font-mono);
     font-size: 11px;
-    border-radius: 10px;
     padding: 1px 8px;
-    border: 1px solid rgba(188, 140, 255, 0.2);
+    border: 1px solid rgba(255, 0, 255, 0.3);
   }
   .cmp-none {
     color: var(--text-muted);
+    font-family: var(--font-mono);
     font-size: 12px;
     margin: 0 0 4px;
     padding-left: 2px;
@@ -1951,10 +2039,9 @@
     align-items: baseline;
     gap: 10px;
     padding: 4px 2px;
-    font-family:
-      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
-    border-bottom: 1px solid var(--border-dim);
+    border-bottom: 1px solid var(--border);
   }
   .cmp-sha {
     color: var(--accent-gold);
@@ -1973,24 +2060,26 @@
     font-size: 11px;
   }
 
-  /* ═══ BADGES ═══ */
+  /* ═══ BADGES — Neon pill badges ═══ */
   .badge {
-    font-size: 11px;
-    border-radius: 10px;
-    padding: 1px 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 1px 6px;
   }
   .ahead {
-    background: rgba(86, 211, 100, 0.12);
-    color: var(--accent-neon);
-    border: 1px solid rgba(86, 211, 100, 0.2);
+    background: rgba(0, 255, 136, 0.12);
+    color: var(--accent);
+    border: 1px solid rgba(0, 255, 136, 0.3);
   }
   .behind {
-    background: rgba(88, 166, 255, 0.12);
-    color: var(--accent-cyan);
-    border: 1px solid rgba(88, 166, 255, 0.2);
+    background: rgba(0, 212, 255, 0.12);
+    color: var(--accent-tertiary);
+    border: 1px solid rgba(0, 212, 255, 0.3);
   }
 
-  /* ═══ REMOTE ACTIONS ═══ */
+  /* ═══ REMOTE ACTIONS — Command chips ═══ */
   .remote-actions {
     display: flex;
     gap: 6px;
@@ -1998,32 +2087,34 @@
     flex-shrink: 0;
   }
   .btn-remote {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 11px;
     background: var(--bg-surface);
-    border: 1px solid var(--accent-cyan);
-    border-radius: var(--radius-md);
-    color: var(--accent-cyan);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
     cursor: pointer;
-    font-size: 12px;
     padding: 5px 12px;
     white-space: nowrap;
-    transition: all 0.2s;
+    transition: all 100ms steps(4);
   }
   .btn-remote:hover:not(:disabled) {
-    background: var(--accent-cyan);
-    color: #000;
-    box-shadow: var(--glow-cyan);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: var(--glow-neon);
   }
   .btn-remote:disabled {
-    opacity: 0.4;
+    opacity: 0.3;
     cursor: default;
   }
   .btn-remote.active {
-    background: var(--accent-cyan);
-    color: #000;
-    box-shadow: var(--glow-cyan);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: var(--glow-neon);
   }
 
-  /* ═══ MORE DROPDOWN ═══ */
+  /* ═══ MORE DROPDOWN — Cyberpunk flyout ═══ */
   .more-wrap {
     position: relative;
     display: inline-flex;
@@ -2044,60 +2135,66 @@
     z-index: 50;
     display: flex;
     flex-direction: column;
-    min-width: 132px;
+    min-width: 140px;
     background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
     padding: 4px;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-    animation: modal-in 0.15s ease;
+    box-shadow:
+      0 4px 20px rgba(0, 0, 0, 0.7),
+      var(--glow-neon);
+    animation: modal-in 120ms steps(5);
     transform-origin: top right;
   }
   .more-item {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 11px;
     background: transparent;
     border: none;
-    border-radius: var(--radius-sm);
     color: var(--text-primary);
     cursor: pointer;
-    font-size: 12px;
     text-align: left;
     padding: 6px 10px;
     white-space: nowrap;
-    transition: background 0.15s;
+    transition: all 100ms steps(4);
   }
   .more-item:hover:not(:disabled) {
     background: var(--bg-hover);
+    color: var(--accent);
+    text-shadow: 0 0 6px rgba(0, 255, 136, 0.3);
   }
   .more-item:disabled {
-    opacity: 0.35;
+    opacity: 0.3;
     cursor: default;
   }
   .btn-settings {
     margin-left: auto;
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     color: var(--text-muted);
     cursor: pointer;
     font-size: var(--fs-xl, 17px);
     line-height: 1;
     padding: 4px 8px;
-    border-radius: var(--radius-sm);
     flex-shrink: 0;
-    transition: all 0.15s;
+    transition: all 100ms steps(4);
   }
   .btn-settings:hover {
-    color: var(--accent-neon);
-    background: var(--bg-hover);
-    text-shadow: 0 0 6px rgba(86, 211, 100, 0.25);
+    border-color: var(--border);
+    color: var(--accent);
+    text-shadow: 0 0 8px rgba(0, 255, 136, 0.4);
   }
 
   /* ═══ ERROR & OP MESSAGE ═══ */
   .error {
-    background: rgba(247, 120, 139, 0.1);
-    border-bottom: 1px solid rgba(247, 120, 139, 0.25);
+    background: rgba(255, 51, 102, 0.08);
+    border-left: 3px solid var(--destructive);
+    border-bottom: 1px solid rgba(255, 51, 102, 0.2);
     padding: 8px 14px;
-    color: var(--color-error);
+    color: var(--destructive);
     white-space: pre-wrap;
+    font-family: var(--font-mono);
     font-size: 12px;
     margin: 0;
   }
@@ -2105,14 +2202,16 @@
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    background: rgba(86, 211, 100, 0.08);
-    border-bottom: 1px solid rgba(86, 211, 100, 0.2);
+    background: rgba(0, 255, 136, 0.06);
+    border-left: 3px solid var(--accent);
+    border-bottom: 1px solid rgba(0, 255, 136, 0.15);
     padding: 8px 14px;
     margin: 0;
   }
   .op-message-text {
     flex: 1;
-    color: var(--accent-neon);
+    color: var(--accent);
+    font-family: var(--font-mono);
     font-size: 12px;
     white-space: pre-wrap;
     min-width: 0;
@@ -2121,39 +2220,55 @@
     flex-shrink: 0;
     background: transparent;
     border: none;
-    color: var(--accent-neon);
+    color: var(--accent);
     font-size: 16px;
     line-height: 1;
     cursor: pointer;
     padding: 0 2px;
-    opacity: 0.7;
-    transition: opacity 0.15s;
+    opacity: 0.6;
+    transition: opacity 100ms steps(4);
   }
   .op-message-close:hover {
     opacity: 1;
   }
 
-  /* ═══ SPLIT LAYOUT ═══ */
+  /* ═══ SPLIT LAYOUT — Cyberpunk HUD panels ═══ */
   .split {
     display: flex;
     flex: 1;
     overflow: hidden;
   }
 
-  /* ═══ FILE LIST (LEFT PANEL) ═══ */
+  /* ═══ FILE LIST (LEFT PANEL) — Chamfered + circuit BG ═══ */
   .file-list {
-    width: 280px;
+    width: 300px;
     flex-shrink: 0;
-    border-right: 1px solid var(--border-default);
+    border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     background: var(--bg-base);
+    position: relative;
+  }
+  /* Circuit pattern overlay */
+  .file-list::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.05;
+    background-image:
+      linear-gradient(90deg, var(--accent) 1px, transparent 1px),
+      linear-gradient(0deg, var(--accent) 1px, transparent 1px);
+    background-size: 40px 40px;
+    background-position: 20px 20px;
   }
   .repo-scroll {
     flex: 1;
     overflow-y: auto;
     padding: 0 0 10px;
-    contain: layout paint;
+    position: relative;
+    z-index: 1;
   }
   .zone:first-child {
     margin-top: 6px;
@@ -2172,31 +2287,33 @@
     cursor: pointer;
     min-height: 26px;
     transition:
-      background 0.15s,
-      border-left-color 0.15s;
-    border-radius: 0;
+      background 100ms steps(4),
+      border-color 100ms steps(4);
     border-left: 3px solid transparent;
+    font-family: var(--font-mono);
+    font-size: var(--fs-code, 12px);
   }
   .file-item:hover {
     background: var(--bg-hover);
-    border-left-color: var(--border-default);
+    border-left-color: var(--accent);
   }
   .file-item.conflict {
-    color: var(--color-error);
+    color: var(--destructive);
+    border-left-color: var(--destructive);
   }
   .muted {
     color: var(--text-muted);
+    font-family: var(--font-mono);
     font-size: 12px;
     padding: 4px 14px;
   }
   .repo-group .muted {
     padding: 8px 14px;
     margin: 0;
-    font-style: italic;
     font-size: 11px;
   }
 
-  /* ═══ ZONES ═══ */
+  /* ═══ ZONES — Neon-accented section headers ═══ */
   .zone {
     margin-bottom: 4px;
   }
@@ -2204,17 +2321,18 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: var(--fs-xs, 11px);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs, 10px);
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     margin: 0;
     padding: 10px 14px 8px;
     position: sticky;
     top: 0;
     background: var(--bg-base);
     z-index: 2;
-    border-bottom: 1px solid var(--border-dim);
+    border-bottom: 1px solid var(--border);
   }
   .zone-icon {
     font-size: 12px;
@@ -2224,9 +2342,9 @@
   }
   .zone-badge {
     margin-left: auto;
+    font-family: var(--font-mono);
     background: transparent;
-    border: 1px solid var(--border-default);
-    border-radius: 10px;
+    border: 1px solid;
     font-size: 10px;
     padding: 1px 8px;
     font-weight: 600;
@@ -2242,39 +2360,40 @@
   }
   .zone-unstaged .zone-badge {
     color: var(--accent-gold);
-    border-color: rgba(227, 179, 65, 0.25);
+    border-color: rgba(255, 170, 0, 0.3);
   }
 
   .zone-staged {
-    color: var(--accent-neon);
-    border-left: 3px solid var(--accent-neon);
+    color: var(--accent);
+    border-left: 3px solid var(--accent);
+    text-shadow: 0 0 6px rgba(0, 255, 136, 0.2);
   }
   .zone-staged .zone-icon {
-    color: var(--accent-neon);
+    color: var(--accent);
   }
   .zone-staged .zone-badge {
-    color: var(--accent-neon);
-    border-color: rgba(86, 211, 100, 0.25);
+    color: var(--accent);
+    border-color: rgba(0, 255, 136, 0.3);
   }
 
   .zone-conflict {
-    color: var(--color-error);
-    border-left: 3px solid var(--color-error);
+    color: var(--destructive);
+    border-left: 3px solid var(--destructive);
+    text-shadow: 0 0 6px rgba(255, 51, 102, 0.2);
   }
   .zone-conflict .zone-icon {
-    color: var(--color-error);
+    color: var(--destructive);
   }
   .zone-conflict .zone-badge {
-    color: var(--color-error);
-    border-color: rgba(247, 120, 139, 0.25);
+    color: var(--destructive);
+    border-color: rgba(255, 51, 102, 0.3);
   }
 
   /* ═══ REPO GROUPS ═══ */
   .repo-group {
     margin: 4px 8px;
     background: var(--bg-surface);
-    border: 1px solid var(--border-dim);
-    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
     overflow: hidden;
   }
   .repo-grouphead {
@@ -2283,11 +2402,10 @@
     gap: 8px;
     padding: 6px 10px;
     background: var(--bg-void);
-    border-bottom: 1px solid var(--border-dim);
+    border-bottom: 1px solid var(--border);
   }
   .repo-title {
-    font-family:
-      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 600;
     color: var(--text-secondary);
@@ -2298,14 +2416,14 @@
     flex: 1;
   }
   .repo-title.main {
-    color: var(--accent-cyan);
+    color: var(--accent-tertiary);
+    text-shadow: 0 0 4px rgba(0, 212, 255, 0.2);
   }
   .repo-branch {
     font-size: 11px;
     font-weight: 600;
     color: var(--text-primary);
-    font-family:
-      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     flex-shrink: 0;
     max-width: 130px;
     overflow: hidden;
@@ -2313,34 +2431,32 @@
     white-space: nowrap;
   }
   .repo-branch.detached {
-    color: var(--color-error);
-    font-style: italic;
+    color: var(--destructive);
   }
   .repo-branch-btn {
     display: inline-flex;
     align-items: center;
     gap: 3px;
     background: var(--bg-surface);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
     cursor: pointer;
     padding: 2px 6px;
     margin-left: auto;
     flex-shrink: 0;
     min-width: 0;
-    transition: all 0.15s;
+    transition: all 100ms steps(4);
   }
   .repo-branch-btn:hover {
     background: var(--bg-hover);
-    border-color: var(--accent-cyan);
+    border-color: var(--accent);
+    box-shadow: var(--glow-neon);
   }
   .repo-branch-btn::before {
     content: "";
     display: inline-block;
     width: 6px;
     height: 6px;
-    border-radius: 50%;
-    background: var(--accent-cyan);
+    background: var(--accent);
     flex-shrink: 0;
   }
   .repo-manage {
@@ -2348,34 +2464,39 @@
     gap: 4px;
     flex-wrap: wrap;
     padding: 4px 10px;
-    border-bottom: 1px solid var(--border-dim);
+    border-bottom: 1px solid var(--border);
   }
   .sub-dot {
     font-size: 8px;
     flex-shrink: 0;
   }
   .sub-clean {
-    color: var(--accent-neon);
+    color: var(--accent);
+    text-shadow: 0 0 4px var(--accent);
   }
   .sub-dirty {
     color: var(--accent-gold);
   }
   .sub-detached {
-    color: var(--color-error);
+    color: var(--destructive);
   }
   .sub-uninitialized {
     color: var(--text-muted);
   }
   .sub-state {
+    font-family: var(--font-mono);
     font-size: 10px;
     color: var(--text-muted);
     margin-left: auto;
     flex-shrink: 0;
   }
   .sub-btn {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 10px;
     background: var(--bg-surface);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
     color: var(--text-secondary);
     cursor: pointer;
     font-size: 10px;
@@ -2384,7 +2505,7 @@
     line-height: 1.4;
     transition: all 0.15s;
   }
-  .sub-btn:hover {
+  .sub-btn:hover:not(:disabled) {
     background: var(--bg-hover);
     color: var(--text-primary);
   }
@@ -2392,82 +2513,93 @@
     opacity: 0.3;
     cursor: default;
   }
-  /* Action-specific accents */
+  /* Action-specific neon accents */
   .sub-btn-update {
-    border-color: rgba(86, 211, 100, 0.3);
-    color: var(--accent-neon);
+    border-color: rgba(0, 255, 136, 0.3);
+    color: var(--accent);
   }
-  .sub-btn-update:hover {
-    background: rgba(86, 211, 100, 0.12);
-    border-color: var(--accent-neon);
+  .sub-btn-update:hover:not(:disabled) {
+    background: rgba(0, 255, 136, 0.12);
+    border-color: var(--accent);
+    box-shadow: var(--glow-neon);
   }
   .sub-btn-push {
-    border-color: rgba(88, 166, 255, 0.3);
-    color: var(--accent-cyan);
+    border-color: rgba(0, 212, 255, 0.3);
+    color: var(--accent-tertiary);
   }
-  .sub-btn-push:hover {
-    background: rgba(88, 166, 255, 0.12);
-    border-color: var(--accent-cyan);
+  .sub-btn-push:hover:not(:disabled) {
+    background: rgba(0, 212, 255, 0.12);
+    border-color: var(--accent-tertiary);
+    box-shadow: var(--glow-cyan);
   }
   .sub-btn-sync {
-    border-color: rgba(188, 140, 255, 0.3);
-    color: var(--accent-purple);
+    border-color: rgba(255, 0, 255, 0.3);
+    color: var(--accent-secondary);
   }
-  .sub-btn-sync:hover {
-    background: rgba(188, 140, 255, 0.12);
-    border-color: var(--accent-purple);
+  .sub-btn-sync:hover:not(:disabled) {
+    background: rgba(255, 0, 255, 0.12);
+    border-color: var(--accent-secondary);
+    box-shadow: var(--glow-magenta);
   }
 
-  /* ═══ COMMIT AREA ═══ */
+  /* ═══ COMMIT AREA — Terminal command panel ═══ */
   .commit-area {
     flex-shrink: 0;
-    border-top: 2px solid var(--border-default);
+    border-top: 1px solid var(--border);
     background: var(--bg-void);
     padding: var(--commit-py, 12px) var(--commit-px, 14px)
       var(--commit-py, 14px);
     box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
     position: relative;
     z-index: 1;
-    transition:
-      background 0.3s,
-      border-color 0.3s;
   }
   .amend-toggle {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
-    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
     margin-bottom: 8px;
     cursor: pointer;
   }
+  .amend-toggle:hover {
+    color: var(--accent);
+  }
   .commit-targets {
+    font-family: var(--font-mono);
     font-size: 11px;
     color: var(--text-muted);
     margin: 6px 0 0;
     word-break: break-all;
   }
+  .commit-targets::before {
+    content: "> ";
+    color: var(--accent);
+  }
   .commit-area textarea {
     width: 100%;
     box-sizing: border-box;
     background: var(--bg-surface);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
     color: var(--text-primary);
     padding: 10px 12px;
-    font-family:
-      ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     resize: vertical;
     margin-top: 6px;
     transition:
-      border-color 0.2s,
-      box-shadow 0.2s;
+      border-color 100ms steps(4),
+      box-shadow 100ms steps(4);
   }
   .commit-area textarea:focus {
     outline: none;
-    border-color: var(--accent-neon);
-    box-shadow: 0 0 0 2px rgba(86, 211, 100, 0.1);
+    border-color: var(--accent);
+    box-shadow:
+      0 0 0 2px rgba(0, 255, 136, 0.15),
+      var(--glow-neon);
   }
   .commit-area textarea:disabled {
     opacity: 0.4;
@@ -2479,48 +2611,80 @@
     align-items: center;
   }
   .btn-commit {
-    background: rgba(86, 211, 100, 0.1);
-    border: 1px solid var(--accent-neon);
-    border-radius: var(--radius-md);
-    color: var(--accent-neon);
-    padding: 6px 18px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
     font-size: 12px;
-    font-weight: 600;
+    background: rgba(0, 255, 136, 0.08);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 6px 18px;
+    font-weight: 700;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 100ms steps(4);
   }
   .btn-commit:hover:not(:disabled) {
-    background: var(--accent-neon);
+    background: var(--accent);
     color: #000;
-    box-shadow: var(--glow-neon);
+    box-shadow:
+      0 0 20px rgba(0, 255, 136, 0.5),
+      0 0 40px rgba(0, 255, 136, 0.15);
   }
   .btn-commit:disabled {
-    opacity: 0.35;
+    opacity: 0.3;
     cursor: default;
   }
   .commit-ok {
-    color: var(--accent-neon);
+    color: var(--accent);
+    font-family: var(--font-mono);
     font-size: 12px;
     margin: 6px 0 0;
-    text-shadow: 0 0 4px rgba(86, 211, 100, 0.2);
+    text-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
   }
 
-  /* ═══ DIFF VIEW (RIGHT PANEL) ═══ */
+  /* ═══ DIFF VIEW (RIGHT PANEL) — Terminal window ═══ */
   .diff-view {
     flex: 1;
     overflow-y: auto;
-    padding: 12px 16px;
-    contain: layout paint;
+    padding: 14px 16px;
+    background: var(--bg-void);
+    position: relative;
+  }
+  /* Terminal traffic light dots */
+  .diff-view::before {
+    content: "";
+    position: sticky;
+    top: 0;
+    left: 0;
+    display: block;
+    width: 38px;
+    height: 8px;
+    margin-bottom: 8px;
+    background:
+      radial-gradient(circle 3px, #ff5f57 100%, transparent 100%) 0 50%,
+      radial-gradient(circle 3px, #febc2e 100%, transparent 100%) 14px 50%,
+      radial-gradient(circle 3px, #28c840 100%, transparent 100%) 28px 50%;
+    background-size: 6px 6px;
+    background-repeat: no-repeat;
+    z-index: 2;
+    pointer-events: none;
   }
   .placeholder {
     margin-top: 40px;
     text-align: center;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
   }
 
   .hint {
     color: var(--text-muted);
+    font-family: var(--font-mono);
     font-size: var(--fs-base, 13px);
     text-align: center;
     margin-top: 60px;
+  }
+  .hint::before {
+    content: "> ";
+    color: var(--accent);
   }
 </style>

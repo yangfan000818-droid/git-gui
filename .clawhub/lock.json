@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "design-style": {
+      "version": "1.0.0",
+      "installedAt": 1782294222676,
+      "ownerHandle": "benangel65"
+    },
+    "superdesign": {
+      "version": "1.0.0",
+      "installedAt": 1782294226397,
+      "ownerHandle": "mpociot"
+    },
+    "design-system": {
+      "version": "1.0.0",
+      "installedAt": 1782294408135,
+      "ownerHandle": "ivangdavila"
+    },
+    "design-system-creation": {
+      "version": "1.0.0",
+      "installedAt": 1782294411749,
+      "ownerHandle": "wpank"
+    },
+    "impeccable-uxui": {
+      "version": "1.0.0",
+      "installedAt": 1782294415575,
+      "ownerHandle": "maryambahri"
+    }
+  }
+}

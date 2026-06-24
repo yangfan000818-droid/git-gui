@@ -743,42 +743,42 @@
 
 <style>
   .conflict-view {
-    padding: 12px 16px;
-    font-size: 13px;
+    padding: var(--space-md) var(--space-lg);
+    font-size: var(--fs-base);
     max-width: 960px;
   }
   .cv-error {
     background: #3a1d1d;
-    border: 1px solid rgba(247, 120, 139, 0.25);
-    border-radius: 6px;
-    padding: 8px 12px;
+    border: 1px solid rgba(255, 51, 102, 0.3);
+    border-radius: var(--radius-md);
+    padding: var(--space-sm) var(--space-md);
     color: var(--color-error);
     white-space: pre-wrap;
-    font-size: 12px;
-    margin: 0 0 12px;
+    font-size: var(--fs-sm);
+    margin: 0 0 var(--space-md);
   }
   .cv-status {
     color: var(--text-muted);
   }
   .hint {
     color: var(--text-muted);
-    font-size: 12px;
-    margin: 6px 0 0;
+    font-size: var(--fs-sm);
+    margin: var(--space-sm) 0 0;
   }
   .kbd-hint {
     color: var(--text-muted);
-    font-size: 11px;
-    margin: 6px 0 0;
+    font-size: var(--fs-xs);
+    margin: var(--space-sm) 0 0;
     line-height: 1.7;
   }
   .kbd-hint kbd {
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     padding: 0 5px;
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 11px;
+    font-size: var(--fs-xs);
     color: var(--text-secondary);
   }
   .undecided-tag {
@@ -790,30 +790,30 @@
   .file-bar {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 10px;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
   }
   .file-chip {
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
   }
   .file-chip-btn {
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--fs-code);
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    padding: 3px 10px;
+    padding: 3px var(--space-md);
     white-space: nowrap;
   }
   .file-chip-btn:hover {
     background: var(--border-default);
   }
   .file-active .file-chip-btn {
-    background: rgba(88, 166, 255, 0.12);
+    background: rgba(0, 212, 255, 0.12);
     border-color: var(--accent-cyan);
     color: #fff;
   }
@@ -831,28 +831,28 @@
   .file-header {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 8px;
+    gap: var(--space-md);
+    margin-bottom: var(--space-sm);
   }
   .file-path {
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 13px;
+    font-size: var(--fs-code);
     color: var(--color-error);
     flex: 1;
   }
   .file-stats {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-sm);
   }
   .btn-nav {
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 12px;
-    padding: 3px 10px;
+    font-size: var(--fs-sm);
+    padding: 3px var(--space-md);
   }
   .btn-nav:hover {
     background: var(--border-default);
@@ -866,17 +866,17 @@
   .file-actions {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 8px;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
   }
   .written-tag {
     color: var(--accent-neon);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     font-weight: 600;
   }
   .editing-tag {
     color: var(--accent-gold);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     font-weight: 600;
   }
 
@@ -888,13 +888,13 @@
     resize: vertical;
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary, #e6e6e6);
-    padding: 8px 10px;
-    margin-bottom: 10px;
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-md);
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--fs-code);
     line-height: 1.55;
     white-space: pre;
     overflow-wrap: normal;
@@ -908,14 +908,14 @@
   /* ── 全自动解决 ── */
   .all-auto {
     background: #1d2a1d;
-    border: 1px solid rgba(86, 211, 100, 0.2);
-    border-radius: 6px;
-    padding: 16px;
+    border: 1px solid rgba(0, 255, 136, 0.3);
+    border-radius: var(--radius-md);
+    padding: var(--space-lg);
     text-align: center;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-md);
   }
   .all-auto p {
-    margin: 0 0 10px;
+    margin: 0 0 var(--space-md);
     color: var(--accent-neon);
   }
 
@@ -926,9 +926,9 @@
     gap: 1px;
     background: var(--border-default);
     border: 1px solid var(--border-default);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     overflow: hidden;
-    margin-bottom: 10px;
+    margin-bottom: var(--space-md);
     min-height: 120px;
   }
   .col {
@@ -942,7 +942,7 @@
     z-index: 1;
   }
   .col-title {
-    font-size: 11px;
+    font-size: var(--fs-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -957,21 +957,21 @@
   }
   .col-body {
     flex: 1;
-    padding: 4px 0;
+    padding: var(--space-xs) 0;
     overflow-x: auto;
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--fs-code);
     line-height: 1.55;
   }
   .auto-line {
     color: #5a8a5a;
-    padding: 0 10px;
+    padding: 0 var(--space-md);
     white-space: pre;
   }
   .conflict-line {
     color: var(--accent-gold);
-    padding: 0 10px;
+    padding: 0 var(--space-md);
     white-space: pre;
   }
   .col-selected .conflict-line {
@@ -983,12 +983,12 @@
   .hunk-nav {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
   }
   .hunk-label {
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     flex: 1;
     text-align: center;
   }
@@ -997,17 +997,17 @@
   .choice-bar {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 10px;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
   }
   .btn-choice {
     background: var(--bg-surface);
     border: 1px solid #3a3a4a;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 13px;
-    padding: 5px 16px;
+    font-size: var(--fs-base);
+    padding: 5px var(--space-lg);
     font-weight: 500;
   }
   .btn-choice:hover {
@@ -1027,18 +1027,18 @@
     cursor: default;
   }
   .choice-arrows {
-    margin-left: 8px;
+    margin-left: var(--space-sm);
     display: flex;
-    gap: 4px;
+    gap: var(--space-xs);
   }
   .btn-arrow {
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 14px;
-    padding: 5px 10px;
+    font-size: var(--fs-base);
+    padding: 5px var(--space-md);
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
@@ -1049,24 +1049,24 @@
   /* ── 写入 ── */
   .write-bar {
     margin-bottom: 14px;
-    padding: 10px 0;
+    padding: var(--space-md) 0;
     border-top: 1px solid var(--bg-hover);
   }
 
   /* ── 底部操作 ── */
   .bottom-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-sm);
     border-top: 1px solid var(--border-default);
-    padding-top: 12px;
+    padding-top: var(--space-md);
   }
   .btn-primary {
     background: var(--accent-cyan);
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: #fff;
-    padding: 6px 16px;
-    font-size: 13px;
+    padding: var(--space-sm) var(--space-lg);
+    font-size: var(--fs-base);
     cursor: pointer;
   }
   .btn-primary:hover {
@@ -1077,15 +1077,15 @@
     cursor: default;
   }
   .btn-danger {
-    background: rgba(247, 120, 139, 0.2);
+    background: rgba(255, 51, 102, 0.2);
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: #fff;
-    padding: 6px 16px;
-    font-size: 13px;
+    padding: var(--space-sm) var(--space-lg);
+    font-size: var(--fs-base);
     cursor: pointer;
   }
   .btn-danger:hover {
-    background: rgba(247, 120, 139, 0.25);
+    background: rgba(255, 51, 102, 0.3);
   }
 </style>

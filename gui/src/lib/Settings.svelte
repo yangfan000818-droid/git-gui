@@ -30,7 +30,7 @@
   let skipHooks = $state(false);
 
   // ── 外观设置 ──
-  let theme = $state("neon-dark");
+  let theme = $state("cyberpunk");
   let density = $state("comfortable");
   let font_size = $state("medium");
   let animationsEnabled = $state(true);
@@ -49,10 +49,16 @@
     kind: string;
   }[] = [
     {
+      id: "cyberpunk",
+      name: "Cyberpunk",
+      kind: "暗色",
+      preview: ["#0A0A0F", "#00FF88", "#FF00FF", "#00D4FF"],
+    },
+    {
       id: "neon-dark",
       name: "Neon Dark",
       kind: "暗色",
-      preview: ["#0D1117", "#56D364", "#58A6FF", "#BC8CFF"],
+      preview: ["#0A0A0F", "#00FF88", "#FF00FF", "#00D4FF"],
     },
     {
       id: "light",
@@ -104,7 +110,7 @@
       strategy = s.update_strategy;
       ignoreWhitespace = s.ignore_whitespace;
       skipHooks = s.skip_hooks;
-      theme = s.theme || "neon-dark";
+      theme = s.theme || "cyberpunk";
       density = s.density || "comfortable";
       font_size = s.font_size || "medium";
       animationsEnabled = s.animations_enabled ?? true;
@@ -407,7 +413,7 @@
   .st-panel {
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     width: 640px;
     max-width: 94%;
     max-height: 88%;
@@ -426,7 +432,7 @@
     z-index: 2;
   }
   .st-header h3 {
-    font-size: 16px;
+    font-size: var(--fs-xl);
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
@@ -435,9 +441,9 @@
     background: transparent;
     border: none;
     color: var(--text-muted);
-    font-size: 20px;
+    font-size: var(--fs-xl);
     cursor: pointer;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     line-height: 1;
     border-radius: var(--radius-sm);
     transition: all 0.15s;
@@ -447,10 +453,10 @@
     background: var(--bg-hover);
   }
   .st-error {
-    background: rgba(247, 120, 139, 0.12);
-    border-top: 1px solid rgba(247, 120, 139, 0.25);
-    border-bottom: 1px solid rgba(247, 120, 139, 0.25);
-    padding: 8px 20px;
+    background: rgba(255, 51, 102, 0.12);
+    border-top: 1px solid rgba(255, 51, 102, 0.3);
+    border-bottom: 1px solid rgba(255, 51, 102, 0.3);
+    padding: var(--space-sm) 20px;
     color: var(--color-error);
     font-size: var(--fs-sm, 12px);
     white-space: pre-wrap;
@@ -467,28 +473,28 @@
   }
   .st-group {
     border: 1px solid var(--border-default);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 10px 14px 14px;
-    margin: 0 0 16px;
+    margin: 0 0 var(--space-lg);
   }
   .st-group legend {
     font-size: var(--fs-sm, 12px);
     font-weight: 600;
     color: var(--text-secondary);
-    padding: 0 6px;
+    padding: 0 var(--space-sm);
   }
   .st-hint {
     font-size: var(--fs-xs, 11px);
     color: var(--text-muted);
-    margin: 0 0 10px;
+    margin: 0 0 var(--space-md);
     line-height: 1.5;
   }
   .st-radio,
   .st-check {
     display: flex;
     align-items: flex-start;
-    gap: 10px;
-    padding: 6px 0;
+    gap: var(--space-md);
+    padding: var(--space-sm) 0;
     cursor: pointer;
   }
   .st-radio input,
@@ -520,14 +526,14 @@
   }
   .st-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-sm);
     justify-content: flex-end;
     padding: 6px 20px 18px;
   }
   .st-save {
     background: var(--accent-neon);
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: #000;
     cursor: pointer;
     font-size: var(--fs-sm, 12px);
@@ -546,11 +552,11 @@
   .st-cancel {
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
     font-size: var(--fs-sm, 12px);
-    padding: 7px 16px;
+    padding: 7px var(--space-lg);
     transition: all 0.15s;
   }
   .st-cancel:hover:not(:disabled) {
@@ -561,13 +567,13 @@
   .theme-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    gap: var(--space-sm);
   }
   .theme-card {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-sm);
     background: var(--bg-surface);
     border: 2px solid var(--border-default);
     border-radius: var(--radius-md);
@@ -586,7 +592,7 @@
   }
   .theme-swatches {
     display: flex;
-    gap: 4px;
+    gap: var(--space-xs);
   }
   .theme-swatch {
     width: 20px;
@@ -630,7 +636,7 @@
     box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.1);
   }
   .seg-sm {
-    padding: 4px 10px;
+    padding: var(--space-xs) var(--space-md);
     font-size: var(--fs-xs, 11px);
   }
 
@@ -638,7 +644,7 @@
   .update-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
     flex-wrap: wrap;
   }
   .update-msg {
@@ -651,7 +657,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-md);
     padding: 6px 0 4px;
   }
   .glow-label {

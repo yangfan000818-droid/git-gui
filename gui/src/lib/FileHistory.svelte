@@ -155,7 +155,7 @@
   .panel {
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     width: 90vw;
     height: 85vh;
     display: flex;
@@ -166,13 +166,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
+    padding: var(--space-md) var(--space-lg);
     border-bottom: 1px solid var(--border-default);
     background: var(--bg-elevated);
   }
   .header h2 {
     margin: 0;
-    font-size: 14px;
+    font-size: var(--fs-lg);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -180,9 +180,9 @@
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 18px;
+    font-size: var(--fs-xl);
     cursor: pointer;
-    padding: 4px 8px;
+    padding: var(--space-xs) var(--space-sm);
     line-height: 1;
     transition: color 0.15s;
   }
@@ -199,21 +199,21 @@
     width: 40%;
     border-right: 1px solid var(--border-default);
     overflow-y: auto;
-    padding: 8px;
+    padding: var(--space-sm);
   }
   .diff-panel {
     flex: 1;
     overflow-y: auto;
-    padding: 16px;
+    padding: var(--space-lg);
   }
 
   .commit-row {
     display: grid;
     grid-template-columns: 70px 1fr 120px 100px;
-    gap: 8px;
-    padding: 8px;
-    border-radius: 4px;
-    font-size: 12px;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-sm);
     cursor: pointer;
     transition: background 0.15s;
   }
@@ -221,7 +221,7 @@
     background: var(--bg-elevated);
   }
   .commit-row.selected {
-    background: rgba(88, 166, 255, 0.12);
+    background: rgba(0, 212, 255, 0.12);
   }
   .commit-sha {
     font-family:
@@ -247,12 +247,12 @@
 
   .placeholder {
     color: var(--text-muted);
-    font-size: 12px;
-    padding: 12px;
+    font-size: var(--fs-sm);
+    padding: var(--space-md);
   }
   .error {
     color: var(--color-error);
-    font-size: 12px;
-    padding: 12px;
+    font-size: var(--fs-sm);
+    padding: var(--space-md);
   }
 </style>

@@ -1,333 +1,607 @@
 /* ═══════════════════════════════════════════════════════════════════
-   Theme System — 8 preset color schemes
+   Theme System — Cyberpunk default + 7 preset color schemes
    Applied via [data-theme="..."] on <html> or <body>
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ─────────────────────────────────────────────
-   1. Neon Dark (default) — cyberpunk-tinged dev dark
+   0. :root — Cyberpunk defaults (High-Tech, Low-Life)
    ───────────────────────────────────────────── */
-[data-theme="neon-dark"] {
-  --bg-void: #0D1117;
-  --bg-base: #111820;
-  --bg-surface: #161B24;
-  --bg-elevated: #1C2333;
-  --bg-hover: #21293B;
-  --bg-active: #293248;
+:root {
+  /* ── Core palette (brightened) ── */
+  --bg-void: #0e0e18;
+  --bg-base: #16162a;
+  --bg-surface: #1e1e38;
+  --bg-elevated: #282850;
+  --bg-hover: #303058;
+  --bg-active: #3a3a66;
 
-  --text-primary: #E6EDF3;
-  --text-secondary: #8B949E;
-  --text-muted: #6E7681;
+  --text-primary: #e8e8f0;
+  --text-secondary: #a8a8c0;
+  --text-muted: #7878a0;
 
-  --accent-neon: #56D364;
-  --accent-cyan: #58A6FF;
-  --accent-purple: #BC8CFF;
-  --accent-gold: #E3B341;
-  --accent-pink: #F7788B;
+  /* ── Neon accents ── */
+  --accent-neon: #00ff88;
+  --accent-cyan: #00d4ff;
+  --accent-purple: #ff00ff;
+  --accent-gold: #ffaa00;
+  --accent-pink: #ff3366;
 
-  --color-success: #56D364;
-  --color-warning: #E3B341;
-  --color-error: #F7788B;
-  --color-info: #58A6FF;
+  /* ── Aliases (design system canonical names) ── */
+  --accent: var(--accent-neon);
+  --accent-secondary: var(--accent-purple);
+  --accent-tertiary: var(--accent-cyan);
 
-  --border-dim: rgba(255,255,255,0.05);
-  --border-default: #30363D;
-  --border-glow: rgba(86,211,100,0.12);
+  --color-error: #ff3366;
+  --destructive: #ff3366;
 
-  --glow-neon: 0 0 6px rgba(86,211,100,0.2);
-  --glow-cyan: 0 0 6px rgba(88,166,255,0.2);
-  --glow-purple: 0 0 6px rgba(188,140,255,0.2);
+  /* ── Borders (brighter) ── */
+  --border-dim: rgba(255, 255, 255, 0.08);
+  --border-default: #36365a;
+  --border: #36365a;
 
-  --topbar-bg: linear-gradient(135deg, #0D111A 0%, #141C28 40%, #111928 70%, #0D111A 100%);
-  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
-  --scanline-color: rgba(0,0,0,0.015);
+  /* ── Glows (boosted 1.5x) ── */
+  --glow-neon:
+    0 0 14px rgba(0, 255, 136, 0.45), 0 0 30px rgba(0, 255, 136, 0.15);
+  --glow-cyan:
+    0 0 14px rgba(0, 212, 255, 0.45), 0 0 30px rgba(0, 212, 255, 0.15);
+  --glow-magenta:
+    0 0 14px rgba(255, 0, 255, 0.4), 0 0 30px rgba(255, 0, 255, 0.13);
+  --glow-error:
+    0 0 14px rgba(255, 51, 102, 0.45), 0 0 30px rgba(255, 51, 102, 0.15);
+  --glow-gold:
+    0 0 14px rgba(255, 170, 0, 0.4), 0 0 30px rgba(255, 170, 0, 0.13);
+
+  /* ── Effects ── */
+  --corner-cut: 3px;
+  --scanline-opacity: 0.05;
+  --scanline-color: rgba(0, 0, 0, 0.05);
+  --noise-opacity: 0.06;
+
+  /* ── Typography ── */
+  --font-mono:
+    "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo,
+    monospace;
+  --font-ui:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    sans-serif;
+
+  /* ── Topbar ── */
+  --topbar-bg: linear-gradient(
+    135deg,
+    #06060b 0%,
+    #0a0a14 40%,
+    #0d0d1a 70%,
+    #06060b 100%
+  );
+  --topbar-accent: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-tertiary),
+    var(--accent-secondary),
+    transparent
+  );
+
+  /* ── Spacing defaults (comfortable) ── */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 20px;
+  --space-xl: 28px;
+  --file-item-py: 4px;
+  --file-item-pl: 20px;
+  --tab-py: 8px;
+  --tab-px: 18px;
+  --topbar-py: 8px;
+  --topbar-px: 14px;
+  --commit-py: 12px;
+  --commit-px: 14px;
+
+  /* ── Font sizes (medium) ── */
+  --fs-base: 13px;
+  --fs-sm: 12px;
+  --fs-xs: 11px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --fs-code: 12px;
 
   color-scheme: dark;
 }
 
 /* ─────────────────────────────────────────────
-   2. Light — soft, eye-friendly light
+   1. Cyberpunk (explicit) — High-Tech, Low-Life
+   ───────────────────────────────────────────── */
+[data-theme="cyberpunk"] {
+  --bg-void: #0e0e18;
+  --bg-base: #16162a;
+  --bg-surface: #1e1e38;
+  --bg-elevated: #282850;
+  --bg-hover: #303058;
+  --bg-active: #3a3a66;
+
+  --text-primary: #e8e8f0;
+  --text-secondary: #a8a8c0;
+  --text-muted: #7878a0;
+
+  --accent-neon: #00ff88;
+  --accent-cyan: #00d4ff;
+  --accent-purple: #ff00ff;
+  --accent-gold: #ffaa00;
+  --accent-pink: #ff3366;
+
+  --accent: var(--accent-neon);
+  --accent-secondary: var(--accent-purple);
+  --accent-tertiary: var(--accent-cyan);
+  --color-error: #ff3366;
+  --destructive: #ff3366;
+
+  --border-dim: rgba(255, 255, 255, 0.08);
+  --border-default: #36365a;
+  --border: #36365a;
+
+  --glow-neon:
+    0 0 14px rgba(0, 255, 136, 0.45), 0 0 30px rgba(0, 255, 136, 0.15);
+  --glow-cyan:
+    0 0 14px rgba(0, 212, 255, 0.45), 0 0 30px rgba(0, 212, 255, 0.15);
+  --glow-magenta:
+    0 0 14px rgba(255, 0, 255, 0.4), 0 0 30px rgba(255, 0, 255, 0.13);
+  --glow-error:
+    0 0 14px rgba(255, 51, 102, 0.45), 0 0 30px rgba(255, 51, 102, 0.15);
+  --glow-gold:
+    0 0 14px rgba(255, 170, 0, 0.4), 0 0 30px rgba(255, 170, 0, 0.13);
+
+  --topbar-bg: linear-gradient(
+    135deg,
+    #08080f 0%,
+    #0e0e1a 40%,
+    #121222 70%,
+    #08080f 100%
+  );
+  --topbar-accent: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-tertiary),
+    var(--accent-secondary),
+    transparent
+  );
+  --scanline-color: rgba(0, 0, 0, 0.05);
+  color-scheme: dark;
+}
+
+/* ─────────────────────────────────────────────
+   2. Neon Dark (legacy) — kept as alias to Cyberpunk
+   ───────────────────────────────────────────── */
+[data-theme="neon-dark"] {
+  --bg-void: #0e0e18;
+  --bg-base: #16162a;
+  --bg-surface: #1e1e38;
+  --bg-elevated: #282850;
+  --bg-hover: #303058;
+  --bg-active: #3a3a66;
+
+  --text-primary: #e8e8f0;
+  --text-secondary: #a8a8c0;
+  --text-muted: #7878a0;
+
+  --accent-neon: #00ff88;
+  --accent-cyan: #00d4ff;
+  --accent-purple: #ff00ff;
+  --accent-gold: #ffaa00;
+  --accent-pink: #ff3366;
+
+  --accent: var(--accent-neon);
+  --accent-secondary: var(--accent-purple);
+  --accent-tertiary: var(--accent-cyan);
+  --color-error: #ff3366;
+  --destructive: #ff3366;
+
+  --border-dim: rgba(255, 255, 255, 0.08);
+  --border-default: #36365a;
+  --border: #36365a;
+
+  --glow-neon:
+    0 0 14px rgba(0, 255, 136, 0.45), 0 0 30px rgba(0, 255, 136, 0.15);
+  --glow-cyan:
+    0 0 14px rgba(0, 212, 255, 0.45), 0 0 30px rgba(0, 212, 255, 0.15);
+  --glow-magenta:
+    0 0 14px rgba(255, 0, 255, 0.4), 0 0 30px rgba(255, 0, 255, 0.13);
+  --glow-error:
+    0 0 14px rgba(255, 51, 102, 0.45), 0 0 30px rgba(255, 51, 102, 0.15);
+  --glow-gold:
+    0 0 14px rgba(255, 170, 0, 0.4), 0 0 30px rgba(255, 170, 0, 0.13);
+
+  --topbar-bg: linear-gradient(
+    135deg,
+    #08080f 0%,
+    #0e0e1a 40%,
+    #121222 70%,
+    #08080f 100%
+  );
+  --scanline-color: rgba(0, 0, 0, 0.05);
+  color-scheme: dark;
+}
+
+/* ─────────────────────────────────────────────
+   3. Light — soft, eye-friendly light
    ───────────────────────────────────────────── */
 [data-theme="light"] {
-  --bg-void: #F6F8FA;
-  --bg-base: #FFFFFF;
-  --bg-surface: #F0F2F5;
-  --bg-elevated: #FFFFFF;
-  --bg-hover: #EBEDF0;
-  --bg-active: #DDE1E5;
+  --bg-void: oklch(97.818% 0.0034 247.86);
+  --bg-base: oklch(100% 0 0);
+  --bg-surface: oklch(96.048% 0.0046 258.32);
+  --bg-elevated: oklch(100% 0 0);
+  --bg-hover: oklch(94.543% 0.0046 258.32);
+  --bg-active: oklch(90.783% 0.007 247.9);
 
-  --text-primary: #1F2328;
-  --text-secondary: #59636E;
-  --text-muted: #848D97;
+  --text-primary: oklch(25.421% 0.0111 254.04);
+  --text-secondary: oklch(49.507% 0.0215 250.78);
+  --text-muted: oklch(63.932% 0.0183 250.93);
 
-  --accent-neon: #1A7F37;
-  --accent-cyan: #0550AE;
-  --accent-purple: #8250DF;
-  --accent-gold: #9A6700;
-  --accent-pink: #CF222E;
+  --accent-neon: oklch(52.441% 0.1401 148.04);
+  --accent-cyan: oklch(45.095% 0.1641 258.18);
+  --accent-purple: oklch(56.307% 0.2069 294.97);
+  --accent-gold: oklch(55.419% 0.1169 75.01);
+  --accent-pink: oklch(55.175% 0.2051 24.53);
 
-  --color-success: #1A7F37;
-  --color-warning: #9A6700;
-  --color-error: #CF222E;
-  --color-info: #0550AE;
+  --accent: var(--accent-neon);
+  --accent-secondary: var(--accent-purple);
+  --accent-tertiary: var(--accent-cyan);
+  --color-error: #ff3366;
+  --destructive: #ff3366;
 
-  --border-dim: rgba(0,0,0,0.05);
-  --border-default: #D0D7DE;
-  --border-glow: rgba(26,127,55,0.12);
+  --border-dim: oklch(0% 0 0 / 0.05);
+  --border-default: oklch(87.585% 0.0123 247.97);
+  --border: oklch(87.585% 0.0123 247.97);
 
-  --glow-neon: 0 0 6px rgba(26,127,55,0.15);
-  --glow-cyan: 0 0 6px rgba(5,80,174,0.15);
-  --glow-purple: 0 0 6px rgba(130,80,223,0.15);
+  --glow-neon: 0 0 6px rgba(26, 127, 55, 0.15);
+  --glow-cyan: 0 0 6px rgba(5, 80, 174, 0.15);
+  --glow-magenta: 0 0 6px rgba(128, 0, 128, 0.15);
+  --glow-error: 0 0 6px rgba(200, 0, 0, 0.15);
+  --glow-gold: 0 0 6px rgba(180, 120, 0, 0.15);
 
-  --topbar-bg: linear-gradient(135deg, #F6F8FA 0%, #FFFFFF 40%, #F0F2F5 70%, #F6F8FA 100%);
-  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
-  --scanline-color: rgba(0,0,0,0.006);
-
+  --topbar-bg: linear-gradient(
+    135deg,
+    #f6f8fa 0%,
+    #ffffff 40%,
+    #f0f2f5 70%,
+    #f6f8fa 100%
+  );
+  --topbar-accent: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-cyan),
+    var(--accent-purple),
+    transparent
+  );
+  --scanline-color: rgba(0, 0, 0, 0.006);
   color-scheme: light;
 }
 
 /* ─────────────────────────────────────────────
-   3. Dracula — purple-dominant classic
+   4. Dracula — purple-dominant classic
    ───────────────────────────────────────────── */
 [data-theme="dracula"] {
-  --bg-void: #1E1F29;
-  --bg-base: #282A36;
-  --bg-surface: #2C2E3C;
-  --bg-elevated: #343746;
-  --bg-hover: #3E4058;
-  --bg-active: #4A4D6A;
+  --bg-void: oklch(24.279% 0.0191 280.4);
+  --bg-base: oklch(28.823% 0.0221 277.51);
+  --bg-surface: oklch(30.527% 0.0254 278.43);
+  --bg-elevated: oklch(34.02% 0.0266 276.05);
+  --bg-hover: oklch(37.986% 0.041 280.55);
+  --bg-active: oklch(42.961% 0.0481 279.58);
 
-  --text-primary: #F8F8F2;
-  --text-secondary: #B4B6C5;
-  --text-muted: #7C7F93;
+  --text-primary: oklch(97.748% 0.0079 106.55);
+  --text-secondary: oklch(77.934% 0.0213 279.83);
+  --text-muted: oklch(60.088% 0.0305 278.69);
 
-  --accent-neon: #50FA7B;
-  --accent-cyan: #8BE9FD;
-  --accent-purple: #BD93F9;
-  --accent-gold: #F1FA8C;
-  --accent-pink: #FF79C6;
+  --accent-neon: oklch(87.1% 0.2195 148.02);
+  --accent-cyan: oklch(88.263% 0.0934 212.85);
+  --accent-purple: oklch(74.202% 0.1485 301.88);
+  --accent-gold: oklch(95.534% 0.1342 112.76);
+  --accent-pink: oklch(75.461% 0.1831 346.81);
 
-  --color-success: #50FA7B;
-  --color-warning: #F1FA8C;
-  --color-error: #FF5555;
-  --color-info: #8BE9FD;
+  --accent: var(--accent-neon);
+  --accent-secondary: var(--accent-purple);
+  --accent-tertiary: var(--accent-cyan);
+  --color-error: oklch(68.22% 0.2063 24.43);
+  --destructive: oklch(68.22% 0.2063 24.43);
 
-  --border-dim: rgba(248,248,242,0.06);
-  --border-default: #44475A;
-  --border-glow: rgba(189,147,249,0.12);
+  --border-dim: oklch(97.748% 0.0079 106.55 / 0.06);
+  --border-default: oklch(40.28% 0.0322 277.83);
+  --border: oklch(40.28% 0.0322 277.83);
 
-  --glow-neon: 0 0 6px rgba(80,250,123,0.2);
-  --glow-cyan: 0 0 6px rgba(139,233,253,0.2);
-  --glow-purple: 0 0 6px rgba(189,147,249,0.25);
+  --glow-neon: 0 0 6px rgba(80, 250, 123, 0.2);
+  --glow-cyan: 0 0 6px rgba(139, 233, 253, 0.2);
+  --glow-magenta: 0 0 6px rgba(189, 147, 249, 0.2);
+  --glow-error: 0 0 6px rgba(255, 85, 85, 0.2);
+  --glow-gold: 0 0 6px rgba(241, 250, 140, 0.2);
 
-  --topbar-bg: linear-gradient(135deg, #1E1F29 0%, #282A36 40%, #252736 70%, #1E1F29 100%);
-  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-purple), var(--accent-pink), transparent);
-  --scanline-color: rgba(0,0,0,0.02);
-
+  --topbar-bg: linear-gradient(
+    135deg,
+    #1e1f29 0%,
+    #282a36 40%,
+    #252736 70%,
+    #1e1f29 100%
+  );
+  --topbar-accent: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-purple),
+    var(--accent-pink),
+    transparent
+  );
+  --scanline-color: rgba(0, 0, 0, 0.02);
   color-scheme: dark;
 }
 
 /* ─────────────────────────────────────────────
-   4. Nord — arctic blue-gray
+   5. Nord — arctic blue-gray
    ───────────────────────────────────────────── */
 [data-theme="nord"] {
-  --bg-void: #242933;
-  --bg-base: #2E3440;
-  --bg-surface: #363C4A;
-  --bg-elevated: #3B4252;
-  --bg-hover: #434C5E;
-  --bg-active: #4C566A;
+  --bg-void: oklch(28.037% 0.0198 264.18);
+  --bg-base: oklch(32.437% 0.0229 264.18);
+  --bg-surface: oklch(35.634% 0.0257 266.85);
+  --bg-elevated: oklch(37.921% 0.029 266.47);
+  --bg-hover: oklch(41.574% 0.0324 264.13);
+  --bg-active: oklch(45.229% 0.0352 264.13);
 
-  --text-primary: #ECEFF4;
-  --text-secondary: #D8DEE9;
-  --text-muted: #81A1C1;
+  --text-primary: oklch(95.128% 0.0074 260.73);
+  --text-secondary: oklch(89.926% 0.0164 262.75);
+  --text-muted: oklch(69.652% 0.0591 248.69);
 
-  --accent-neon: #A3BE8C;
-  --accent-cyan: #88C0D0;
-  --accent-purple: #B48EAD;
-  --accent-gold: #EBCB8B;
-  --accent-pink: #BF616A;
+  --accent-neon: oklch(76.827% 0.0749 131.06);
+  --accent-cyan: oklch(77.464% 0.0622 217.47);
+  --accent-purple: oklch(69.207% 0.0625 332.66);
+  --accent-gold: oklch(85.486% 0.0892 84.09);
+  --accent-pink: oklch(60.61% 0.1206 15.34);
 
-  --color-success: #A3BE8C;
-  --color-warning: #EBCB8B;
-  --color-error: #BF616A;
-  --color-info: #88C0D0;
+  --accent: var(--accent-neon);
+  --accent-secondary: var(--accent-purple);
+  --accent-tertiary: var(--accent-cyan);
+  --color-error: oklch(60.61% 0.1206 15.34);
+  --destructive: oklch(60.61% 0.1206 15.34);
 
-  --border-dim: rgba(236,239,244,0.06);
-  --border-default: #4C566A;
-  --border-glow: rgba(136,192,208,0.1);
+  --border-dim: oklch(95.128% 0.0074 260.73 / 0.06);
+  --border-default: oklch(45.229% 0.0352 264.13);
+  --border: oklch(45.229% 0.0352 264.13);
 
-  --glow-neon: 0 0 6px rgba(163,190,140,0.15);
-  --glow-cyan: 0 0 6px rgba(136,192,208,0.2);
-  --glow-purple: 0 0 6px rgba(180,142,173,0.15);
+  --glow-neon: 0 0 6px rgba(163, 190, 140, 0.15);
+  --glow-cyan: 0 0 6px rgba(136, 192, 208, 0.2);
+  --glow-magenta: 0 0 6px rgba(180, 142, 173, 0.15);
+  --glow-error: 0 0 6px rgba(191, 97, 106, 0.15);
+  --glow-gold: 0 0 6px rgba(235, 203, 139, 0.15);
 
-  --topbar-bg: linear-gradient(135deg, #242933 0%, #2E3440 40%, #2B3240 70%, #242933 100%);
-  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
-  --scanline-color: rgba(0,0,0,0.018);
-
+  --topbar-bg: linear-gradient(
+    135deg,
+    #242933 0%,
+    #2e3440 40%,
+    #2b3240 70%,
+    #242933 100%
+  );
+  --topbar-accent: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-cyan),
+    var(--accent-purple),
+    transparent
+  );
+  --scanline-color: rgba(0, 0, 0, 0.018);
   color-scheme: dark;
 }
 
 /* ─────────────────────────────────────────────
-   5. Solarized Dark — warm sepia-toned dark
+   6. Solarized Dark — warm sepia-toned dark
    ───────────────────────────────────────────── */
 [data-theme="solarized-dark"] {
-  --bg-void: #00212B;
-  --bg-base: #002B36;
-  --bg-surface: #073642;
-  --bg-elevated: #0A4150;
-  --bg-hover: #115166;
-  --bg-active: #1A6078;
+  --bg-void: oklch(22.967% 0.0424 222.01);
+  --bg-base: oklch(26.734% 0.0486 219.82);
+  --bg-surface: oklch(30.921% 0.0518 219.65);
+  --bg-elevated: oklch(34.914% 0.0591 221.27);
+  --bg-hover: oklch(40.66% 0.0701 225.23);
+  --bg-active: oklch(45.801% 0.077 225.63);
 
-  --text-primary: #FDF6E3;
-  --text-secondary: #93A1A1;
-  --text-muted: #657B83;
+  --text-primary: oklch(97.353% 0.0261 90.1);
+  --text-secondary: oklch(69.79% 0.0159 196.79);
+  --text-muted: oklch(56.817% 0.0285 221.9);
 
-  --accent-neon: #859900;
-  --accent-cyan: #2AA198;
-  --accent-purple: #6C71C4;
-  --accent-gold: #B58900;
-  --accent-pink: #D33682;
+  --accent-neon: oklch(64.439% 0.1508 118.6);
+  --accent-cyan: oklch(64.366% 0.1019 187.38);
+  --accent-purple: oklch(58.232% 0.1261 279.1);
+  --accent-gold: oklch(65.448% 0.134 85.72);
+  --accent-pink: oklch(59.236% 0.2025 355.89);
 
-  --color-success: #859900;
-  --color-warning: #B58900;
-  --color-error: #DC322F;
-  --color-info: #2AA198;
+  --accent: var(--accent-neon);
+  --accent-secondary: var(--accent-purple);
+  --accent-tertiary: var(--accent-cyan);
+  --color-error: oklch(58.626% 0.2064 27.12);
+  --destructive: oklch(58.626% 0.2064 27.12);
 
-  --border-dim: rgba(253,246,227,0.06);
-  --border-default: #586E75;
-  --border-glow: rgba(133,153,0,0.12);
+  --border-dim: oklch(97.353% 0.0261 90.1 / 0.06);
+  --border-default: oklch(52.301% 0.0283 219.14);
+  --border: oklch(52.301% 0.0283 219.14);
 
-  --glow-neon: 0 0 6px rgba(133,153,0,0.2);
-  --glow-cyan: 0 0 6px rgba(42,161,152,0.2);
-  --glow-purple: 0 0 6px rgba(108,113,196,0.2);
+  --glow-neon: 0 0 6px rgba(133, 153, 0, 0.2);
+  --glow-cyan: 0 0 6px rgba(42, 161, 152, 0.2);
+  --glow-magenta: 0 0 6px rgba(108, 113, 196, 0.2);
+  --glow-error: 0 0 6px rgba(220, 50, 47, 0.2);
+  --glow-gold: 0 0 6px rgba(181, 137, 0, 0.2);
 
-  --topbar-bg: linear-gradient(135deg, #00212B 0%, #002B36 40%, #001E28 70%, #00212B 100%);
-  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-gold), transparent);
-  --scanline-color: rgba(0,0,0,0.015);
-
+  --topbar-bg: linear-gradient(
+    135deg,
+    #00212b 0%,
+    #002b36 40%,
+    #001e28 70%,
+    #00212b 100%
+  );
+  --topbar-accent: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-cyan),
+    var(--accent-gold),
+    transparent
+  );
+  --scanline-color: rgba(0, 0, 0, 0.015);
   color-scheme: dark;
 }
 
 /* ─────────────────────────────────────────────
-   6. Monokai — high-contrast developer theme
+   7. Monokai — high-contrast developer theme
    ───────────────────────────────────────────── */
 [data-theme="monokai"] {
-  --bg-void: #1A1D1E;
-  --bg-base: #272822;
-  --bg-surface: #2D2F29;
-  --bg-elevated: #343630;
-  --bg-hover: #3E4038;
-  --bg-active: #494B42;
+  --bg-void: oklch(22.8% 0.0049 219.69);
+  --bg-base: oklch(27.366% 0.0109 114.8);
+  --bg-surface: oklch(30.105% 0.0109 122.08);
+  --bg-elevated: oklch(32.883% 0.0107 122.02);
+  --bg-hover: oklch(36.689% 0.0136 118.49);
+  --bg-active: oklch(40.802% 0.0149 117.24);
 
-  --text-primary: #F8F8F2;
-  --text-secondary: #C5C8C6;
-  --text-muted: #75715E;
+  --text-primary: oklch(97.748% 0.0079 106.55);
+  --text-secondary: oklch(82.985% 0.0043 157.16);
+  --text-muted: oklch(54.671% 0.0288 97.39);
 
-  --accent-neon: #A6E22E;
-  --accent-cyan: #66D9EF;
-  --accent-purple: #AE81FF;
-  --accent-gold: #E6DB74;
-  --accent-pink: #F92672;
+  --accent-neon: oklch(84.141% 0.2044 127.29);
+  --accent-cyan: oklch(82.689% 0.108 211.96);
+  --accent-purple: oklch(70.117% 0.1812 298.06);
+  --accent-gold: oklch(87.922% 0.1255 103.18);
+  --accent-pink: oklch(64.158% 0.24 7.47);
 
-  --color-success: #A6E22E;
-  --color-warning: #E6DB74;
-  --color-error: #F92672;
-  --color-info: #66D9EF;
+  --accent: var(--accent-neon);
+  --accent-secondary: var(--accent-purple);
+  --accent-tertiary: var(--accent-cyan);
+  --color-error: oklch(64.158% 0.24 7.47);
+  --destructive: oklch(64.158% 0.24 7.47);
 
-  --border-dim: rgba(248,248,242,0.06);
-  --border-default: #49483E;
-  --border-glow: rgba(166,226,46,0.12);
+  --border-dim: oklch(97.748% 0.0079 106.55 / 0.06);
+  --border-default: oklch(39.94% 0.0163 102.42);
+  --border: oklch(39.94% 0.0163 102.42);
 
-  --glow-neon: 0 0 6px rgba(166,226,46,0.2);
-  --glow-cyan: 0 0 6px rgba(102,217,239,0.2);
-  --glow-purple: 0 0 6px rgba(174,129,255,0.2);
+  --glow-neon: 0 0 6px rgba(166, 226, 46, 0.2);
+  --glow-cyan: 0 0 6px rgba(102, 217, 239, 0.2);
+  --glow-magenta: 0 0 6px rgba(174, 129, 255, 0.2);
+  --glow-error: 0 0 6px rgba(249, 38, 114, 0.2);
+  --glow-gold: 0 0 6px rgba(230, 219, 116, 0.2);
 
-  --topbar-bg: linear-gradient(135deg, #1A1D1E 0%, #272822 40%, #222420 70%, #1A1D1E 100%);
-  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-gold), var(--accent-pink), transparent);
-  --scanline-color: rgba(0,0,0,0.02);
-
+  --topbar-bg: linear-gradient(
+    135deg,
+    #1a1d1e 0%,
+    #272822 40%,
+    #222420 70%,
+    #1a1d1e 100%
+  );
+  --topbar-accent: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-gold),
+    var(--accent-pink),
+    transparent
+  );
+  --scanline-color: rgba(0, 0, 0, 0.02);
   color-scheme: dark;
 }
 
 /* ─────────────────────────────────────────────
-   7. Tokyo Night — deep blue nocturnal
+   8. Tokyo Night — deep blue nocturnal
    ───────────────────────────────────────────── */
 [data-theme="tokyo-night"] {
-  --bg-void: #1A1B26;
-  --bg-base: #1F2133;
-  --bg-surface: #24253D;
-  --bg-elevated: #292B44;
-  --bg-hover: #303256;
-  --bg-active: #393C67;
+  --bg-void: oklch(22.629% 0.0214 280.49);
+  --bg-base: oklch(25.457% 0.0341 278.8);
+  --bg-surface: oklch(27.553% 0.0442 281.25);
+  --bg-elevated: oklch(29.926% 0.0453 279.77);
+  --bg-hover: oklch(33.329% 0.0631 279.97);
+  --bg-active: oklch(37.458% 0.0732 279.2);
 
-  --text-primary: #C0CAF5;
-  --text-secondary: #9AA5CE;
-  --text-muted: #565F89;
+  --text-primary: oklch(84.557% 0.0611 274.76);
+  --text-secondary: oklch(72.763% 0.0609 273.09);
+  --text-muted: oklch(49.551% 0.0682 274.37);
 
-  --accent-neon: #9ECE6A;
-  --accent-cyan: #7DCFFF;
-  --accent-purple: #BB9AF7;
-  --accent-gold: #E0AF68;
-  --accent-pink: #F7768E;
+  --accent-neon: oklch(79.526% 0.1395 130.14);
+  --accent-cyan: oklch(82.004% 0.1051 235.72);
+  --accent-purple: oklch(75.146% 0.1344 299.5);
+  --accent-gold: oklch(78.387% 0.1057 75.43);
+  --accent-pink: oklch(72.269% 0.1589 10.28);
 
-  --color-success: #9ECE6A;
-  --color-warning: #E0AF68;
-  --color-error: #F7768E;
-  --color-info: #7DCFFF;
+  --accent: var(--accent-neon);
+  --accent-secondary: var(--accent-purple);
+  --accent-tertiary: var(--accent-cyan);
+  --color-error: oklch(72.269% 0.1589 10.28);
+  --destructive: oklch(72.269% 0.1589 10.28);
 
-  --border-dim: rgba(192,202,245,0.06);
-  --border-default: #3B4261;
-  --border-glow: rgba(187,154,247,0.12);
+  --border-dim: oklch(84.557% 0.0611 274.76 / 0.06);
+  --border-default: oklch(38.668% 0.0537 273.88);
+  --border: oklch(38.668% 0.0537 273.88);
 
-  --glow-neon: 0 0 6px rgba(158,206,106,0.2);
-  --glow-cyan: 0 0 6px rgba(125,207,255,0.2);
-  --glow-purple: 0 0 6px rgba(187,154,247,0.25);
+  --glow-neon: 0 0 6px rgba(158, 206, 106, 0.2);
+  --glow-cyan: 0 0 6px rgba(125, 207, 255, 0.2);
+  --glow-magenta: 0 0 6px rgba(187, 154, 247, 0.2);
+  --glow-error: 0 0 6px rgba(247, 118, 142, 0.2);
+  --glow-gold: 0 0 6px rgba(224, 175, 104, 0.2);
 
-  --topbar-bg: linear-gradient(135deg, #1A1B26 0%, #1F2133 40%, #1C1E2E 70%, #1A1B26 100%);
-  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
-  --scanline-color: rgba(0,0,0,0.02);
-
+  --topbar-bg: linear-gradient(
+    135deg,
+    #1a1b26 0%,
+    #1f2133 40%,
+    #1c1e2e 70%,
+    #1a1b26 100%
+  );
+  --topbar-accent: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-cyan),
+    var(--accent-purple),
+    transparent
+  );
+  --scanline-color: rgba(0, 0, 0, 0.02);
   color-scheme: dark;
 }
 
 /* ─────────────────────────────────────────────
-   8. GitHub Dark — GitHub's official dark palette
+   9. GitHub Dark — GitHub's official dark palette
    ───────────────────────────────────────────── */
 [data-theme="github-dark"] {
-  --bg-void: #0D1117;
-  --bg-base: #0D1117;
-  --bg-surface: #161B22;
-  --bg-elevated: #1C2128;
-  --bg-hover: #21262D;
-  --bg-active: #292E36;
+  --bg-void: oklch(17.628% 0.014 258.36);
+  --bg-base: oklch(17.628% 0.014 258.36);
+  --bg-surface: oklch(22.022% 0.0157 256.82);
+  --bg-elevated: oklch(24.581% 0.0153 256.81);
+  --bg-hover: oklch(26.664% 0.015 256.8);
+  --bg-active: oklch(29.964% 0.0161 259.79);
 
-  --text-primary: #E6EDF3;
-  --text-secondary: #8B949E;
-  --text-muted: #6E7681;
+  --text-primary: oklch(94.254% 0.0111 243.66);
+  --text-secondary: oklch(66.247% 0.0181 250.92);
+  --text-muted: oklch(56.285% 0.0196 256.33);
 
-  --accent-neon: #3FB950;
-  --accent-cyan: #58A6FF;
-  --accent-purple: #BC8CFF;
-  --accent-gold: #D29922;
-  --accent-pink: #F78166;
+  --accent-neon: oklch(69.508% 0.1809 145.62);
+  --accent-cyan: oklch(71.525% 0.1518 253.31);
+  --accent-purple: oklch(73.234% 0.1668 301.69);
+  --accent-gold: oklch(71.955% 0.1401 79.91);
+  --accent-pink: oklch(73.041% 0.1502 34.05);
 
-  --color-success: #3FB950;
-  --color-warning: #D29922;
-  --color-error: #F85149;
-  --color-info: #58A6FF;
+  --accent: var(--accent-neon);
+  --accent-secondary: var(--accent-purple);
+  --accent-tertiary: var(--accent-cyan);
+  --color-error: oklch(66.512% 0.2046 26.96);
+  --destructive: oklch(66.512% 0.2046 26.96);
 
-  --border-dim: rgba(255,255,255,0.06);
-  --border-default: #30363D;
-  --border-glow: rgba(63,185,80,0.12);
+  --border-dim: oklch(100% 0 0 / 0.06);
+  --border-default: oklch(32.998% 0.0149 252.31);
+  --border: oklch(32.998% 0.0149 252.31);
 
-  --glow-neon: 0 0 6px rgba(63,185,80,0.18);
-  --glow-cyan: 0 0 6px rgba(88,166,255,0.18);
-  --glow-purple: 0 0 6px rgba(188,140,255,0.18);
+  --glow-neon: 0 0 6px rgba(63, 185, 80, 0.18);
+  --glow-cyan: 0 0 6px rgba(88, 166, 255, 0.18);
+  --glow-magenta: 0 0 6px rgba(188, 140, 255, 0.18);
+  --glow-error: 0 0 6px rgba(255, 123, 114, 0.18);
+  --glow-gold: 0 0 6px rgba(210, 168, 0, 0.18);
 
-  --topbar-bg: linear-gradient(135deg, #0D1117 0%, #161B22 40%, #11171E 70%, #0D1117 100%);
-  --topbar-accent: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
-  --scanline-color: rgba(0,0,0,0.02);
-
+  --topbar-bg: linear-gradient(
+    135deg,
+    #0d1117 0%,
+    #161b22 40%,
+    #11171e 70%,
+    #0d1117 100%
+  );
+  --topbar-accent: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-cyan),
+    var(--accent-purple),
+    transparent
+  );
+  --scanline-color: rgba(0, 0, 0, 0.02);
   color-scheme: dark;
 }
 
@@ -444,18 +718,40 @@
 [data-glow="off"] {
   --glow-neon: none;
   --glow-cyan: none;
-  --glow-purple: none;
-  --border-glow: none;
+  --glow-magenta: none;
+  --glow-error: none;
+  --glow-gold: none;
 }
 
 [data-glow="subtle"] {
-  --glow-neon: 0 0 3px rgba(86,211,100,0.1);
-  --glow-cyan: 0 0 3px rgba(88,166,255,0.1);
-  --glow-purple: 0 0 3px rgba(188,140,255,0.1);
+  --glow-neon: 0 0 6px rgba(0, 255, 136, 0.22);
+  --glow-cyan: 0 0 6px rgba(0, 212, 255, 0.22);
+  --glow-magenta: 0 0 6px rgba(255, 0, 255, 0.2);
+  --glow-error: 0 0 6px rgba(255, 51, 102, 0.22);
+  --glow-gold: 0 0 6px rgba(255, 170, 0, 0.2);
 }
 
 [data-glow="strong"] {
-  --glow-neon: 0 0 14px rgba(86,211,100,0.35);
-  --glow-cyan: 0 0 14px rgba(88,166,255,0.35);
-  --glow-purple: 0 0 14px rgba(188,140,255,0.35);
+  --glow-neon: 0 0 24px rgba(0, 255, 136, 0.6), 0 0 50px rgba(0, 255, 136, 0.2);
+  --glow-cyan: 0 0 24px rgba(0, 212, 255, 0.6), 0 0 50px rgba(0, 212, 255, 0.2);
+  --glow-magenta:
+    0 0 24px rgba(255, 0, 255, 0.55), 0 0 50px rgba(255, 0, 255, 0.18);
+  --glow-error:
+    0 0 24px rgba(255, 51, 102, 0.6), 0 0 50px rgba(255, 51, 102, 0.2);
+  --glow-gold:
+    0 0 24px rgba(255, 170, 0, 0.55), 0 0 50px rgba(255, 170, 0, 0.18);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Reduced motion — respect system preference
+   ═══════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

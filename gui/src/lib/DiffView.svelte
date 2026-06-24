@@ -517,16 +517,16 @@
   .tree-row {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--space-xs);
     width: 100%;
     background: transparent;
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--fs-sm);
     font-family:
       ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
-    padding: 3px 8px;
+    padding: 3px var(--space-sm);
     transition: background 0.1s;
   }
   .tree-row:hover {
@@ -536,7 +536,7 @@
     width: 14px;
     flex-shrink: 0;
     text-align: center;
-    font-size: 10px;
+    font-size: var(--fs-xs);
     color: var(--text-muted);
   }
   .tree-name {
@@ -557,13 +557,13 @@
   .diff-header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-sm);
     width: 100%;
     box-sizing: border-box; /* 否则 content-box 下 width:100% 把左右 padding 加宽,header 溢出右侧致右上角按钮被裁 */
     background: var(--bg-elevated);
     border: none;
     border-bottom: 1px solid var(--border-default);
-    padding: 6px 12px;
+    padding: var(--space-sm) var(--space-md);
     cursor: pointer;
     font-size: inherit;
     font-family: inherit;
@@ -577,14 +577,14 @@
     width: 12px;
     flex-shrink: 0;
     text-align: center;
-    font-size: 10px;
+    font-size: var(--fs-xs);
     color: var(--text-muted);
   }
   .diff-path {
     margin: 0;
     font-family:
       ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--fs-code);
     font-weight: 600;
     color: var(--text-primary);
     flex: 1;
@@ -596,12 +596,12 @@
   }
   .file-actions {
     display: flex;
-    gap: 4px;
+    gap: var(--space-xs);
     flex-shrink: 0;
   }
   .history-btn {
-    padding: 4px 10px;
-    font-size: 11px;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--fs-xs);
     background: transparent;
     border: 1px solid var(--border-default);
     border-radius: var(--radius-sm);
@@ -615,24 +615,24 @@
     color: var(--accent-cyan);
   }
   .diff-content {
-    padding: 4px 0;
+    padding: var(--space-xs) 0;
     overflow-x: auto;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--fs-code);
     line-height: 1.55;
   }
 
   .hunk {
-    margin-bottom: 4px;
+    margin-bottom: var(--space-xs);
     width: max-content;
     min-width: 100%; /* 行等宽=max(最长行,容器):背景铺满+横向滚动,精确实测不裁 */
   }
   .hunk-header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-sm);
     color: var(--text-muted);
-    padding: 4px 12px;
+    padding: var(--space-xs) var(--space-md);
   }
   .hunk-header span {
     flex: 1;
@@ -640,7 +640,7 @@
 
   .hunk-actions {
     display: flex;
-    gap: 4px;
+    gap: var(--space-xs);
     flex-shrink: 0;
     position: sticky;
     right: 12px;
@@ -660,14 +660,14 @@
   .btn-act {
     background: transparent;
     border: 1px solid var(--border-default);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 11px;
+    font-size: var(--fs-xs);
     font-family:
       ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     width: auto;
-    padding: 1px 8px;
+    padding: 1px var(--space-sm);
     height: 20px;
     display: flex;
     align-items: center;
@@ -683,23 +683,23 @@
   }
   .btn-stage {
     color: var(--accent-neon);
-    border-color: rgba(86, 211, 100, 0.25);
+    border-color: rgba(0, 255, 136, 0.3);
   }
   .btn-stage:hover {
-    background: rgba(86, 211, 100, 0.1);
+    background: rgba(0, 255, 136, 0.12);
   }
   .btn-unstage {
     color: var(--color-error);
-    border-color: rgba(247, 120, 139, 0.25);
+    border-color: rgba(255, 51, 102, 0.3);
   }
   .btn-unstage:hover {
-    background: rgba(247, 120, 139, 0.1);
+    background: rgba(255, 51, 102, 0.12);
   }
 
   .diff-line {
     display: flex;
     white-space: pre;
-    padding: 0 12px;
+    padding: 0 var(--space-md);
   }
   .line-added {
     background: rgba(86, 211, 100, 0.08);
@@ -721,7 +721,7 @@
   .ln {
     width: 48px;
     text-align: right;
-    padding-right: 8px;
+    padding-right: var(--space-sm);
     color: var(--text-muted);
     flex-shrink: 0;
     user-select: none;
@@ -742,17 +742,17 @@
     color: inherit;
   }
   .char-removed {
-    background: rgba(247, 120, 139, 0.2);
-    border-radius: 2px;
+    background: rgba(255, 51, 102, 0.2);
+    border-radius: 0px;
   }
   .char-added {
-    background: rgba(86, 211, 100, 0.2);
-    border-radius: 2px;
+    background: rgba(0, 255, 136, 0.3);
+    border-radius: 0px;
   }
 
   .muted {
     color: var(--text-muted);
-    font-size: 12px;
-    padding: 4px 14px;
+    font-size: var(--fs-sm);
+    padding: var(--space-xs) 14px;
   }
 </style>

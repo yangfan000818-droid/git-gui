@@ -230,7 +230,7 @@
   .row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-sm);
     min-height: 26px;
     padding: 3px 10px 3px 14px;
     cursor: pointer;
@@ -240,12 +240,12 @@
     background: var(--bg-hover);
   }
   .file-row.selected {
-    background: rgba(88, 166, 255, 0.1);
+    background: rgba(0, 212, 255, 0.12);
     box-shadow: inset 3px 0 0 var(--accent-cyan);
   }
   .caret {
     color: var(--text-secondary);
-    font-size: 14px;
+    font-size: var(--fs-base);
     width: 18px;
     flex-shrink: 0;
     text-align: center;
@@ -257,7 +257,7 @@
   .fname {
     font-family:
       ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--fs-code);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -267,7 +267,7 @@
     color: var(--text-primary);
   }
   .count {
-    font-size: 10px;
+    font-size: var(--fs-xs);
     color: var(--text-muted);
     flex-shrink: 0;
   }
@@ -283,10 +283,10 @@
   .act {
     background: transparent;
     border: 1px solid var(--border-default);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 13px;
+    font-size: var(--fs-code);
     font-family:
       ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     width: 22px;
@@ -306,23 +306,23 @@
   }
   .stage {
     color: var(--accent-neon);
-    border-color: rgba(86, 211, 100, 0.25);
+    border-color: rgba(0, 255, 136, 0.3);
   }
   .stage:hover {
-    background: rgba(86, 211, 100, 0.1);
+    background: rgba(0, 255, 136, 0.12);
   }
   .unstage {
     color: var(--accent-gold);
-    border-color: rgba(227, 179, 65, 0.25);
+    border-color: rgba(255, 170, 0, 0.3);
   }
   .unstage:hover {
-    background: rgba(227, 179, 65, 0.1);
+    background: rgba(255, 170, 0, 0.12);
   }
   .discard {
     color: var(--color-error);
-    border-color: rgba(247, 120, 139, 0.25);
+    border-color: rgba(255, 51, 102, 0.3);
   }
   .discard:hover {
-    background: rgba(247, 120, 139, 0.1);
+    background: rgba(255, 51, 102, 0.12);
   }
 </style>

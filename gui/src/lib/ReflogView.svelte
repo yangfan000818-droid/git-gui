@@ -142,7 +142,7 @@
   .rl-panel {
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     width: 620px;
     max-width: 94%;
     max-height: 84%;
@@ -156,7 +156,7 @@
     padding: 14px 18px 6px;
   }
   .rl-header h3 {
-    font-size: 15px;
+    font-size: var(--fs-lg);
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
@@ -165,9 +165,9 @@
     background: transparent;
     border: none;
     color: var(--text-muted);
-    font-size: 18px;
+    font-size: var(--fs-xl);
     cursor: pointer;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     line-height: 1;
   }
   .rl-close:hover:not(:disabled) {
@@ -179,23 +179,23 @@
   }
   .rl-hint {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     margin: 0;
     padding: 0 18px 8px;
   }
   .rl-error {
-    background: rgba(247, 120, 139, 0.12);
-    border-top: 1px solid rgba(247, 120, 139, 0.25);
-    border-bottom: 1px solid rgba(247, 120, 139, 0.25);
-    padding: 8px 18px;
+    background: rgba(255, 51, 102, 0.12);
+    border-top: 1px solid rgba(255, 51, 102, 0.3);
+    border-bottom: 1px solid rgba(255, 51, 102, 0.3);
+    padding: var(--space-sm) 18px;
     color: var(--color-error);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     white-space: pre-wrap;
     margin: 0;
   }
   .rl-muted {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     text-align: center;
     padding: 22px 18px;
     margin: 0;
@@ -209,8 +209,8 @@
   .rl-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 18px;
+    gap: var(--space-md);
+    padding: var(--space-sm) 18px;
   }
   .rl-item:hover {
     background: var(--bg-elevated);
@@ -219,7 +219,7 @@
     color: var(--accent-cyan);
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--fs-code);
     flex-shrink: 0;
     width: 92px;
   }
@@ -227,12 +227,12 @@
     color: var(--text-muted);
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--fs-code);
     flex-shrink: 0;
   }
   .rl-action {
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: var(--fs-base);
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -242,16 +242,16 @@
   .rl-restore {
     background: transparent;
     border: 1px solid var(--border-default);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 11px;
-    padding: 3px 10px;
+    font-size: var(--fs-xs);
+    padding: 3px var(--space-md);
     flex-shrink: 0;
   }
   .rl-restore:hover:not(:disabled) {
-    background: rgba(88, 166, 255, 0.12);
-    border-color: rgba(88, 166, 255, 0.2);
+    background: rgba(0, 212, 255, 0.12);
+    border-color: rgba(0, 212, 255, 0.3);
     color: var(--accent-cyan);
   }
   .rl-restore:disabled {

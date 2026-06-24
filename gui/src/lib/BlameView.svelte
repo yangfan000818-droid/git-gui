@@ -154,7 +154,7 @@
   .panel {
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     width: 90vw;
     height: 85vh;
     display: flex;
@@ -165,7 +165,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
+    padding: var(--space-md) var(--space-lg);
     border-bottom: 1px solid var(--border-default);
     background: var(--bg-elevated);
   }
@@ -175,19 +175,19 @@
   }
   .header h2 {
     margin: 0;
-    font-size: 14px;
+    font-size: var(--fs-lg);
     font-weight: 600;
     color: var(--text-primary);
   }
   .back-btn {
     background: var(--bg-hover);
     border: 1px solid var(--border-default);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-primary);
     cursor: pointer;
-    font-size: 12px;
-    padding: 3px 10px;
-    margin-right: 10px;
+    font-size: var(--fs-sm);
+    padding: 3px var(--space-md);
+    margin-right: var(--space-md);
   }
   .back-btn:hover {
     background: var(--bg-hover);
@@ -196,9 +196,9 @@
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 18px;
+    font-size: var(--fs-xl);
     cursor: pointer;
-    padding: 4px 8px;
+    padding: var(--space-xs) var(--space-sm);
     line-height: 1;
   }
   .close-btn:hover {
@@ -207,18 +207,18 @@
   .content {
     flex: 1;
     overflow: auto;
-    padding: 8px 0;
+    padding: var(--space-sm) 0;
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: var(--fs-code);
   }
   .detail-msg {
-    margin: 0 0 12px;
-    padding: 10px 14px;
+    margin: 0 0 var(--space-md);
+    padding: var(--space-md) 14px;
     background: var(--bg-elevated);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     white-space: pre-wrap;
   }
   .blame-row {
@@ -231,8 +231,8 @@
   }
   .blame-anno {
     display: flex;
-    gap: 8px;
-    padding: 0 10px;
+    gap: var(--space-sm);
+    padding: 0 var(--space-md);
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -272,10 +272,10 @@
   }
   .placeholder {
     color: var(--text-muted);
-    padding: 12px;
+    padding: var(--space-md);
   }
   .error {
     color: var(--color-error);
-    padding: 12px;
+    padding: var(--space-md);
   }
 </style>

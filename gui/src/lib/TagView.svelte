@@ -201,7 +201,7 @@
   .tv-panel {
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     width: 480px;
     max-width: 92%;
     max-height: 82%;
@@ -211,10 +211,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 18px 10px;
+    padding: 14px 18px var(--space-md);
   }
   .tv-header h3 {
-    font-size: 15px;
+    font-size: var(--fs-lg);
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
@@ -223,9 +223,9 @@
     background: transparent;
     border: none;
     color: var(--text-muted);
-    font-size: 18px;
+    font-size: var(--fs-xl);
     cursor: pointer;
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
     line-height: 1;
   }
   .tv-close:hover {
@@ -233,33 +233,33 @@
   }
   .tv-error {
     background: #3a1d1d;
-    border-top: 1px solid rgba(247, 120, 139, 0.25);
-    border-bottom: 1px solid rgba(247, 120, 139, 0.25);
-    padding: 8px 18px;
+    border-top: 1px solid rgba(255, 51, 102, 0.3);
+    border-bottom: 1px solid rgba(255, 51, 102, 0.3);
+    padding: var(--space-sm) 18px;
     color: var(--color-error);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     white-space: pre-wrap;
   }
   .tv-muted {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-sm);
     text-align: center;
     padding: 22px 18px;
     margin: 0;
   }
   .tv-create {
     display: flex;
-    gap: 8px;
-    padding: 8px 18px 12px;
+    gap: var(--space-sm);
+    padding: var(--space-sm) 18px var(--space-md);
     border-bottom: 1px solid var(--bg-hover);
   }
   .tv-input {
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-primary);
-    font-size: 12px;
-    padding: 6px 8px;
+    font-size: var(--fs-sm);
+    padding: var(--space-sm) var(--space-sm);
     min-width: 0;
   }
   .tv-input:first-of-type {
@@ -272,13 +272,13 @@
     opacity: 0.5;
   }
   .tv-create-btn {
-    background: rgba(86, 211, 100, 0.12);
-    border: 1px solid rgba(86, 211, 100, 0.12);
-    border-radius: 4px;
+    background: rgba(0, 255, 136, 0.12);
+    border: 1px solid rgba(0, 255, 136, 0.12);
+    border-radius: var(--radius-sm);
     color: #fff;
     cursor: pointer;
-    font-size: 12px;
-    padding: 6px 14px;
+    font-size: var(--fs-sm);
+    padding: var(--space-sm) 14px;
     white-space: nowrap;
     flex-shrink: 0;
   }
@@ -292,12 +292,12 @@
   .tv-list {
     list-style: none;
     margin: 0;
-    padding: 6px 0 12px;
+    padding: var(--space-sm) 0 var(--space-md);
   }
   .tv-item {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-sm);
     padding: 7px 18px;
   }
   .tv-item:hover {
@@ -311,7 +311,7 @@
     gap: 2px;
   }
   .tv-name {
-    font-size: 13px;
+    font-size: var(--fs-code);
     color: var(--accent-gold);
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -321,9 +321,9 @@
   }
   .tv-meta {
     display: flex;
-    gap: 8px;
+    gap: var(--space-sm);
     min-width: 0;
-    font-size: 11px;
+    font-size: var(--fs-xs);
   }
   .tv-target {
     color: var(--text-muted);
@@ -340,11 +340,11 @@
   .tv-push {
     background: transparent;
     border: 1px solid var(--border-default);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 11px;
-    padding: 3px 8px;
+    font-size: var(--fs-xs);
+    padding: 3px var(--space-sm);
     flex-shrink: 0;
   }
   .tv-push:hover:not(:disabled) {
@@ -359,11 +359,11 @@
   .tv-del {
     background: transparent;
     border: 1px solid var(--border-default);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 11px;
-    padding: 3px 8px;
+    font-size: var(--fs-xs);
+    padding: 3px var(--space-sm);
     flex-shrink: 0;
   }
   .tv-del:hover:not(:disabled) {
