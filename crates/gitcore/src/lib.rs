@@ -5,6 +5,7 @@
 
 mod blame;
 mod branch;
+mod clone;
 mod commit;
 mod config;
 mod conflict;
@@ -31,6 +32,7 @@ use std::path::{Path, PathBuf};
 
 pub use blame::BlameLine;
 pub use branch::{BranchInfo, SwitchOutcome};
+pub use clone::clone_streaming;
 pub use commit::CommitOptions;
 pub use config::{parse_repos_config, RepoConfig};
 pub use conflict::{conflicted_files, three_versions, ThreeVersions};

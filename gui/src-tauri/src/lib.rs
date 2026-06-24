@@ -583,6 +583,32 @@ async fn execute_update(
     res
 }
 
+/// 从远程 URL clone 仓库到 parent_dir 下(子目录名由 URL 推断),返回 clone 出的仓库路径。
+/// 长操作:async + spawn_blocking,进度经 "clone-progress" 事件推送,取消走 CancelRegistry。
+#[tauri::command]
+async fn repo_clone(
+    app: AppHandle,
+    url: String,
+    parent_dir: String,
+    op_id: String,
+    state: State<'_, CancelRegistry>,
+) -> Result<String, String> {
+    let cancel = CancelToken::default();
+    state.insert(op_id.clone(), cancel.clone());
+    let res = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let mut on_progress = |p: Progress| {
+            let _ = app.emit("clone-progress", p);
+        };
+        gitcore::clone_streaming(&url, Path::new(&parent_dir), &mut on_progress, &cancel)
+            .map(|p| p.to_string_lossy().into_owned())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    state.remove(&op_id);
+    res
+}
+
 /// 取消某个进行中的长操作(查 CancelRegistry 并 token.cancel())。
 #[tauri::command]
 fn cancel_op(op_id: String, state: State<'_, CancelRegistry>) {
@@ -1032,6 +1058,7 @@ pub fn run() {
             repo_fetch,
             repo_push,
             execute_update,
+            repo_clone,
             cancel_op,
             read_repo_file,
             resolve_conflict_file,

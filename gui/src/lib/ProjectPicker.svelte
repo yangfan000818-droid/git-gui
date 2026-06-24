@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
+  import CloneDialog from "$lib/CloneDialog.svelte";
 
   interface Props {
     onselect: (path: string) => void;
@@ -11,6 +12,7 @@
   let recentProjects = $state<string[]>([]);
   let loading = $state(false);
   let error = $state("");
+  let showClone = $state(false);
 
   async function loadRecent() {
     try {
@@ -63,9 +65,18 @@
 <div class="picker-container">
   <div class="header">
     <h2>选择项目</h2>
-    <button class="btn-browse" onclick={browseDirectory} disabled={loading}>
-      {loading ? "加载中..." : "选择目录..."}
-    </button>
+    <div class="header-actions">
+      <button
+        class="btn-clone"
+        onclick={() => (showClone = true)}
+        disabled={loading}
+      >
+        克隆仓库...
+      </button>
+      <button class="btn-browse" onclick={browseDirectory} disabled={loading}>
+        {loading ? "加载中..." : "选择目录..."}
+      </button>
+    </div>
   </div>
 
   {#if error}
@@ -103,6 +114,16 @@
       <p class="hint">点击上方"选择目录"按钮打开 Git 仓库</p>
     </div>
   {/if}
+
+  {#if showClone}
+    <CloneDialog
+      onClose={() => (showClone = false)}
+      onCloned={(p) => {
+        showClone = false;
+        onselect(p);
+      }}
+    />
+  {/if}
 </div>
 
 <style>
@@ -124,6 +145,29 @@
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-clone {
+    background: transparent;
+    border: 1px solid var(--accent-cyan);
+    border-radius: 6px;
+    color: var(--accent-cyan);
+    padding: 8px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-clone:hover:not(:disabled) {
+    background: rgba(88, 166, 255, 0.12);
+  }
+  .btn-clone:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .btn-browse {
