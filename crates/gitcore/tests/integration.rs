@@ -1689,3 +1689,133 @@ fn checkout_commit_detaches_head() {
 
     cleanup(&[&dir]);
 }
+
+#[test]
+fn smart_checkout_commit_dirty_nonconflicting_carries_change() {
+    // f.txt 两提交相同、g.txt 不同;脏改动落在 f.txt → 检出旧提交贴回不冲突。
+    let dir = init_repo("scc-carry");
+    write(&dir, "f.txt", "A\n");
+    write(&dir, "g.txt", "G1\n");
+    commit_all(&dir, "c1");
+    let c1 = head_sha(&dir);
+    write(&dir, "g.txt", "G2\n"); // c2 仅改 g.txt
+    commit_all(&dir, "c2");
+    write(&dir, "f.txt", "A-dirty\n"); // 脏:改 f.txt(两提交一致,贴回安全)
+
+    let repo = Repo::open(&dir).unwrap();
+    let r = repo.checkout_commit_autostash(&c1).unwrap();
+    assert!(
+        matches!(r, SwitchOutcome::Switched),
+        "无冲突应 Switched,实际 {r:?}"
+    );
+
+    // 已进入 detached HEAD,停在 c1。
+    assert!(
+        repo.status().unwrap().branch.is_none(),
+        "应为 detached HEAD"
+    );
+    assert_eq!(head_sha(&dir), c1, "HEAD 应指向 c1");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("f.txt")).unwrap(),
+        "A-dirty\n",
+        "脏改动应贴回"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("g.txt")).unwrap(),
+        "G1\n",
+        "g.txt 应为 c1 版本"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn smart_checkout_commit_dirty_conflicting_reports_stash_conflict() {
+    // 第2行在目标提交与脏改动各不相同 → 贴回三方冲突。
+    let dir = init_repo("scc-conflict");
+    write(&dir, "f.txt", "1\n2\n3\n");
+    commit_all(&dir, "c1");
+    let c1 = head_sha(&dir);
+    write(&dir, "f.txt", "1\n2-v2\n3\n"); // c2 改第2行
+    commit_all(&dir, "c2");
+    write(&dir, "f.txt", "1\n2-dirty\n3\n"); // 脏:第2行改成另一个值
+
+    let repo = Repo::open(&dir).unwrap();
+    let r = repo.checkout_commit_autostash(&c1).unwrap();
+    match r {
+        SwitchOutcome::StashConflict { files } => {
+            assert!(
+                files.iter().any(|f| f.ends_with("f.txt")),
+                "冲突文件应含 f.txt,实际 {files:?}"
+            );
+        }
+        other => panic!("贴回应冲突,实际 {other:?}"),
+    }
+    assert!(
+        std::fs::read_to_string(dir.join("f.txt"))
+            .unwrap()
+            .contains("<<<<<<<"),
+        "f.txt 应留有冲突标记"
+    );
+    // stash 仍保留(贴回失败不丢改动)
+    assert!(
+        !repo.stashes().unwrap().is_empty(),
+        "贴回冲突时 stash 应保留"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn smart_checkout_remote_dirty_nonconflicting_creates_tracking_branch() {
+    // 脏工作区检出远程分支:自动 stash → checkout -b --track → 贴回。
+    let origin = bare_remote("scr-origin");
+    let setup = clone(&origin, "scr-setup");
+    write(&setup, "a.txt", "A\n");
+    commit_all(&setup, "c1");
+    git(&setup, &["push", "-q", "origin", "main"]);
+    // feat 从 main 分叉(a.txt 不变),推到 origin。
+    git(&setup, &["checkout", "-q", "-b", "feat"]);
+    write(&setup, "feat.txt", "feat\n");
+    commit_all(&setup, "feat commit");
+    git(&setup, &["push", "-q", "origin", "feat"]);
+
+    // 新克隆:含 origin/main、origin/feat,无本地 feat。
+    let work = clone(&origin, "scr-work");
+    write(&work, "a.txt", "A-dirty\n"); // 脏:改 a.txt(feat 中相同,贴回安全)
+
+    let repo = Repo::open(&work).unwrap();
+    let r = repo.checkout_remote_autostash("origin/feat").unwrap();
+    assert!(
+        matches!(r, SwitchOutcome::Switched),
+        "无冲突应 Switched,实际 {r:?}"
+    );
+
+    // 已在新建的本地 feat 分支,且跟踪 origin/feat。
+    assert_eq!(head_branch(&work), "feat");
+    let feat = repo
+        .branches()
+        .unwrap()
+        .into_iter()
+        .find(|b| b.is_current)
+        .expect("应有当前分支");
+    assert_eq!(feat.name, "feat");
+    assert_eq!(
+        feat.upstream.as_deref(),
+        Some("origin/feat"),
+        "新本地分支应跟踪 origin/feat"
+    );
+    // feat 内容在 + 脏改动贴回。
+    assert_eq!(
+        std::fs::read_to_string(work.join("feat.txt")).unwrap(),
+        "feat\n",
+        "应有 feat 分支文件"
+    );
+    assert_eq!(
+        std::fs::read_to_string(work.join("a.txt")).unwrap(),
+        "A-dirty\n",
+        "脏改动应贴回"
+    );
+
+    cleanup(&[&origin, &setup, &work]);
+}

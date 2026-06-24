@@ -149,6 +149,40 @@
       onSwitched();
       onClose();
     } catch (e) {
+      const msg = String(e);
+      // 工作区脏被拒 → 提供 smart checkout(对标 WebStorm:检出被挡时才提示)
+      if (
+        msg.includes("未提交改动") &&
+        confirm(
+          `工作区有未提交改动。暂存后检出远程分支 "${remoteBranch}"(smart checkout)?\n改动会在检出后自动贴回新分支。`,
+        )
+      ) {
+        await smartCheckoutRemote(remoteBranch);
+        return;
+      }
+      error = msg;
+    } finally {
+      switching = false;
+    }
+  }
+
+  // smart checkout 远程分支:自动 stash → checkout -b --track → 贴回;贴回冲突时提示去改动列表解决。
+  async function smartCheckoutRemote(remoteBranch: string) {
+    switching = true;
+    error = "";
+    try {
+      const r = await invoke<SwitchOutcome>("repo_checkout_remote_autostash", {
+        path: repoPath,
+        remoteBranch,
+      });
+      if (typeof r === "object" && "StashConflict" in r) {
+        alert(
+          `已暂存改动并检出 "${remoteBranch}",但贴回时有冲突。\n请在改动列表中解决冲突;原改动仍保留在 stash 中。`,
+        );
+      }
+      onSwitched();
+      onClose();
+    } catch (e) {
       error = String(e);
     } finally {
       switching = false;

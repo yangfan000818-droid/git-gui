@@ -534,6 +534,11 @@ impl Repo {
         branch::checkout_commit(self, sha)
     }
 
+    /// 脏工作区智能检出提交(smart checkout):自动 stash → checkout → 贴回。
+    pub fn checkout_commit_autostash(&self, sha: &str) -> Result<SwitchOutcome, Error> {
+        branch::checkout_commit_autostash(self, sha)
+    }
+
     /// 删除分支(安全模式)。
     pub fn delete_branch(&self, name: &str) -> Result<(), Error> {
         branch::delete_branch(self, name)
@@ -552,6 +557,11 @@ impl Repo {
     /// 检出远程分支为本地跟踪分支(脏工作区/本地同名已存在时报错)。
     pub fn checkout_remote(&self, remote_branch: &str) -> Result<(), Error> {
         branch::checkout_remote(self, remote_branch)
+    }
+
+    /// 脏工作区智能检出远程分支(smart checkout):自动 stash → checkout -b --track → 贴回。
+    pub fn checkout_remote_autostash(&self, remote_branch: &str) -> Result<SwitchOutcome, Error> {
+        branch::checkout_remote_autostash(self, remote_branch)
     }
 
     // 跑一个必须成功的 git 子命令,非零退出 → Err。

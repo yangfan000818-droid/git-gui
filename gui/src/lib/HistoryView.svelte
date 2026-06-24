@@ -50,6 +50,8 @@
   interface StashRef {
     label: string;
   }
+  // smart checkout 结果(externally tagged)
+  type SwitchOutcome = "Switched" | { StashConflict: { files: string[] } };
   interface ConflictedData {
     files: string[];
     autostash: StashRef | null;
@@ -328,11 +330,45 @@
       return;
     operationInProgress = true;
     operationError = "";
+    const sha = selectedCommit.full_sha;
     try {
       await invoke("repo_checkout_commit", {
         path: selectedRepoPath,
-        sha: selectedCommit.full_sha,
+        sha,
       });
+      await load();
+    } catch (e) {
+      const msg = String(e);
+      // 工作区脏被拒 → 提供 smart checkout(对标 WebStorm:检出被挡时才提示)
+      if (
+        msg.includes("未提交改动") &&
+        confirm(
+          `工作区有未提交改动。暂存后检出 ${sha.slice(0, 7)}(smart checkout)?\n改动会在检出后自动贴回。`,
+        )
+      ) {
+        await smartCheckoutCommit(sha);
+        return;
+      }
+      operationError = msg;
+    } finally {
+      operationInProgress = false;
+    }
+  }
+
+  // smart checkout 提交:自动 stash → checkout → 贴回;贴回冲突时提示去改动列表解决。
+  async function smartCheckoutCommit(sha: string) {
+    operationInProgress = true;
+    operationError = "";
+    try {
+      const r = await invoke<SwitchOutcome>("repo_checkout_commit_autostash", {
+        path: selectedRepoPath,
+        sha,
+      });
+      if (typeof r === "object" && "StashConflict" in r) {
+        alert(
+          `已暂存改动并检出 ${sha.slice(0, 7)},但贴回时有冲突。\n请在改动列表中解决冲突;原改动仍保留在 stash 中。`,
+        );
+      }
       await load();
     } catch (e) {
       operationError = String(e);

@@ -117,8 +117,12 @@ fn finish_checkout(result: Result<String, Error>) -> Result<(), Error> {
     }
 }
 
-/// 检出远程分支为本地跟踪分支(git checkout -b <local> --track <remote>)。
-pub(crate) fn checkout_remote(repo: &Repo, remote_branch: &str) -> Result<(), Error> {
+/// 远程分支检出前置:推断本地分支名,并拒绝本地已存在同名分支(引导直接切换,不覆盖)。
+/// 返回待创建的本地分支名。普通检出与 smart checkout 共用。
+fn resolve_remote_checkout_target<'a>(
+    repo: &Repo,
+    remote_branch: &'a str,
+) -> Result<&'a str, Error> {
     let local = local_name_from_remote(remote_branch).ok_or_else(|| {
         Error::Precondition(format!(
             "无法从远程分支名 \"{remote_branch}\" 推断本地分支名"
@@ -138,6 +142,12 @@ pub(crate) fn checkout_remote(repo: &Repo, remote_branch: &str) -> Result<(), Er
             "本地已存在分支 \"{local}\"，请直接切换到它"
         )));
     }
+    Ok(local)
+}
+
+/// 检出远程分支为本地跟踪分支(git checkout -b <local> --track <remote>)。
+pub(crate) fn checkout_remote(repo: &Repo, remote_branch: &str) -> Result<(), Error> {
+    let local = resolve_remote_checkout_target(repo, remote_branch)?;
     // 不预检脏区:让 git checkout 自己判。改动不冲突则成功(静默带到新分支),
     // 冲突则返回可识别错误给前端做 Smart Checkout。
     finish_checkout(repo.git(&["checkout", "-b", local, "--track", remote_branch]))
@@ -190,29 +200,30 @@ pub enum SwitchOutcome {
     StashConflict { files: Vec<PathBuf> },
 }
 
-/// 脏工作区智能切换(对标 WebStorm「Smart Checkout」):自动 stash → checkout → 贴回。
-/// 工作区干净时等同普通切换。贴回冲突时改动安全留在工作区 + stash,交前端提示解决,
+/// 脏工作区智能检出(对标 WebStorm「Smart Checkout」)的通用实现:
+/// autostash → 执行 `args` 指定的 checkout → 贴回暂存改动。
+/// 工作区干净时等同普通检出。贴回冲突时改动安全留在工作区 + stash,交前端提示解决,
 /// 不进合并 continue/abort 流(这并非合并进行中态)。
-pub(crate) fn switch_branch_autostash(repo: &Repo, name: &str) -> Result<SwitchOutcome, Error> {
+fn checkout_autostash(repo: &Repo, args: &[&str]) -> Result<SwitchOutcome, Error> {
     // 干净 → None(不 stash);脏 → stash(含 untracked)后返回 Some,工作区随即清空。
     let label = stash::autostash_label();
     let stash = stash::autostash_push(repo, &label)?;
 
     // 工作区已清空,checkout 不会因「改动会被覆盖」而失败。
-    let out = repo.git_checked(&["checkout", name])?;
+    let out = repo.git_checked(args)?;
     if !out.success {
-        // 罕见失败:把改动贴回原分支,绝不把 stash 遗弃。
+        // 罕见失败:把改动贴回原位置,绝不把 stash 遗弃。
         if let Some(s) = &stash {
             let _ = stash::autostash_pop(repo, s);
         }
         return Err(Error::Git {
-            args: vec!["checkout".into(), name.into()],
+            args: args.iter().map(|s| s.to_string()).collect(),
             code: out.code,
             stderr: out.stderr,
         });
     }
 
-    // 已在新分支:贴回暂存的改动。
+    // 已在新位置:贴回暂存的改动。
     match stash {
         None => Ok(SwitchOutcome::Switched),
         Some(s) => match stash::autostash_pop(repo, &s)? {
@@ -220,6 +231,25 @@ pub(crate) fn switch_branch_autostash(repo: &Repo, name: &str) -> Result<SwitchO
             PopResult::Conflict(files) => Ok(SwitchOutcome::StashConflict { files }),
         },
     }
+}
+
+/// 脏工作区智能切换本地分支(smart checkout)。
+pub(crate) fn switch_branch_autostash(repo: &Repo, name: &str) -> Result<SwitchOutcome, Error> {
+    checkout_autostash(repo, &["checkout", name])
+}
+
+/// 脏工作区智能检出远程分支为本地跟踪分支(smart checkout)。
+pub(crate) fn checkout_remote_autostash(
+    repo: &Repo,
+    remote_branch: &str,
+) -> Result<SwitchOutcome, Error> {
+    let local = resolve_remote_checkout_target(repo, remote_branch)?;
+    checkout_autostash(repo, &["checkout", "-b", local, "--track", remote_branch])
+}
+
+/// 脏工作区智能检出提交,进入 detached HEAD(smart checkout)。
+pub(crate) fn checkout_commit_autostash(repo: &Repo, sha: &str) -> Result<SwitchOutcome, Error> {
+    checkout_autostash(repo, &["checkout", sha])
 }
 
 /// 删除分支（安全模式：不删除未合并的分支）。

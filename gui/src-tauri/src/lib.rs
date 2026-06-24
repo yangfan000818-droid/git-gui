@@ -762,6 +762,14 @@ fn repo_checkout_commit(path: String, sha: String) -> Result<(), String> {
     repo.checkout_commit(&sha).map_err(|e| e.to_string())
 }
 
+/// 脏工作区智能检出提交(smart checkout):自动 stash → checkout → 贴回。
+#[tauri::command]
+fn repo_checkout_commit_autostash(path: String, sha: String) -> Result<SwitchOutcome, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.checkout_commit_autostash(&sha)
+        .map_err(|e| e.to_string())
+}
+
 /// 新建分支(仅创建,不切换)。start_point 为 None 时从当前 HEAD,Some 时从指定分支/提交。
 #[tauri::command]
 fn repo_create_branch(
@@ -846,6 +854,17 @@ fn repo_rebase_interactive(
 fn repo_checkout_remote(path: String, remote_branch: String) -> Result<(), String> {
     let repo = Repo::open(&path).map_err(|e| e.to_string())?;
     repo.checkout_remote(&remote_branch)
+        .map_err(|e| e.to_string())
+}
+
+/// 脏工作区智能检出远程分支(smart checkout):自动 stash → checkout -b --track → 贴回。
+#[tauri::command]
+fn repo_checkout_remote_autostash(
+    path: String,
+    remote_branch: String,
+) -> Result<SwitchOutcome, String> {
+    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+    repo.checkout_remote_autostash(&remote_branch)
         .map_err(|e| e.to_string())
 }
 
@@ -1077,12 +1096,14 @@ pub fn run() {
             repo_branches,
             repo_switch_branch,
             repo_checkout_commit,
+            repo_checkout_commit_autostash,
             repo_switch_branch_autostash,
             repo_create_branch,
             repo_delete_branch,
             repo_rename_branch,
             repo_remote_branches,
             repo_checkout_remote,
+            repo_checkout_remote_autostash,
             repo_merge_branch,
             repo_rebase_branch,
             repo_rebase_plan,
