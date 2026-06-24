@@ -842,92 +842,124 @@ fn repo_log_graph(
 }
 
 #[tauri::command]
-fn repo_file_history(
+async fn repo_file_history(
     path: String,
     file_path: String,
     max_count: usize,
 ) -> Result<Vec<gitcore::LogEntry>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let opts = gitcore::LogOptions {
-        max_count,
-        branch: None,
-        author: None,
-        grep: None,
-    };
-    repo.file_history(Path::new(&file_path), &opts)
-        .map_err(|e| e.to_string())
+    // git log --follow fork 子进程,大历史可能慢;同步 command 跑主线程会冻结 UI,故 spawn_blocking。
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let opts = gitcore::LogOptions {
+            max_count,
+            branch: None,
+            author: None,
+            grep: None,
+        };
+        repo.file_history(Path::new(&file_path), &opts)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_commit_file_diff(
+async fn repo_commit_file_diff(
     path: String,
     sha: String,
     file_path: String,
 ) -> Result<Option<FileDiff>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.commit_file_diff(&sha, Path::new(&file_path))
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.commit_file_diff(&sha, Path::new(&file_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_blame(path: String, file_path: String) -> Result<Vec<gitcore::BlameLine>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.blame(Path::new(&file_path)).map_err(|e| e.to_string())
+async fn repo_blame(path: String, file_path: String) -> Result<Vec<gitcore::BlameLine>, String> {
+    // git blame 大文件可能慢;同步 command 跑主线程会冻结 UI,故 spawn_blocking。
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.blame(Path::new(&file_path)).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_log_topology(
+async fn repo_log_topology(
     path: String,
     max_count: usize,
     branch: Option<String>,
     author: Option<String>,
     grep: Option<String>,
 ) -> Result<Vec<gitcore::GraphCommit>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let opts = gitcore::LogOptions {
-        max_count,
-        branch,
-        author,
-        grep,
-    };
-    repo.log_topology(&opts).map_err(|e| e.to_string())
+    // git log + 拓扑计算会 fork 子进程;同步 command 跑在主线程会冻结 UI,故 spawn_blocking。
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let opts = gitcore::LogOptions {
+            max_count,
+            branch,
+            author,
+            grep,
+        };
+        repo.log_topology(&opts).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 合并主仓与各子仓的提交历史(按时间排序,每条带仓库标识),用于含子模块的仓库。
 #[tauri::command]
-fn repo_log_merged(
+async fn repo_log_merged(
     path: String,
     max_count: usize,
     author: Option<String>,
     grep: Option<String>,
 ) -> Result<Vec<gitcore::MergedLogEntry>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let opts = gitcore::LogOptions {
-        max_count,
-        branch: None,
-        author,
-        grep,
-    };
-    repo.log_merged(&opts).map_err(|e| e.to_string())
+    // 主仓 + 各子仓串行 fork git(2+2N 次);同步 command 跑在主线程会冻结 UI,故 spawn_blocking。
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let opts = gitcore::LogOptions {
+            max_count,
+            branch: None,
+            author,
+            grep,
+        };
+        repo.log_merged(&opts).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_commit_files(path: String, sha: String) -> Result<Vec<FileDiff>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.commit_files(&sha).map_err(|e| e.to_string())
+async fn repo_commit_files(path: String, sha: String) -> Result<Vec<FileDiff>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.commit_files(&sha).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 列出子仓库在 old..new 区间的提交(父仓 commit 详情展开子模块指针变化)。
 #[tauri::command]
-fn repo_submodule_commits(
+async fn repo_submodule_commits(
     path: String,
     sub_path: String,
     old_sha: String,
     new_sha: String,
 ) -> Result<Vec<gitcore::LogEntry>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.submodule_commits(Path::new(&sub_path), &old_sha, &new_sha)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.submodule_commits(Path::new(&sub_path), &old_sha, &new_sha)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 选定分支(或任意 ref)与当前工作区的差异(Show Diff with Working Tree)。
@@ -945,9 +977,13 @@ fn repo_compare_commits(path: String, other: String) -> Result<BranchComparison,
 }
 
 #[tauri::command]
-fn repo_commit_message(path: String, sha: String) -> Result<String, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.commit_message(&sha).map_err(|e| e.to_string())
+async fn repo_commit_message(path: String, sha: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.commit_message(&sha).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 检查 git 是否可用:Windows 不自带 git,缺 git 时给友好提示。
