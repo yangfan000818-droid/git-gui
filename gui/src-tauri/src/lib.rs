@@ -342,148 +342,220 @@ fn start_watch(app: AppHandle, path: String, state: State<'_, WatchState>) -> Re
 // ── Changes 视图命令 ──
 
 #[tauri::command]
-fn repo_status(path: String) -> Result<RepoStatus, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.status().map_err(|e| e.to_string())
+async fn repo_status(path: String) -> Result<RepoStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.status().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_unstaged_diff(path: String) -> Result<Vec<FileDiff>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.unstaged_diff().map_err(|e| e.to_string())
+async fn repo_unstaged_diff(path: String) -> Result<Vec<FileDiff>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.unstaged_diff().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_staged_diff(path: String) -> Result<Vec<FileDiff>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.staged_diff().map_err(|e| e.to_string())
+async fn repo_staged_diff(path: String) -> Result<Vec<FileDiff>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.staged_diff().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 单个文件的未暂存 diff(选中文件时懒加载)。
 #[tauri::command]
-fn repo_file_unstaged_diff(path: String, file: String) -> Result<Option<FileDiff>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.file_unstaged_diff(Path::new(&file))
-        .map_err(|e| e.to_string())
+async fn repo_file_unstaged_diff(path: String, file: String) -> Result<Option<FileDiff>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.file_unstaged_diff(Path::new(&file))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 单个文件的已暂存 diff(选中文件时懒加载)。
 #[tauri::command]
-fn repo_file_staged_diff(path: String, file: String) -> Result<Option<FileDiff>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.file_staged_diff(Path::new(&file))
-        .map_err(|e| e.to_string())
+async fn repo_file_staged_diff(path: String, file: String) -> Result<Option<FileDiff>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.file_staged_diff(Path::new(&file))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_stage(path: String, files: Vec<String>) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let paths: Vec<&Path> = files.iter().map(|s| Path::new(s.as_str())).collect();
-    repo.stage(&paths).map_err(|e| e.to_string())
+async fn repo_stage(path: String, files: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let paths: Vec<&Path> = files.iter().map(|s| Path::new(s.as_str())).collect();
+        repo.stage(&paths).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_unstage(path: String, files: Vec<String>) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let paths: Vec<&Path> = files.iter().map(|s| Path::new(s.as_str())).collect();
-    repo.unstage(&paths).map_err(|e| e.to_string())
+async fn repo_unstage(path: String, files: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let paths: Vec<&Path> = files.iter().map(|s| Path::new(s.as_str())).collect();
+        repo.unstage(&paths).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_discard(path: String, files: Vec<String>) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let paths: Vec<&Path> = files.iter().map(|s| Path::new(s.as_str())).collect();
-    repo.discard(&paths).map_err(|e| e.to_string())
+async fn repo_discard(path: String, files: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let paths: Vec<&Path> = files.iter().map(|s| Path::new(s.as_str())).collect();
+        repo.discard(&paths).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_stage_hunk(path: String, file: FileDiff, hunk: Hunk) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.stage_hunk(&file, &hunk).map_err(|e| e.to_string())
+async fn repo_stage_hunk(path: String, file: FileDiff, hunk: Hunk) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.stage_hunk(&file, &hunk).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_unstage_hunk(path: String, file: FileDiff, hunk: Hunk) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.unstage_hunk(&file, &hunk).map_err(|e| e.to_string())
+async fn repo_unstage_hunk(path: String, file: FileDiff, hunk: Hunk) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.unstage_hunk(&file, &hunk).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_stage_lines(
+async fn repo_stage_lines(
     path: String,
     file: FileDiff,
     hunk: Hunk,
     selected: Vec<usize>,
 ) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.stage_lines(&file, &hunk, &selected)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.stage_lines(&file, &hunk, &selected)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_unstage_lines(
+async fn repo_unstage_lines(
     path: String,
     file: FileDiff,
     hunk: Hunk,
     selected: Vec<usize>,
 ) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.unstage_lines(&file, &hunk, &selected)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.unstage_lines(&file, &hunk, &selected)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_commit(
+async fn repo_commit(
     app: AppHandle,
     path: String,
     message: String,
     amend: bool,
 ) -> Result<String, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let opts = CommitOptions {
-        message,
-        amend,
-        no_verify: AppSettings::load(&app).skip_hooks,
-        ..Default::default()
-    };
-    repo.commit(&opts).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let opts = CommitOptions {
+            message,
+            amend,
+            no_verify: AppSettings::load(&app).skip_hooks,
+            ..Default::default()
+        };
+        repo.commit(&opts).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ── Stash 管理命令(对标 WebStorm Stash / Unstash Changes) ──
 
 #[tauri::command]
-fn repo_stashes(path: String) -> Result<Vec<StashEntry>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.stashes().map_err(|e| e.to_string())
+async fn repo_stashes(path: String) -> Result<Vec<StashEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.stashes().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 把当前工作区改动(含未跟踪)储藏起来;message 为空则用 git 默认描述。
 #[tauri::command]
-fn repo_stash_push(path: String, message: Option<String>) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.stash_push(message.as_deref().filter(|m| !m.is_empty()))
-        .map_err(|e| e.to_string())
+async fn repo_stash_push(path: String, message: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.stash_push(message.as_deref().filter(|m| !m.is_empty()))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 应用指定 stash(保留 stash)。
 #[tauri::command]
-fn repo_stash_apply(path: String, reff: String) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.stash_apply(&reff).map_err(|e| e.to_string())
+async fn repo_stash_apply(path: String, reff: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.stash_apply(&reff).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 弹出指定 stash(应用 + 删除;冲突则保留 stash)。
 #[tauri::command]
-fn repo_stash_pop(path: String, reff: String) -> Result<PopResult, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.stash_pop(&reff).map_err(|e| e.to_string())
+async fn repo_stash_pop(path: String, reff: String) -> Result<PopResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.stash_pop(&reff).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 丢弃指定 stash。
 #[tauri::command]
-fn repo_stash_drop(path: String, reff: String) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.stash_drop(&reff).map_err(|e| e.to_string())
+async fn repo_stash_drop(path: String, reff: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.stash_drop(&reff).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 初始化/更新子仓库到父仓库记录的提交。可能较慢(需 clone/fetch),故 spawn_blocking。
@@ -627,263 +699,393 @@ fn read_repo_file(path: String, file_path: String) -> Result<String, String> {
 
 /// 写回某文件的冲突解决结果并 git add。
 #[tauri::command]
-fn resolve_conflict_file(path: String, file_path: String, text: String) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.resolve_file(Path::new(&file_path), &text)
-        .map_err(|e| e.to_string())
+async fn resolve_conflict_file(
+    path: String,
+    file_path: String,
+    text: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.resolve_file(Path::new(&file_path), &text)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 读取冲突文件的片段序列(已 refine),供三栏视图渲染。
 #[tauri::command]
-fn read_conflict_segments(path: String, file_path: String) -> Result<Vec<Segment>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.read_conflict(Path::new(&file_path))
-        .map_err(|e| e.to_string())
+async fn read_conflict_segments(path: String, file_path: String) -> Result<Vec<Segment>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.read_conflict(Path::new(&file_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 冲突解决后完成整合,并还原 autostash。
 #[tauri::command]
-fn continue_update_cmd(
+async fn continue_update_cmd(
     path: String,
     autostash: Option<StashRef>,
     recurse_submodules: bool,
 ) -> Result<UpdateOutcome, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.continue_update(autostash, recurse_submodules)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.continue_update(autostash, recurse_submodules)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 放弃整合,回到 Update 之前的状态(含还原 autostash)。
 #[tauri::command]
-fn abort_update_cmd(path: String, autostash: Option<StashRef>) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.abort_update(autostash).map_err(|e| e.to_string())
+async fn abort_update_cmd(path: String, autostash: Option<StashRef>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.abort_update(autostash).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 检测未完成的整合(中断/崩溃后):返回待解决冲突文件 + 扫回的 autostash。
 #[tauri::command]
-fn resume_conflicts(path: String) -> Result<Option<PendingConflicts>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.resume_conflicts().map_err(|e| e.to_string())
+async fn resume_conflicts(path: String) -> Result<Option<PendingConflicts>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.resume_conflicts().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Cherry-pick 一个提交到当前分支。
 #[tauri::command]
-fn repo_cherry_pick(path: String, sha: String) -> Result<UpdateOutcome, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.cherry_pick(&sha).map_err(|e| e.to_string())
+async fn repo_cherry_pick(path: String, sha: String) -> Result<UpdateOutcome, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.cherry_pick(&sha).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Revert 一个提交(生成反向提交)。
 #[tauri::command]
-fn repo_revert(path: String, sha: String) -> Result<UpdateOutcome, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.revert(&sha).map_err(|e| e.to_string())
+async fn repo_revert(path: String, sha: String) -> Result<UpdateOutcome, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.revert(&sha).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 把当前分支重置到指定提交(soft/mixed/hard,对标 WebStorm Reset Current Branch to Here)。
 #[tauri::command]
-fn repo_reset(path: String, sha: String, mode: ResetMode) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.reset(&sha, mode).map_err(|e| e.to_string())
+async fn repo_reset(path: String, sha: String, mode: ResetMode) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.reset(&sha, mode).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 取 HEAD reflog(最近 max_count 条),供查看/恢复历史状态。
 #[tauri::command]
-fn repo_reflog(path: String, max_count: usize) -> Result<Vec<ReflogEntry>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.reflog(max_count).map_err(|e| e.to_string())
+async fn repo_reflog(path: String, max_count: usize) -> Result<Vec<ReflogEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.reflog(max_count).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ── Tag 管理命令 ──
 
 #[tauri::command]
-fn repo_tags(path: String) -> Result<Vec<TagInfo>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.tags().map_err(|e| e.to_string())
+async fn repo_tags(path: String) -> Result<Vec<TagInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.tags().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 创建 tag。target 为 None 打在 HEAD;message 非空则为注释标签。
 #[tauri::command]
-fn repo_create_tag(
+async fn repo_create_tag(
     path: String,
     name: String,
     target: Option<String>,
     message: Option<String>,
 ) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.create_tag(
-        &name,
-        target.as_deref(),
-        message.as_deref().filter(|m| !m.is_empty()),
-    )
-    .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.create_tag(
+            &name,
+            target.as_deref(),
+            message.as_deref().filter(|m| !m.is_empty()),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn repo_delete_tag(path: String, name: String) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.delete_tag(&name).map_err(|e| e.to_string())
+async fn repo_delete_tag(path: String, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.delete_tag(&name).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 把一个 tag 推送到默认远程。
 #[tauri::command]
-fn repo_push_tag(path: String, name: String) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.push_tag(&name).map_err(|e| e.to_string())
+async fn repo_push_tag(path: String, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.push_tag(&name).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 列出仓库所有本地分支。
 #[tauri::command]
-fn repo_branches(path: String) -> Result<Vec<BranchInfo>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.branches().map_err(|e| e.to_string())
+async fn repo_branches(path: String) -> Result<Vec<BranchInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.branches().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 切换到指定分支(工作区脏时返回错误,引导先提交/暂存)。
 #[tauri::command]
-fn repo_switch_branch(path: String, name: String) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.switch_branch(&name).map_err(|e| e.to_string())
+async fn repo_switch_branch(path: String, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.switch_branch(&name).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 脏工作区智能切换(smart checkout):自动 stash → checkout → 贴回。
 #[tauri::command]
-fn repo_switch_branch_autostash(path: String, name: String) -> Result<SwitchOutcome, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.switch_branch_autostash(&name)
-        .map_err(|e| e.to_string())
+async fn repo_switch_branch_autostash(path: String, name: String) -> Result<SwitchOutcome, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.switch_branch_autostash(&name)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 检出某个提交,进入 detached HEAD(对标 WebStorm Checkout Revision)。
 #[tauri::command]
-fn repo_checkout_commit(path: String, sha: String) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.checkout_commit(&sha).map_err(|e| e.to_string())
+async fn repo_checkout_commit(path: String, sha: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.checkout_commit(&sha).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 脏工作区智能检出提交(smart checkout):自动 stash → checkout → 贴回。
 #[tauri::command]
-fn repo_checkout_commit_autostash(path: String, sha: String) -> Result<SwitchOutcome, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.checkout_commit_autostash(&sha)
-        .map_err(|e| e.to_string())
+async fn repo_checkout_commit_autostash(
+    path: String,
+    sha: String,
+) -> Result<SwitchOutcome, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.checkout_commit_autostash(&sha)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 新建分支(仅创建,不切换)。start_point 为 None 时从当前 HEAD,Some 时从指定分支/提交。
 #[tauri::command]
-fn repo_create_branch(
+async fn repo_create_branch(
     path: String,
     name: String,
     start_point: Option<String>,
 ) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.create_branch(&name, start_point.as_deref())
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.create_branch(&name, start_point.as_deref())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 删除分支(安全模式:拒删当前分支和未合并分支)。
 #[tauri::command]
-fn repo_delete_branch(path: String, name: String) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.delete_branch(&name).map_err(|e| e.to_string())
+async fn repo_delete_branch(path: String, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.delete_branch(&name).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 重命名分支(目标名已存在时返回错误)。
 #[tauri::command]
-fn repo_rename_branch(path: String, old_name: String, new_name: String) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.rename_branch(&old_name, &new_name)
-        .map_err(|e| e.to_string())
+async fn repo_rename_branch(
+    path: String,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.rename_branch(&old_name, &new_name)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 列出远程跟踪分支(refs/remotes/,过滤 origin/HEAD)。
 #[tauri::command]
-fn repo_remote_branches(path: String) -> Result<Vec<BranchInfo>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.remote_branches().map_err(|e| e.to_string())
+async fn repo_remote_branches(path: String) -> Result<Vec<BranchInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.remote_branches().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 把另一个分支合并到当前分支(git merge <branch>;脏工作区自动 autostash)。
 /// 返回 UpdateOutcome:Resolved/FastForwarded/Integrated 表示干净完成,Conflicted 需进 ConflictView。
 #[tauri::command]
-fn repo_merge_branch(
+async fn repo_merge_branch(
     path: String,
     branch: String,
     options: UpdateOptions,
 ) -> Result<UpdateOutcome, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.merge_branch(&branch, &options)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.merge_branch(&branch, &options)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 把当前分支变基到另一个分支(git rebase <branch>;脏工作区自动 autostash)。
 #[tauri::command]
-fn repo_rebase_branch(
+async fn repo_rebase_branch(
     path: String,
     branch: String,
     options: UpdateOptions,
 ) -> Result<UpdateOutcome, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.rebase_branch(&branch, &options)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.rebase_branch(&branch, &options)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 列出 from_sha..HEAD(含 from_sha)的提交,供交互式变基编辑(oldest-first)。
 #[tauri::command]
-fn repo_rebase_plan(path: String, from_sha: String) -> Result<Vec<gitcore::LogEntry>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.rebase_plan(&from_sha).map_err(|e| e.to_string())
+async fn repo_rebase_plan(
+    path: String,
+    from_sha: String,
+) -> Result<Vec<gitcore::LogEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.rebase_plan(&from_sha).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 从 from_sha 起按给定操作交互式变基(reword/squash/fixup/drop/重排);
 /// 冲突时返回 Conflicted,交前端 ConflictView 复用 continue/abort 推进。
 #[tauri::command]
-fn repo_rebase_interactive(
+async fn repo_rebase_interactive(
     path: String,
     from_sha: String,
     items: Vec<RebaseItem>,
 ) -> Result<UpdateOutcome, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.rebase_interactive(&from_sha, &items)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.rebase_interactive(&from_sha, &items)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 检出远程分支为本地跟踪分支(脏工作区/本地同名已存在时返回错误)。
 #[tauri::command]
-fn repo_checkout_remote(path: String, remote_branch: String) -> Result<(), String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.checkout_remote(&remote_branch)
-        .map_err(|e| e.to_string())
+async fn repo_checkout_remote(path: String, remote_branch: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.checkout_remote(&remote_branch)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 脏工作区智能检出远程分支(smart checkout):自动 stash → checkout -b --track → 贴回。
 #[tauri::command]
-fn repo_checkout_remote_autostash(
+async fn repo_checkout_remote_autostash(
     path: String,
     remote_branch: String,
 ) -> Result<SwitchOutcome, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.checkout_remote_autostash(&remote_branch)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.checkout_remote_autostash(&remote_branch)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ── History 视图命令 ──
 
 #[tauri::command]
-fn repo_log_graph(
+async fn repo_log_graph(
     path: String,
     max_count: usize,
     branch: Option<String>,
 ) -> Result<Vec<gitcore::GraphRow>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    let opts = gitcore::LogOptions {
-        max_count,
-        branch,
-        author: None,
-        grep: None,
-    };
-    repo.log_graph(&opts).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let opts = gitcore::LogOptions {
+            max_count,
+            branch,
+            author: None,
+            grep: None,
+        };
+        repo.log_graph(&opts).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1009,16 +1211,24 @@ async fn repo_submodule_commits(
 
 /// 选定分支(或任意 ref)与当前工作区的差异(Show Diff with Working Tree)。
 #[tauri::command]
-fn repo_diff_with_workdir(path: String, rev: String) -> Result<Vec<FileDiff>, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.diff_with_workdir(&rev).map_err(|e| e.to_string())
+async fn repo_diff_with_workdir(path: String, rev: String) -> Result<Vec<FileDiff>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.diff_with_workdir(&rev).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 选定分支与当前 HEAD 的双向独有提交(Compare with Current)。
 #[tauri::command]
-fn repo_compare_commits(path: String, other: String) -> Result<BranchComparison, String> {
-    let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-    repo.compare_commits(&other).map_err(|e| e.to_string())
+async fn repo_compare_commits(path: String, other: String) -> Result<BranchComparison, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.compare_commits(&other).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
