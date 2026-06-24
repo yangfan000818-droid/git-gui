@@ -47,6 +47,14 @@
     }
   }
 
+  let pathInput = $state("");
+
+  async function openByPath() {
+    const p = pathInput.trim();
+    if (!p) return;
+    await selectProject(p);
+  }
+
   async function removeProject(path: string, e: Event) {
     e.stopPropagation();
     try {
@@ -78,6 +86,30 @@
       </button>
     </div>
   </div>
+
+  <form
+    class="path-row"
+    onsubmit={(e) => {
+      e.preventDefault();
+      openByPath();
+    }}
+  >
+    <input
+      class="path-input"
+      type="text"
+      bind:value={pathInput}
+      placeholder="或粘贴仓库路径，回车打开"
+      aria-label="仓库路径"
+      disabled={loading}
+    />
+    <button
+      class="btn-browse"
+      type="submit"
+      disabled={loading || !pathInput.trim()}
+    >
+      打开
+    </button>
+  </form>
 
   {#if error}
     <div class="error">{error}</div>
@@ -188,6 +220,29 @@
   .btn-browse:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+
+  .path-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .path-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 8px 14px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+  }
+
+  .path-input:focus {
+    outline: none;
+    border-color: var(--accent-cyan);
   }
 
   .error {
