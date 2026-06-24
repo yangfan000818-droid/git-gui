@@ -453,20 +453,22 @@
     else onClose();
   }
 
-  // 是否可以自动关闭：成功类 outcome 且子仓无失败/警告
+  // 是否可以自动关闭：子仓无失败/警告,且(仅子仓模式)或(主仓成功类 outcome)。
   function canAutoClose(): boolean {
-    if (!outcome) return false;
-    const v = outcomeVariant(outcome);
-    if (
-      v !== "AlreadyUpToDate" &&
-      v !== "FastForwarded" &&
-      v !== "Integrated" &&
-      v !== "Resolved"
-    )
-      return false;
+    // 子仓有失败/警告 → 保留弹窗展示结果,不自动关。
     if (subResults.some((r) => r.status === "fail" || r.status === "warn"))
       return false;
-    return true;
+    // 仅子仓模式无主仓 outcome,子仓全部成功即可自动关。
+    if (subsOnly) return true;
+    // 主仓模式:需成功类 outcome。
+    if (!outcome) return false;
+    const v = outcomeVariant(outcome);
+    return (
+      v === "AlreadyUpToDate" ||
+      v === "FastForwarded" ||
+      v === "Integrated" ||
+      v === "Resolved"
+    );
   }
 
   function reset() {
@@ -657,47 +659,50 @@
   {/if}
 
   <!-- ── outcome: 终态展示 ── -->
-  {#if phase === "outcome" && outcome}
-    {@const v = outcomeVariant(outcome)}
+  {#if phase === "outcome" && (outcome || subsOnly)}
+    {@const subProblem = subResults.some(
+      (r) => r.status === "fail" || r.status === "warn",
+    )}
     <div
       class="outcome-card"
-      class:outcome-success={v === "AlreadyUpToDate" ||
-        v === "FastForwarded" ||
-        v === "Integrated" ||
-        v === "Resolved"}
-      class:outcome-warn={v === "StashRestoreConflict" ||
-        v === "SubmoduleSyncFailed"}
+      class:outcome-success={outcome ? isSuccessOutcome() : !subProblem}
+      class:outcome-warn={outcome ? !isSuccessOutcome() : subProblem}
     >
-      <h3>{variantLabel(v)}</h3>
-      {#if v === "AlreadyUpToDate"}
-        <p>仓库已是最新，无需更新。</p>
-      {:else if v === "FastForwarded"}
-        {@const d = outcomeData<FastForwardedData>(outcome)!}
-        <p>已快进 {d.commits} 个提交。</p>
-      {:else if v === "Integrated"}
-        {@const d = outcomeData<IntegratedData>(outcome)!}
-        <p>
-          已通过 {d.strategy === "Merge" ? "合并" : "变基"} 整合 {d.commits} 个提交。
-        </p>
-      {:else if v === "Resolved"}
-        <p>冲突已解决，整合完成。</p>
-      {:else if v === "StashRestoreConflict"}
-        {@const d = outcomeData<StashRestoreConflictData>(outcome)!}
-        <p>
-          整合已成功，但还原之前的工作区改动时发生冲突。以下文件需要手动处理：
-        </p>
-        <ul class="file-list">
-          {#each d.files as f}
-            <li>{f}</li>
-          {/each}
-        </ul>
-        <p class="hint">
-          用 git stash pop 取出 stash 中的改动，手动合并后提交。
-        </p>
-      {:else if v === "SubmoduleSyncFailed"}
-        {@const d = outcomeData<SubmoduleSyncFailedData>(outcome)!}
-        <p>主仓库已更新，但子仓库同步失败：</p>
-        <pre class="update-error">{d.error}</pre>
+      {#if outcome}
+        {@const v = outcomeVariant(outcome)}
+        <h3>{variantLabel(v)}</h3>
+        {#if v === "AlreadyUpToDate"}
+          <p>仓库已是最新，无需更新。</p>
+        {:else if v === "FastForwarded"}
+          {@const d = outcomeData<FastForwardedData>(outcome)!}
+          <p>已快进 {d.commits} 个提交。</p>
+        {:else if v === "Integrated"}
+          {@const d = outcomeData<IntegratedData>(outcome)!}
+          <p>
+            已通过 {d.strategy === "Merge" ? "合并" : "变基"} 整合 {d.commits} 个提交。
+          </p>
+        {:else if v === "Resolved"}
+          <p>冲突已解决，整合完成。</p>
+        {:else if v === "StashRestoreConflict"}
+          {@const d = outcomeData<StashRestoreConflictData>(outcome)!}
+          <p>
+            整合已成功，但还原之前的工作区改动时发生冲突。以下文件需要手动处理：
+          </p>
+          <ul class="file-list">
+            {#each d.files as f}
+              <li>{f}</li>
+            {/each}
+          </ul>
+          <p class="hint">
+            用 git stash pop 取出 stash 中的改动，手动合并后提交。
+          </p>
+        {:else if v === "SubmoduleSyncFailed"}
+          {@const d = outcomeData<SubmoduleSyncFailedData>(outcome)!}
+          <p>主仓库已更新，但子仓库同步失败：</p>
+          <pre class="update-error">{d.error}</pre>
+        {/if}
+      {:else}
+        <h3>子仓库更新完成</h3>
       {/if}
 
       {#if subResults.length > 0}
