@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { onMount, tick } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import ConflictView from "$lib/ConflictView.svelte";
 
   // ── 类型 ──
@@ -196,12 +196,23 @@
   }
 
   let unlisten: UnlistenFn | null = null;
+  // 成功后延迟自动关闭的定时器(让 outcome 成功提示停留可见)。
+  let autoCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // 清理事件监听器
+  // 清理事件监听器。注意:不在此清 autoCloseTimer——doExecute 的 finally 会调
+  // cleanup(),那发生在排程自动关闭之后,清掉会导致(全部更新/仅主仓)永不自动关。
   function cleanup() {
     if (unlisten) {
       unlisten();
       unlisten = null;
+    }
+  }
+
+  // 中断待触发的自动关闭定时器(手动完成/放弃/卸载时调)。
+  function clearAutoClose() {
+    if (autoCloseTimer) {
+      clearTimeout(autoCloseTimer);
+      autoCloseTimer = null;
     }
   }
 
@@ -276,10 +287,7 @@
   async function proceedToSubmodules() {
     if (submodules.length === 0) {
       phase = "outcome";
-      if (canAutoClose()) {
-        await tick();
-        await finishAndRefresh();
-      }
+      if (canAutoClose()) scheduleAutoClose();
       return;
     }
     subResults = [];
@@ -335,10 +343,7 @@
     }
     subCurrent = "";
     phase = "outcome";
-    if (canAutoClose()) {
-      await tick();
-      await finishAndRefresh();
-    }
+    if (canAutoClose()) scheduleAutoClose();
   }
 
   // 子仓冲突解决/放弃后:记录该子仓结果,从下一个子仓继续。
@@ -471,8 +476,19 @@
     );
   }
 
+  // 成功且可自动关闭:让 outcome 成功提示停留 3s 再刷新关闭(否则一闪而过)。
+  function scheduleAutoClose() {
+    if (autoCloseTimer) clearTimeout(autoCloseTimer);
+    autoCloseTimer = setTimeout(() => {
+      autoCloseTimer = null;
+      // 期间用户可能已手动完成/进入冲突,再确认仍是可自动关的 outcome 态。
+      if (phase === "outcome" && canAutoClose()) void finishAndRefresh();
+    }, 3000);
+  }
+
   function reset() {
     cleanup();
+    clearAutoClose();
     phase = "idle";
     error = "";
     outcome = null;
@@ -515,6 +531,11 @@
       }
     }
     await startUpdate();
+  });
+
+  onDestroy(() => {
+    cleanup();
+    clearAutoClose();
   });
 
   function cancelOp() {
