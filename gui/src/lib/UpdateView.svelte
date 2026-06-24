@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { ask } from "@tauri-apps/plugin-dialog";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { onMount, onDestroy } from "svelte";
   import ConflictView from "$lib/ConflictView.svelte";
@@ -388,7 +389,13 @@
     error = "";
     if (resolvingSubIndex === null) {
       // 主仓库:放弃整个更新整合,回到更新前。
-      if (!confirm("确定放弃本次更新整合？工作区将回到更新前的状态。")) return;
+      if (
+        !(await ask("确定放弃本次更新整合？工作区将回到更新前的状态。", {
+          title: "放弃整合",
+          kind: "warning",
+        }))
+      )
+        return;
       try {
         await invoke("abort_update_cmd", { path: conflictPath, autostash });
         await onRefresh();
@@ -402,9 +409,10 @@
     // 子仓:只放弃该子仓的更新(回到更新前),其余子仓继续。
     const subLabel = submodules[resolvingSubIndex].path;
     if (
-      !confirm(
+      !(await ask(
         `确定放弃子仓「${subLabel}」的更新？它将回到更新前;其余子仓继续。`,
-      )
+        { title: "放弃整合", kind: "warning" },
+      ))
     )
       return;
     try {

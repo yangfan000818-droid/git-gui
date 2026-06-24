@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { open } from "@tauri-apps/plugin-dialog";
+  import { open, ask } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import UpdateView from "$lib/UpdateView.svelte";
   import HistoryView from "$lib/HistoryView.svelte";
@@ -529,7 +529,7 @@
       paths.length === 1
         ? `确定丢弃 ${paths[0]} 的改动?（stash 保存可找回）`
         : `确定丢弃这 ${paths.length} 个文件的改动?（stash 保存可找回）`;
-    if (!confirm(msg)) return;
+    if (!(await ask(msg, { title: "丢弃改动", kind: "warning" }))) return;
     operating = true;
     error = "";
     try {
@@ -726,9 +726,10 @@
   async function offerUpdateThenPush(repo: RepoView) {
     const strat = await globalStrategyLabel();
     if (
-      !confirm(
+      !(await ask(
         `「${repo.label}」推送被拒绝:远端领先。\n按当前全局策略「${strat}」更新后再推送?`,
-      )
+        { title: "更新后推送" },
+      ))
     )
       return;
     openUpdateThenPush(repo);
@@ -777,8 +778,9 @@
       const strat = await globalStrategyLabel();
       const names = rejected.map((r) => r.label).join("、");
       if (
-        confirm(
+        await ask(
           `以下仓库远端领先:${names}\n按当前全局策略「${strat}」逐个更新后推送?`,
+          { title: "更新后推送" },
         )
       ) {
         pushQueue = rejected;
@@ -1412,7 +1414,12 @@
             }
           }}
           onAbort={async () => {
-            if (!confirm("确定放弃本次整合？工作区将回到整合前的状态。"))
+            if (
+              !(await ask("确定放弃本次整合？工作区将回到整合前的状态。", {
+                title: "放弃整合",
+                kind: "warning",
+              }))
+            )
               return;
             const mc = mergeConflict!;
             try {

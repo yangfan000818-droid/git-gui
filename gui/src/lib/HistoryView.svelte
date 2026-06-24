@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { ask, message } from "@tauri-apps/plugin-dialog";
   import DiffView from "$lib/DiffView.svelte";
   import ConflictView from "$lib/ConflictView.svelte";
   import RebaseTodoView from "$lib/RebaseTodoView.svelte";
@@ -323,9 +324,10 @@
   async function doCheckout() {
     if (!selectedCommit || operationInProgress) return;
     if (
-      !confirm(
+      !(await ask(
         `检出 ${selectedCommit.sha} 将进入 detached HEAD（游离头指针，不在任何分支上）。确定?`,
-      )
+        { title: "检出提交", kind: "warning" },
+      ))
     )
       return;
     operationInProgress = true;
@@ -342,9 +344,10 @@
       // 工作区脏被拒 → 提供 smart checkout(对标 WebStorm:检出被挡时才提示)
       if (
         msg.includes("未提交改动") &&
-        confirm(
+        (await ask(
           `工作区有未提交改动。暂存后检出 ${sha.slice(0, 7)}(smart checkout)?\n改动会在检出后自动贴回。`,
-        )
+          { title: "Smart Checkout" },
+        ))
       ) {
         await smartCheckoutCommit(sha);
         return;
@@ -365,8 +368,9 @@
         sha,
       });
       if (typeof r === "object" && "StashConflict" in r) {
-        alert(
+        await message(
           `已暂存改动并检出 ${sha.slice(0, 7)},但贴回时有冲突。\n请在改动列表中解决冲突;原改动仍保留在 stash 中。`,
+          { title: "贴回有冲突", kind: "warning" },
         );
       }
       await load();
@@ -383,9 +387,10 @@
     // 硬重置会丢弃工作区改动,额外二次确认。
     if (
       resetMode === "Hard" &&
-      !confirm(
+      !(await ask(
         `硬重置到 ${selectedCommit.sha}：将丢弃工作区与暂存区的所有未提交改动,且当前分支会回退到该提交。此操作不可恢复,确定?`,
-      )
+        { title: "硬重置", kind: "warning" },
+      ))
     ) {
       return;
     }

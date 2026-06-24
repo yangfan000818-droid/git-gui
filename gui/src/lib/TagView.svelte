@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { ask } from "@tauri-apps/plugin-dialog";
 
   interface TagInfo {
     name: string;
@@ -62,7 +63,13 @@
   }
 
   async function remove(name: string) {
-    if (!confirm(`确定删除 tag「${name}」?`)) return;
+    if (
+      !(await ask(`确定删除 tag「${name}」?`, {
+        title: "删除 Tag",
+        kind: "warning",
+      }))
+    )
+      return;
     busy = true;
     error = "";
     try {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { ask } from "@tauri-apps/plugin-dialog";
 
   interface ReflogEntry {
     selector: string;
@@ -43,9 +44,10 @@
   // 把当前分支移回某条 reflog 状态(混合重置:改动退回工作区,不丢未提交内容)。
   async function restore(e: ReflogEntry) {
     if (
-      !confirm(
+      !(await ask(
         `把当前分支移到 ${e.selector}（${e.sha}）：改动退回工作区（未提交内容不丢失，混合重置）。确定?`,
-      )
+        { title: "重置到此", kind: "warning" },
+      ))
     )
       return;
     busy = true;

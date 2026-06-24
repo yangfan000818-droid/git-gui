@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { ask, message } from "@tauri-apps/plugin-dialog";
 
   interface StashEntry {
     reff: string;
@@ -80,7 +81,10 @@
     try {
       const r = await invoke<PopResult>("repo_stash_pop", { path, reff });
       if (typeof r === "object" && "Conflict" in r) {
-        alert("弹出时有冲突,改动已带冲突标记留在工作区,请在改动列表中解决。");
+        await message(
+          "弹出时有冲突,改动已带冲突标记留在工作区,请在改动列表中解决。",
+          { title: "弹出有冲突", kind: "warning" },
+        );
       }
       onChanged();
       onClose();
@@ -92,7 +96,13 @@
   }
 
   async function drop(reff: string, message: string) {
-    if (!confirm(`确定丢弃 stash「${message}」?此操作不可恢复。`)) return;
+    if (
+      !(await ask(`确定丢弃 stash「${message}」?此操作不可恢复。`, {
+        title: "丢弃 Stash",
+        kind: "warning",
+      }))
+    )
+      return;
     busy = true;
     error = "";
     try {

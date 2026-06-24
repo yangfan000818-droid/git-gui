@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { ask, message } from "@tauri-apps/plugin-dialog";
 
   interface BranchInfo {
     name: string;
@@ -153,9 +154,10 @@
       // 工作区脏被拒 → 提供 smart checkout(对标 WebStorm:检出被挡时才提示)
       if (
         msg.includes("未提交改动") &&
-        confirm(
+        (await ask(
           `工作区有未提交改动。暂存后检出远程分支 "${remoteBranch}"(smart checkout)?\n改动会在检出后自动贴回新分支。`,
-        )
+          { title: "Smart Checkout" },
+        ))
       ) {
         await smartCheckoutRemote(remoteBranch);
         return;
@@ -176,8 +178,9 @@
         remoteBranch,
       });
       if (typeof r === "object" && "StashConflict" in r) {
-        alert(
+        await message(
           `已暂存改动并检出 "${remoteBranch}",但贴回时有冲突。\n请在改动列表中解决冲突;原改动仍保留在 stash 中。`,
+          { title: "贴回有冲突", kind: "warning" },
         );
       }
       onSwitched();
@@ -302,9 +305,10 @@
       // 工作区脏被拒 → 提供 smart checkout(对标 WebStorm:切换被挡时才提示)
       if (
         msg.includes("未提交改动") &&
-        confirm(
+        (await ask(
           `工作区有未提交改动。暂存后切换到 "${name}"(smart checkout)?\n改动会在切换后自动贴回新分支。`,
-        )
+          { title: "Smart Checkout" },
+        ))
       ) {
         await smartSwitch(name);
         return;
@@ -325,8 +329,9 @@
         name,
       });
       if (typeof r === "object" && "StashConflict" in r) {
-        alert(
+        await message(
           `已暂存改动并切换到 "${name}",但贴回时有冲突。\n请在改动列表中解决冲突;原改动仍保留在 stash 中。`,
+          { title: "贴回有冲突", kind: "warning" },
         );
       }
       onSwitched();
@@ -361,7 +366,15 @@
   }
 
   async function deleteBranch(name: string) {
-    if (!confirm(`确定删除分支 "${name}"?（仅安全删除：已合并 + 非当前分支）`))
+    if (
+      !(await ask(
+        `确定删除分支 "${name}"?（仅安全删除：已合并 + 非当前分支）`,
+        {
+          title: "删除分支",
+          kind: "warning",
+        },
+      ))
+    )
       return;
     switching = true;
     error = "";
