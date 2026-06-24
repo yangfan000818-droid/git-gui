@@ -91,19 +91,34 @@ fn local_name_from_remote(remote_branch: &str) -> Option<&str> {
         .filter(|s| !s.is_empty())
 }
 
+/// 判断 git checkout 失败是否因为"本地改动会被覆盖"(中/英文均支持)。
+fn is_checkout_blocked_by_local_changes(stderr: &str) -> bool {
+    stderr.contains("would be overwritten")
+        || stderr.contains("将被检出")
+        || stderr.contains("commit your changes or stash")
+        || stderr.contains("提交或贮藏")
+}
+
+/// 把 checkout 的执行结果归一:成功→Ok;"改动会被覆盖"→可识别的 Precondition
+/// (交前端做 Smart Checkout);其余错误原样抛出。
+fn finish_checkout(result: Result<String, Error>) -> Result<(), Error> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(Error::Git { args, code, stderr }) => {
+            if is_checkout_blocked_by_local_changes(&stderr) {
+                Err(Error::Precondition(
+                    "工作区有未提交改动会被覆盖，请先提交或暂存".into(),
+                ))
+            } else {
+                Err(Error::Git { args, code, stderr })
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// 检出远程分支为本地跟踪分支(git checkout -b <local> --track <remote>)。
 pub(crate) fn checkout_remote(repo: &Repo, remote_branch: &str) -> Result<(), Error> {
-    // 工作区脏时拒绝(与 switch_branch 一致)
-    // 忽略子模块状态:切换主仓分支不要求子模块干净(git 本身允许),否则子模块指针差异会被误判为脏。
-    let dirty = !repo
-        .git(&["status", "--porcelain", "--ignore-submodules=all"])?
-        .trim()
-        .is_empty();
-    if dirty {
-        return Err(Error::Precondition(
-            "工作区有未提交改动，请先提交或暂存".into(),
-        ));
-    }
     let local = local_name_from_remote(remote_branch).ok_or_else(|| {
         Error::Precondition(format!(
             "无法从远程分支名 \"{remote_branch}\" 推断本地分支名"
@@ -123,8 +138,9 @@ pub(crate) fn checkout_remote(repo: &Repo, remote_branch: &str) -> Result<(), Er
             "本地已存在分支 \"{local}\"，请直接切换到它"
         )));
     }
-    repo.git(&["checkout", "-b", local, "--track", remote_branch])?;
-    Ok(())
+    // 不预检脏区:让 git checkout 自己判。改动不冲突则成功(静默带到新分支),
+    // 冲突则返回可识别错误给前端做 Smart Checkout。
+    finish_checkout(repo.git(&["checkout", "-b", local, "--track", remote_branch]))
 }
 
 /// 解析 upstream:track 字段，如 "ahead 1"、"behind 2"、"ahead 1, behind 3"。
@@ -151,38 +167,16 @@ pub(crate) fn create_branch(repo: &Repo, name: &str, start: Option<&str>) -> Res
     Ok(())
 }
 
-/// 切换到指定分支。
+/// 切换到指定分支。不预检脏区:让 git checkout 自己判——改动与目标分支无冲突则成功,
+/// 冲突则返回可识别错误给前端做 Smart Checkout(对标 WebStorm)。
 pub(crate) fn switch_branch(repo: &Repo, name: &str) -> Result<(), Error> {
-    // 检查工作区是否脏
-    // 忽略子模块状态:切换主仓分支不要求子模块干净(git 本身允许),否则子模块指针差异会被误判为脏。
-    let dirty = !repo
-        .git(&["status", "--porcelain", "--ignore-submodules=all"])?
-        .trim()
-        .is_empty();
-    if dirty {
-        return Err(Error::Precondition(
-            "工作区有未提交改动，请先提交或暂存".into(),
-        ));
-    }
-    repo.git(&["checkout", name])?;
-    Ok(())
+    finish_checkout(repo.git(&["checkout", name]))
 }
 
 /// 检出某个提交,进入 detached HEAD(对标 WebStorm Checkout Revision)。
-/// 脏工作区先拒绝,提示提交或暂存(与 [`switch_branch`] 一致,不自动 stash)。
+/// 不预检脏区:让 git checkout 自己判,冲突才拒(与 [`switch_branch`] 一致)。
 pub(crate) fn checkout_commit(repo: &Repo, sha: &str) -> Result<(), Error> {
-    // 忽略子模块状态:切换主仓分支不要求子模块干净(git 本身允许),否则子模块指针差异会被误判为脏。
-    let dirty = !repo
-        .git(&["status", "--porcelain", "--ignore-submodules=all"])?
-        .trim()
-        .is_empty();
-    if dirty {
-        return Err(Error::Precondition(
-            "工作区有未提交改动，请先提交或暂存".into(),
-        ));
-    }
-    repo.git(&["checkout", sha])?;
-    Ok(())
+    finish_checkout(repo.git(&["checkout", sha]))
 }
 
 /// 脏工作区切换(smart checkout)的结果。
@@ -268,5 +262,18 @@ mod tests {
         // 没有 '/' 或去掉前缀后为空 → None
         assert_eq!(local_name_from_remote("origin"), None);
         assert_eq!(local_name_from_remote("origin/"), None);
+    }
+
+    #[test]
+    fn detects_checkout_blocked_by_local_changes() {
+        // 英文 git(本机 Apple Git 实测原文)
+        let en = "error: Your local changes to the following files would be overwritten by checkout:\n\ta.txt\nPlease commit your changes or stash them before you switch branches.\nAborting\n";
+        assert!(is_checkout_blocked_by_local_changes(en));
+        // 中文 git(对照 git 官方 zh_CN.po 译文)
+        let zh = "error: 您对下列文件的本地修改将被检出操作覆盖:\n\ta.txt\n请在切换分支前提交或贮藏您的修改。\n正在终止\n";
+        assert!(is_checkout_blocked_by_local_changes(zh));
+        // 其它失败(分支不存在等)不应误判为脏区冲突
+        let other = "error: pathspec 'nope' did not match any file(s) known to git";
+        assert!(!is_checkout_blocked_by_local_changes(other));
     }
 }
