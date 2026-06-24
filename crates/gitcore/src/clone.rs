@@ -68,7 +68,10 @@ mod tests {
 
     #[test]
     fn name_from_https_with_dot_git() {
-        assert_eq!(repo_name_from_url("https://github.com/user/repo.git"), "repo");
+        assert_eq!(
+            repo_name_from_url("https://github.com/user/repo.git"),
+            "repo"
+        );
     }
 
     #[test]
