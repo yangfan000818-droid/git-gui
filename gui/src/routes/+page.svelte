@@ -2294,8 +2294,9 @@
     color: var(--accent-cyan);
   }
   .repo-branch {
-    font-size: 10px;
-    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-primary);
     font-family:
       ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
     flex-shrink: 0;
@@ -2325,6 +2326,15 @@
   .repo-branch-btn:hover {
     background: var(--bg-hover);
     border-color: var(--accent-cyan);
+  }
+  .repo-branch-btn::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-cyan);
+    flex-shrink: 0;
   }
   .repo-manage {
     display: flex;
