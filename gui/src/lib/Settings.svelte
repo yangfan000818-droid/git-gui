@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { checkForUpdate } from "$lib/updateCheck";
+  import { check } from "@tauri-apps/plugin-updater";
 
   interface AppSettings {
     update_strategy: "Merge" | "Rebase";
@@ -167,6 +168,24 @@
     checking = true;
     checkMsg = "";
     updateUrl = "";
+    try {
+      // 优先走 updater 插件（含签名校验）,不可用时回退到 GitHub API。
+      const upd = await check();
+      if (upd?.available) {
+        checkMsg = `发现新版本 v${upd.version}（当前 v${upd.currentVersion}）`;
+        // 有 Banner 按钮下载，这里不显 URL
+        checking = false;
+        return;
+      }
+      // 无更新或插件不可用，回退手动检查
+      if (upd && !upd.available) {
+        checkMsg = "已是最新版本";
+        checking = false;
+        return;
+      }
+    } catch {
+      // 回退到手动 fetch
+    }
     try {
       const u = await checkForUpdate();
       if (u) {

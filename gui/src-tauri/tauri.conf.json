@@ -33,5 +33,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/yangfan000818-droid/git-gui/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU4Q0FEMEExNkNBMDI1M0MKUldROEphQnNvZERLV01IVTVVK2lNMTBudUd5aWVkSVBRMHdwWnZNM20yeEpFbUhETndVZ2ZLcTYK"
+    }
   }
 }

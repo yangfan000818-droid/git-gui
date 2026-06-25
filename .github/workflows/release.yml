@@ -51,7 +51,7 @@ jobs:
           npx svelte-check --tsconfig ./tsconfig.json
           npx prettier --check "src/**/*.svelte"
 
-  # ── 三平台构建 → 直接挂到 GitHub Release（不打 zip）──
+  # ── 三平台构建 ──
   build:
     needs: [lint-test, svelte-check]
     strategy:
@@ -87,7 +87,6 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      # 清掉 cache 恢复的历次构建产物,避免旧版本 exe/dmg 被下方 glob 一起上传。
       - name: Clean stale bundles
         shell: bash
         run: rm -rf target/release/bundle
@@ -98,6 +97,7 @@ jobs:
           npm ci
           npx tauri build --ci
 
+      # ── 上传到 Release ──
       - name: Upload to Release (macOS)
         if: runner.os == 'macOS'
         uses: softprops/action-gh-release@v3
@@ -113,3 +113,73 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: target/release/bundle/nsis/*.exe
+
+  # ── 更新 manifest:下载 Windows 安装包,签名,生成 latest.json ──
+  manifest:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: github.event.repository.private == false
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        run: cd gui && npm ci
+
+      - name: Download Windows installer from this release
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          # GitHub release 可能还在创建中,稍等
+          sleep 10
+          gh release download "$TAG" --pattern "*x64-setup.exe" --dir assets 2>/dev/null || \
+          gh release download "$TAG" --pattern "*.exe" --dir assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Generate latest.json
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          EXE=$(ls assets/*.exe 2>/dev/null | head -1)
+          WIN_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$(basename "$EXE")"
+
+          # 签名
+          cd gui
+          WIN_SIG=$(npx tauri signer sign \
+            --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
+            -p "" \
+            "../$EXE" 2>/dev/null || echo "")
+          cd ..
+
+          # 构造 manifest
+          node -e "
+            const m = {
+              version: '$VERSION',
+              notes: 'See https://github.com/${{ github.repository }}/releases',
+              pub_date: new Date().toISOString(),
+              platforms: {}
+            };
+            if ('$WIN_SIG'.length > 0) {
+              m.platforms['windows-x86_64'] = {
+                signature: '$WIN_SIG',
+                url: '$WIN_URL'
+              };
+            }
+            require('fs').writeFileSync('latest.json', JSON.stringify(m, null, 2));
+          "
+          cat latest.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+
+      - name: Upload manifest to Release
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          gh release upload "$TAG" latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
