@@ -1,6 +1,6 @@
 //! gitcore — UI 无关的 git 编排核心库。
 //!
-//! 所有前端(TUI / 未来 GUI)都依赖本 crate,不直接调用 git。
+//! 所有前端都依赖本 crate,不直接调用 git。
 //! 设计:spawn git CLI + plumbing 命令拿可解析输出;每个写操作尽量可回退。
 
 mod blame;

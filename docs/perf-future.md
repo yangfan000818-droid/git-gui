@@ -9,6 +9,7 @@
 **方案**：启动时 spawn 长驻 `git cat-file --batch` / `git update-index` 等进程，通过 stdin/stdout 管道复用进程，免重复创建。
 
 **暂缓原因**：
+
 - 架构级重构：需改动 `gitcore` 核心调用层（`git.rs` run/run_checked），新增进程池管理、管道复用、超时回收、异常重启等基础设施。
 - 回归面大：所有 git 调用都经此层，需大量端到端测试覆盖（fetch/push/commit/rebase/submodule 等）。
 - P0/P1 已大幅降低进程数（status 4→1、并发 log、监听收窄），Windows 卡顿预期已显著改善。
@@ -22,6 +23,7 @@
 **当前做法**：Settings 页显示可复制的 PowerShell 命令（仅 Windows 可见），用户自行在管理员终端执行。
 
 **可能的增强**（待评估）：
+
 - 首启弹窗引导：检测 Windows 且仓库不在排除列表时，弹出引导对话框，提供"一键复制命令"+"打开管理员 PowerShell"按钮。
 - 风险：弹窗打扰可能引起反感；部分用户用其他杀软（ESET / Kaspersky），Defender 排除无效。
 

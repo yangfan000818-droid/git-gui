@@ -263,7 +263,7 @@
     }
   }
 
-  // 写回后自动跳到下一个尚未写入的文件(对齐 TUI write_and_advance)。
+  // 写回后自动跳到下一个尚未写入的文件。
   function advanceToNextPending() {
     const next = fileStates.findIndex((f) => !f.written);
     if (next >= 0) {
@@ -305,7 +305,7 @@
     }
   }
 
-  // ── 键盘操作(对齐 WebStorm F7/Shift+F7 + TUI o/t/b·j/k·n/p·w) ──
+  // ── 键盘操作(对齐 WebStorm F7/Shift+F7) ──
   function handleKey(e: KeyboardEvent) {
     if (loading || e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target as HTMLElement | null;

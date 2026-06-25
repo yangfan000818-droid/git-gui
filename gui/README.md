@@ -3,7 +3,7 @@
 git-gui 的桌面客户端 —— SvelteKit 前端 + Tauri 2 后端(Rust);后端命令直接调用零依赖核心库 [`gitcore`](../crates/gitcore)。
 
 - 产品介绍与功能全景:仓库根 [README](../README.md)
-- 使用指南(GUI / TUI):[docs/USAGE.md](../docs/USAGE.md)
+- 使用指南:[docs/USAGE.md](../docs/USAGE.md)
 - 前端开发约定(架构 / 加功能流程 / 约束):[docs/gui-dev-guide.md](../docs/gui-dev-guide.md)
 
 ## 开发

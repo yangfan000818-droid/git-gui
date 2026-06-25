@@ -2,7 +2,7 @@
 
 把 git 操作"降维"成**可见、可操作对象**的桌面 git 客户端 —— 对标 WebStorm / JetBrains 的 git 体验,主打**可见性**与**安全网**两条护城河。
 
-> 形态:**Tauri 2 + SvelteKit 桌面 GUI**(产品主体)· **ratatui 终端 TUI**(早期验证形态,仍可用)· 二者共享同一个**零依赖 Rust 核心库 `gitcore`**。
+> 形态:**Tauri 2 + SvelteKit 桌面 GUI**,底层是**零依赖 Rust 核心库 `gitcore`**（spawn git CLI + plumbing 命令拿可解析输出）。
 
 ## 两条护城河
 
@@ -13,11 +13,10 @@
 
 cargo workspace,同一核心库接两种前端:
 
-| 成员 | 职责 |
-|------|------|
-| `crates/gitcore` | UI 无关的 git 编排核心库(spawn git CLI + plumbing 命令,**零外部依赖**) |
+| 成员                        | 职责                                                                    |
+| --------------------------- | ----------------------------------------------------------------------- |
+| `crates/gitcore`            | UI 无关的 git 编排核心库(spawn git CLI + plumbing 命令,**零外部依赖**)  |
 | `gui/`(`src` + `src-tauri`) | **桌面应用**:SvelteKit 前端 + Tauri 2 后端(Rust 命令直接调用 `gitcore`) |
-| `crates/tui` | 终端界面(ratatui 全屏 + 冲突三栏视图),最初用来快速验证核心交互 |
 
 设计理念:git 编排逻辑全部沉到 `gitcore`,前端只负责呈现与交互。换前端不改核心,核心零依赖、可单测。
 
@@ -62,8 +61,6 @@ amend 上次提交 · cherry-pick / revert · reset(soft / mixed / hard)· **交
 - **新版本提醒**:启动检查 GitHub Releases,有新版顶部提示。
 - **文件变更自动刷新**:监听工作区(含子仓库)外部改动,自动刷新。
 
-> TUI 形态提供同一套核心能力的终端操作界面(全屏 + 快捷键),详见 [使用指南](docs/USAGE.md)。
-
 ## 构建与运行
 
 前置:[Rust](https://www.rust-lang.org/)(`brew install rust`)、[Node.js](https://nodejs.org/)、git。
@@ -75,10 +72,7 @@ cd gui && npm install && npm run tauri dev
 # 桌面 GUI(打包发布版)
 cd gui && npm run tauri build
 
-# 终端 TUI(在任意 git 仓库目录下运行)
-cargo run -p tui
-
-# 跑全部测试(51 个:gitcore 42 + tui 9)
+# 跑全部测试
 cargo test --workspace
 ```
 
@@ -110,7 +104,6 @@ path = "../frontend"
 ## 路线图
 
 - [x] 零依赖核心库 `gitcore`(UI 无关 git 编排)
-- [x] TUI 全功能(冲突三栏 + 魔法棒 + 崩溃恢复 + rerere + stage/commit/push + log/diff + branch/stash + 多仓库)
 - [x] 桌面 GUI:Changes / History 两大视图 + 安全更新 + 冲突可视化解决
 - [x] 历史操作:amend / cherry-pick / revert / reset / 交互式变基 / reflog 恢复
 - [x] 分支管理(切换 / 新建删除 / 远程检出 / merge·rebase / rename / compare / smart checkout)
