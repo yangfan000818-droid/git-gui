@@ -113,6 +113,17 @@
     expanded = next;
   }
 
+  // 大目录截断:每个展开目录默认只渲染前 DIR_CHILD_CAP 个子项(文件夹+文件合计),
+  // 超出显示"展开全部"按钮;点击后移除截断,后续不再截断该目录。
+  const DIR_CHILD_CAP = 300;
+  let cappedDirs = $state(new Set<string>());
+
+  function uncapDir(path: string) {
+    const next = new Set(cappedDirs);
+    next.delete(path);
+    cappedDirs = next;
+  }
+
   function onActivate(e: KeyboardEvent, fn: () => void) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -168,12 +179,27 @@
     </span>
   </div>
   {#if open}
-    {#each dir.dirs as d (d.path)}
-      {@render treeDir(d, depth + 1)}
+    {@const allKids = dir.dirs.length + dir.files.length}
+    {@const capped = !cappedDirs.has(dir.path) && allKids > DIR_CHILD_CAP}
+    {#each dir.dirs as d, ki (d.path)}
+      {#if !capped || ki < DIR_CHILD_CAP}
+        {@render treeDir(d, depth + 1)}
+      {/if}
     {/each}
-    {#each dir.files as f (f.file.path)}
-      {@render treeFile(f, depth + 1)}
+    {#each dir.files as f, ki (f.file.path)}
+      {#if !capped || dir.dirs.length + ki < DIR_CHILD_CAP}
+        {@render treeFile(f, depth + 1)}
+      {/if}
     {/each}
+    {#if capped}
+      <button
+        class="dir-more"
+        style="padding-left: {14 + (depth + 1) * 12}px"
+        onclick={() => uncapDir(dir.path)}
+      >
+        … 还有 {allKids - DIR_CHILD_CAP} 项未显示，点击展开全部
+      </button>
+    {/if}
   {/if}
 {/snippet}
 
@@ -279,6 +305,23 @@
   .file-row.selected {
     background: rgba(88, 166, 255, 0.1);
     box-shadow: inset 3px 0 0 var(--accent-cyan);
+  }
+  .dir-more {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 6px 10px;
+    background: var(--bg-surface);
+    border: 1px dashed var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .dir-more:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
   }
   .caret {
     color: var(--text-secondary);

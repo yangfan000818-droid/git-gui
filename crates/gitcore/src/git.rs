@@ -61,7 +61,14 @@ pub(crate) fn run(workdir: &Path, args: &[&str]) -> Result<String, Error> {
 
 /// 跑 git;非零退出不视为错误,原样返回(供整合等可能冲突的命令使用)。
 pub(crate) fn run_checked(workdir: &Path, args: &[&str]) -> Result<Output, Error> {
-    let output = git_command().args(args).current_dir(workdir).output()?;
+    // --no-optional-locks:禁止为可选优化获取锁(主要是 status 刷新 stat cache 时回写 index)。
+    // GUI 后台高频 status 与前台 git 写操作会争抢 index.lock,且每次回写 index 都触发文件监视
+    // 事件 → 刷新风暴;禁掉可选锁可显著减少这类抖动。必需的锁(commit/add 等)不受影响。
+    let output = git_command()
+        .arg("--no-optional-locks")
+        .args(args)
+        .current_dir(workdir)
+        .output()?;
     Ok(Output {
         success: output.status.success(),
         code: output.status.code(),

@@ -227,6 +227,8 @@
 
   function onCommitScroll(e: Event) {
     const el = e.target as HTMLElement;
+    scrollTop = el.scrollTop;
+    viewportH = el.clientHeight;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
       loadMore();
     }
@@ -535,6 +537,48 @@
   );
   let svgWidth = $derived((maxLane + 1) * LANE_W);
   let svgHeight = $derived(commits.length * ROW_H);
+
+  // ── 虚拟滚动:固定行高,只渲染可视区 ± 缓冲行,避免大历史下 DOM(SVG path/circle + 行)爆炸 ──
+  let scrollEl = $state<HTMLElement | null>(null);
+  let scrollTop = $state(0);
+  let viewportH = $state(600);
+  const VBUFFER = 8; // 可视区上下各多渲染的缓冲行,滚动时不露白
+  const MERGED_ROW_H = 44; // 合并视图行高(两行布局,固定;须与 CSS .merged-row height 一致)
+
+  // 单仓(SVG 图)视图可视窗口:gi 为全局行索引,SVG 与行均按 gi*ROW_H 定位以保持对齐。
+  let visStart = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - VBUFFER));
+  let visEnd = $derived(
+    Math.min(
+      commits.length,
+      Math.ceil((scrollTop + viewportH) / ROW_H) + VBUFFER,
+    ),
+  );
+  let visibleCommits = $derived(
+    commits
+      .slice(visStart, visEnd)
+      .map((c, k) => ({ commit: c, gi: visStart + k })),
+  );
+
+  // 合并视图可视窗口。
+  let mergedHeight = $derived(mergedRows.length * MERGED_ROW_H);
+  let mStart = $derived(
+    Math.max(0, Math.floor(scrollTop / MERGED_ROW_H) - VBUFFER),
+  );
+  let mEnd = $derived(
+    Math.min(
+      mergedRows.length,
+      Math.ceil((scrollTop + viewportH) / MERGED_ROW_H) + VBUFFER,
+    ),
+  );
+  let visibleMerged = $derived(
+    mergedRows.slice(mStart, mEnd).map((r, k) => ({ row: r, gi: mStart + k })),
+  );
+
+  // 重置滚动到顶(筛选变化 / 切换仓库时,避免 scrollTop 停留在旧列表的越界位置)。
+  function resetScroll() {
+    scrollTop = 0;
+    if (scrollEl) scrollEl.scrollTop = 0;
+  }
   // 筛选激活时,过滤后的子集 parent 链断裂会让 topology lane 爆炸(图无意义且会撑爆布局挤掉提交列),
   // 故筛选态下不画拓扑图,退化为线性提交列表。
   let filtering = $derived(authorFilter !== "" || grepFilter !== "");
@@ -562,6 +606,7 @@
     }
     filterTimeout = setTimeout(() => {
       maxCount = 50;
+      resetScroll();
       load();
     }, 300) as unknown as number;
   }
@@ -572,6 +617,7 @@
     if (path && path !== prevPath) {
       prevPath = path;
       maxCount = 50;
+      resetScroll();
       authorFilter = "";
       grepFilter = "";
       selectedBranch = "";
@@ -641,9 +687,17 @@
         <p class="muted">无提交记录</p>
       {:else if hasSub}
         <!-- 合并视图:主仓 + 各子仓提交按时间排序,带仓库标识(无拓扑图) -->
-        <div class="log-scroll merged" onscroll={onCommitScroll}>
-          <div class="info-rows">
-            {#each mergedRows as row (row.repo_path + row.entry.full_sha)}
+        <div
+          class="log-scroll merged"
+          bind:this={scrollEl}
+          bind:clientHeight={viewportH}
+          onscroll={onCommitScroll}
+        >
+          <div
+            class="info-rows"
+            style="position:relative;height:{mergedHeight}px"
+          >
+            {#each visibleMerged as { row, gi } (row.repo_path + row.entry.full_sha)}
               {@const entry = row.entry}
               <div
                 class="merged-row"
@@ -651,6 +705,8 @@
                   selectedRepoPath === row.repo_path}
                 role="button"
                 tabindex="0"
+                style="position:absolute;top:{gi *
+                  MERGED_ROW_H}px;left:0;right:0;height:{MERGED_ROW_H}px"
                 onclick={() => selectCommit(entry, row.repo_path)}
                 onkeydown={(e) =>
                   onActivate(e, () => selectCommit(entry, row.repo_path))}
@@ -676,7 +732,12 @@
           </div>
         </div>
       {:else}
-        <div class="log-scroll" onscroll={onCommitScroll}>
+        <div
+          class="log-scroll"
+          bind:this={scrollEl}
+          bind:clientHeight={viewportH}
+          onscroll={onCommitScroll}
+        >
           {#if !filtering}
             <!-- SVG 拓扑图 -->
             <svg
@@ -687,11 +748,11 @@
               aria-hidden="true"
             >
               <!-- edges:先画连线,再画 node 覆盖 -->
-              {#each commits as commit, i}
+              {#each visibleCommits as { commit, gi } (commit.entry.full_sha)}
                 {#each commit.edges as edge}
                   {@const fromColor = laneColor(edge.from_lane)}
                   <path
-                    d={edgePath(edge, i)}
+                    d={edgePath(edge, gi)}
                     stroke={fromColor}
                     stroke-width="1.5"
                     fill="none"
@@ -700,9 +761,9 @@
                 {/each}
               {/each}
               <!-- nodes -->
-              {#each commits as commit, i}
+              {#each visibleCommits as { commit, gi } (commit.entry.full_sha)}
                 {@const cx = laneX(commit.lane)}
-                {@const cy = i * ROW_H + ROW_H / 2}
+                {@const cy = gi * ROW_H + ROW_H / 2}
                 {@const color = laneColor(commit.lane)}
                 <circle
                   {cx}
@@ -717,15 +778,16 @@
           {/if}
 
           <!-- 提交信息列(与 SVG 行对齐) -->
-          <div class="info-rows">
-            {#each commits as commit, i}
+          <div class="info-rows" style="position:relative;height:{svgHeight}px">
+            {#each visibleCommits as { commit, gi } (commit.entry.full_sha)}
               {@const entry = commit.entry}
               <div
                 class="log-row"
                 class:selected={selectedCommit?.full_sha === entry.full_sha}
                 role="button"
                 tabindex="0"
-                style="height:{ROW_H}px"
+                style="position:absolute;top:{gi *
+                  ROW_H}px;left:0;right:0;height:{ROW_H}px"
                 onclick={() => selectCommit(entry, path)}
                 onkeydown={(e) =>
                   onActivate(e, () => selectCommit(entry, path))}
@@ -1156,6 +1218,7 @@
     align-items: center;
     gap: 6px;
     padding: 0 8px;
+    box-sizing: border-box;
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
@@ -1211,6 +1274,7 @@
   .merged-row {
     display: flex;
     flex-direction: column;
+    justify-content: center;
     gap: 2px;
     padding: 5px 8px;
     cursor: pointer;
@@ -1218,6 +1282,10 @@
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.04));
+    /* 固定行高(= JS MERGED_ROW_H),配合虚拟滚动的绝对定位;box-sizing 含 padding/border。 */
+    height: 44px;
+    box-sizing: border-box;
+    overflow: hidden;
   }
   .merged-row:hover {
     background: var(--bg-surface);

@@ -327,12 +327,32 @@ fn start_watch(app: AppHandle, path: String, state: State<'_, WatchState>) -> Re
         .watch(Path::new(&path), RecursiveMode::NonRecursive)
         .map_err(|e| e.to_string())?;
 
-    // 监视 .git(递归:objects/refs/HEAD/index 都在里)
+    // 监视 .git,但不递归整个 .git:其 objects/ 在 fetch/gc 时写入量极大,Windows 的
+    // ReadDirectoryChangesW 内核 buffer 会被灌满甚至溢出丢事件(导致真实变更漏刷新)。
+    // 改为只监视能反映"用户可见状态变化"的子树:
+    //   - .git 顶层(非递归):HEAD / MERGE_HEAD / packed-refs / ORIG_HEAD / index 等文件;
+    //     非递归天然不进入 objects/、logs/,从源头滤掉两大噪声源。
+    //   - .git/refs(递归):分支 / 标签 / 远程引用移动。
+    //   - .git/modules(递归,若有子模块):子模块 git 目录在此,其 refs 变化需监视,
+    //     否则子模块分支切换不会自动刷新。
+    // (顶层 index/index.lock 仍会触发,由下游事件过滤兜底跳过。)
     let git_dir = Path::new(&path).join(".git");
     if git_dir.is_dir() {
         watcher
-            .watch(&git_dir, RecursiveMode::Recursive)
+            .watch(&git_dir, RecursiveMode::NonRecursive)
             .map_err(|e| e.to_string())?;
+        let refs_dir = git_dir.join("refs");
+        if refs_dir.is_dir() {
+            watcher
+                .watch(&refs_dir, RecursiveMode::Recursive)
+                .map_err(|e| e.to_string())?;
+        }
+        let modules_dir = git_dir.join("modules");
+        if modules_dir.is_dir() {
+            watcher
+                .watch(&modules_dir, RecursiveMode::Recursive)
+                .map_err(|e| e.to_string())?;
+        }
     }
 
     *state.watcher.lock().unwrap() = Some(watcher);

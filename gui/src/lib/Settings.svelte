@@ -41,6 +41,19 @@
   let saving = $state(false);
   let error = $state("");
 
+  // ── Windows Defender 排除引导 ──
+  const isWindows =
+    typeof navigator !== "undefined" && /win/i.test(navigator.platform);
+  let copied = $state(false);
+
+  function copyDefenderCmd() {
+    const cmd = 'Add-MpPreference -ExclusionPath "C:\\你的仓库根目录"';
+    navigator.clipboard.writeText(cmd).then(() => {
+      copied = true;
+      setTimeout(() => (copied = false), 2000);
+    });
+  }
+
   // ── 主题预设定义 ──
   const THEMES: {
     id: string;
@@ -379,6 +392,30 @@
             {/if}
           </div>
         </fieldset>
+
+        <!-- ─── Windows Defender 性能提示(仅 Windows 可见) ─── -->
+        {#if isWindows}
+          <fieldset class="st-group">
+            <legend>🛡️ Windows Defender 性能建议</legend>
+            <p class="st-hint">
+              Windows 自带的实时防病毒扫描会拦截每次 <code>git.exe</code>
+              启动和文件写入，导致大仓库操作和刷新风暴时卡顿显著。将仓库目录加入排除项可大幅缓解，且不影响其余目录的安全防护。
+            </p>
+            <p class="st-hint">
+              以<b>管理员身份</b>打开 PowerShell 执行以下命令（将
+              <code>你的仓库根目录</code> 替换为实际路径）：
+            </p>
+            <button
+              class="def-cmd"
+              title="点击复制"
+              onclick={() => copyDefenderCmd()}
+              >Add-MpPreference -ExclusionPath "C:\你的仓库根目录"</button
+            >
+            {#if copied}
+              <span class="copied-msg">已复制!</span>
+            {/if}
+          </fieldset>
+        {/if}
       </div>
 
       <div class="st-actions">
@@ -644,6 +681,44 @@
   .update-msg {
     font-size: var(--fs-sm, 12px);
     color: var(--text-secondary);
+  }
+
+  /* ── Windows Defender 提示 ── */
+  .st-hint {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    margin: 4px 0;
+  }
+  .st-hint code {
+    background: var(--bg-surface);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+  .def-cmd {
+    display: block;
+    margin: 8px 0 4px;
+    padding: 10px 14px;
+    background: #1a1a2e;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 6px;
+    color: var(--accent-cyan, #58a6ff);
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    cursor: pointer;
+    user-select: all;
+    transition: border-color 0.15s;
+  }
+  .def-cmd:hover {
+    border-color: var(--accent-cyan, rgba(88, 166, 255, 0.5));
+  }
+  .copied-msg {
+    font-size: 11px;
+    color: #56d364;
   }
 
   /* ── Glow 行 ── */

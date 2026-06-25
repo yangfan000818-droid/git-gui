@@ -103,10 +103,24 @@
     collapsedDirs = new Set(collapsedDirs);
   }
 
+  // ── 大 diff 熔断:超大文件默认折叠、超长 hunk 默认截断,点击可展开 ──
+  let expandedHunks = $state(new Set<string>());
+
+  function fileLineCount(file: FileDiff): number {
+    return file.hunks.reduce((n, h) => n + h.lines.length, 0);
+  }
   function toggleFile(path: string) {
     if (expandedFiles.has(path)) expandedFiles.delete(path);
     else expandedFiles.add(path);
     expandedFiles = new Set(expandedFiles);
+  }
+  function hunkKey(path: string, hi: number): string {
+    return `${path}:${hi}`;
+  }
+  function toggleHunk(key: string) {
+    if (expandedHunks.has(key)) expandedHunks.delete(key);
+    else expandedHunks.add(key);
+    expandedHunks = new Set(expandedHunks);
   }
 
   let rootNodes = $derived.by(() => {
@@ -270,9 +284,17 @@
     return { old: oldSegs, new: newSegs };
   }
 
+  // 单 hunk 行数超此值跳过字符级 diff(charDiff 逐行配对开销大,大改动块逐字符高亮意义也不大)。
+  const CHAR_SEG_LIMIT = 600;
+  // 单 hunk 默认最多渲染行数(超出折叠)、超大文件默认整体折叠的行数预算。
+  const HUNK_CAP = 800;
+  const FILE_LINE_BUDGET = 3000;
+
   /** 配对 hunk 内连续删除/新增行,返回 idx→CharSegment[] 的映射。 */
   function buildCharSegments(lines: HunkLine[]): Map<number, CharSegment[]> {
     const map = new Map<number, CharSegment[]>();
+    // 超大 hunk 跳过字符级 diff,避免 O(n) 配对计算与海量 <mark>。
+    if (lines.length > CHAR_SEG_LIMIT) return map;
     let i = 0;
     while (i < lines.length) {
       if (lines[i].line.kind === "Context") {
@@ -307,11 +329,19 @@
     <p class="muted">二进制文件，无法显示 diff</p>
   {:else if file.hunks.length === 0}
     <p class="muted">空文件或无改动行</p>
+  {:else if fileLineCount(file) > FILE_LINE_BUDGET && !expandedFiles.has(file.path)}
+    <button class="diff-collapsed" onclick={() => toggleFile(file.path)}>
+      该文件改动较大（{fileLineCount(file)} 行），点击展开 diff
+    </button>
   {:else}
     <div class="diff-content">
       {#each file.hunks as hunk, hi}
         {@const lines = hunkLines(hunk)}
         {@const segMap = buildCharSegments(lines)}
+        {@const hkey = hunkKey(file.path, hi)}
+        {@const hunkCapped =
+          lines.length > HUNK_CAP && !expandedHunks.has(hkey)}
+        {@const shownLines = hunkCapped ? lines.slice(0, HUNK_CAP) : lines}
         <div class="hunk">
           <div class="hunk-header">
             <span
@@ -361,7 +391,7 @@
               </div>
             {/if}
           </div>
-          {#each lines as { oldNo, newNo, line, idx }}
+          {#each shownLines as { oldNo, newNo, line, idx }}
             {@const segments = segMap.get(idx)}
             {@const prefix =
               line.kind === "Added" ? "+" : line.kind === "Removed" ? "-" : " "}
@@ -402,6 +432,11 @@
               </div>
             {/if}
           {/each}
+          {#if hunkCapped}
+            <button class="diff-more" onclick={() => toggleHunk(hkey)}>
+              … 还有 {lines.length - HUNK_CAP} 行未显示，点击展开整个 hunk
+            </button>
+          {/if}
         </div>
       {/each}
     </div>
@@ -620,6 +655,28 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     line-height: 1.55;
+  }
+
+  .diff-collapsed,
+  .diff-more {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    background: var(--bg-surface);
+    border: 1px dashed var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .diff-collapsed:hover,
+  .diff-more:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  }
+  .diff-more {
+    margin-top: 2px;
   }
 
   .hunk {

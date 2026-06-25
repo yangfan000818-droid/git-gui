@@ -212,10 +212,44 @@ fn log_with_ts(repo: &Repo, opts: &LogOptions) -> Result<Vec<(i64, LogEntry)>, E
 pub(crate) fn log_merged(repo: &Repo, opts: &LogOptions) -> Result<Vec<MergedLogEntry>, Error> {
     use crate::submodule::{list_submodules, SubmoduleStatus};
 
-    let mut rows: Vec<(i64, MergedLogEntry)> = Vec::new();
+    // 已初始化子仓(list_submodules 自身要 fork 一次 git,无法并行于后续抽取)。
+    let subs: Vec<_> = list_submodules(repo)?
+        .into_iter()
+        .filter(|s| s.status != SubmoduleStatus::Uninitialized)
+        .collect();
 
     let main_path = repo.workdir().to_string_lossy().to_string();
-    for (ts, entry) in log_with_ts(repo, opts)? {
+
+    // 主仓与各子仓的 log 各 fork 一次 git 且彼此独立 → 并行抽取,墙钟从串行 (1+N)×
+    // 降到 ~1×。子仓打开/读取失败静默跳过(返回空),不影响其它仓库。
+    #[allow(clippy::type_complexity)]
+    let (main_res, sub_rows): (
+        Result<Vec<(i64, LogEntry)>, Error>,
+        Vec<Vec<(i64, LogEntry)>>,
+    ) = std::thread::scope(|scope| {
+        let main_handle = scope.spawn(|| log_with_ts(repo, opts));
+        let sub_handles: Vec<_> = subs
+            .iter()
+            .map(|sub| {
+                let abs = repo.workdir().join(&sub.path);
+                scope.spawn(move || {
+                    Repo::open(&abs)
+                        .ok()
+                        .and_then(|r| log_with_ts(&r, opts).ok())
+                        .unwrap_or_default()
+                })
+            })
+            .collect();
+        let main = main_handle.join().unwrap_or_else(|_| Ok(Vec::new()));
+        let collected = sub_handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or_default())
+            .collect();
+        (main, collected)
+    });
+
+    let mut rows: Vec<(i64, MergedLogEntry)> = Vec::new();
+    for (ts, entry) in main_res? {
         rows.push((
             ts,
             MergedLogEntry {
@@ -225,21 +259,10 @@ pub(crate) fn log_merged(repo: &Repo, opts: &LogOptions) -> Result<Vec<MergedLog
             },
         ));
     }
-
-    for sub in list_submodules(repo)? {
-        if sub.status == SubmoduleStatus::Uninitialized {
-            continue;
-        }
-        let abs = repo.workdir().join(&sub.path);
-        let Ok(sub_repo) = Repo::open(&abs) else {
-            continue;
-        };
-        let Ok(sub_rows) = log_with_ts(&sub_repo, opts) else {
-            continue;
-        };
+    for (sub, entries) in subs.iter().zip(sub_rows) {
         let label = sub.path.to_string_lossy().to_string();
-        let abs_str = abs.to_string_lossy().to_string();
-        for (ts, entry) in sub_rows {
+        let abs_str = repo.workdir().join(&sub.path).to_string_lossy().to_string();
+        for (ts, entry) in entries {
             rows.push((
                 ts,
                 MergedLogEntry {
