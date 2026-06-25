@@ -2695,14 +2695,14 @@
     max-width: 160px;
   }
   .cl-add-btn {
-    margin-left: auto;
     background: transparent;
-    border: 1px solid var(--border-default);
+    border: 1px dashed var(--border-default);
     border-radius: 4px;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 11px;
     padding: 2px 8px;
+    transition: all 0.15s;
   }
   .cl-add-btn:hover:not(:disabled) {
     background: var(--bg-hover);
