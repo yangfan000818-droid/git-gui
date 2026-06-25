@@ -613,23 +613,32 @@
     }, 300) as unknown as number;
   }
 
-  // 初始化 / path 变化时重置并重载
+  // 初始化 / path 或 submodules 变化时重置并重载。
+  // 同时跟踪 submodules.length:openProject 会先设 status=null(path 同步更新)再异步 reload,
+  // 导致 HistoryView 先用 hasSub=false 调了单仓命令,父组件 reload 完成后 submodules 更新为
+  // 真实值但 $effect 不重跑——若新仓库有子仓,模板切到合并视图但 mergedRows 仍为空,列表就空了。
   let prevPath = $state("");
+  let prevSubLen = $state(0);
   $effect(() => {
-    if (path && path !== prevPath) {
+    const subLen = submodules.length;
+    if (path && (path !== prevPath || subLen !== prevSubLen)) {
+      const pathChanged = path !== prevPath;
       prevPath = path;
-      maxCount = 50;
-      resetScroll();
-      authorFilter = "";
-      grepFilter = "";
-      selectedBranch = "";
-      selectedCommit = null;
-      selectedRepoPath = path;
-      commitMsg = "";
-      commitDiffs = [];
+      prevSubLen = subLen;
+      if (pathChanged) {
+        maxCount = 50;
+        resetScroll();
+        authorFilter = "";
+        grepFilter = "";
+        selectedBranch = "";
+        selectedCommit = null;
+        selectedRepoPath = path;
+        commitMsg = "";
+        commitDiffs = [];
+        loadBranches();
+      }
       commits = [];
       mergedRows = [];
-      loadBranches();
       load();
     }
   });
