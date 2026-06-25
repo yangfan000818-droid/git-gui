@@ -538,9 +538,9 @@ impl Repo {
         stash::list_stashes(self)
     }
 
-    /// 创建新的 stash。
-    pub fn stash_push(&self, message: Option<&str>) -> Result<(), Error> {
-        stash::stash_push(self, message)
+    /// 创建新的 stash；可选 paths 仅储藏部分文件。
+    pub fn stash_push(&self, message: Option<&str>, paths: Option<&[String]>) -> Result<(), Error> {
+        stash::stash_push(self, message, paths)
     }
 
     /// 应用指定 stash。

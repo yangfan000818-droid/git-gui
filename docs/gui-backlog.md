@@ -3,7 +3,7 @@
 GUI MVP 四视图(Changes / Update / Conflicts / History)已合入 main。本文是 MVP 之后的后续工作,
 每个任务卡**自包含、可直接派发给新会话**。
 
-> **状态(2026-06-25)**:第一批 1–7 ✅ / 第二批 8–12 ✅ / 第三批 13–14 ✅ / 第四批 15–21 ✅ / 第五批 22–26 ✅。**第六批 27–30(收尾补缺)待派发**。
+> **状态(2026-06-25)**:第一批 1–7 ✅ / 第二批 8–12 ✅ / 第三批 13–14 ✅ / 第四批 15–21 ✅ / 第五批 22–26 ✅ / 第六批 27–30 ✅。**第七批 31–39(分支体验 + 仓库运维补全)待派发**。
 
 **派发方式**:把下面的【通用约束】+ 对应【任务卡】一起贴给新会话即可。做完按【工作流】交回审核。
 
@@ -855,3 +855,231 @@ HistoryView 已有三模式 radio 选择器的完整实现(HTML + CSS),直接照
 - 确认文案必须包含改写历史警告,与面板顶部 hint 文案一致。
 
 **验收核心**:点"开始变基"弹出确认对话框含操作汇总;取消不变基;确认后正常执行。
+
+---
+
+## 第七批:分支体验 + 仓库运维补全(2026-06-25 调研)
+
+> 来源:全量对标 WebStorm/IntelliJ IDEA Git 文档 + 代码交叉验证。前六批 30 张卡覆盖了高频操作与核心安全网,
+> 本轮纵深扫描找出 20 项剩余差距,筛选 9 项高价值、可自包含的纳入第七批。
+> 筛选原则:①日常高频但当前体验缺位(32/33/34/35/38)②安全网补全(31/37)③仓库运维必需(36)④git-native 优先于 JetBrains 专有(Shelve → 选择性 stash)。
+
+### 31. 删除远程分支 〔P1 · 功能缺口,小〕
+
+**痛点:BranchPicker 远程区只能检出/比较,无法删除已合并的远程分支。** 当前远程分支行菜单只有「检出」「差异」「比较」三项,删除远程分支得回命令行 `git push origin --delete <branch>`。
+
+**先读**:`crates/gitcore/src/branch.rs`(`delete_branch` 模式,只删本地)、`crates/gitcore/src/tags.rs`(`push_tag` 用 `default_remote` 解析远程名,复用)、`gui/src/lib/BranchPicker.svelte`(远程分支行 622-668,菜单项 647-663)。
+
+**做**:
+1. gitcore `branch.rs`:加 `delete_remote_branch(repo, remote: &str, branch: &str)`——`git push <remote> --delete <branch>`,用 `repo.git_checked`(非零报 Error::Git,与 `delete_branch` 一致)
+2. gitcore `lib.rs`:暴露 `pub fn delete_remote_branch(&self, remote: &str, branch: &str)`(放 `delete_branch` 旁)
+3. 后端:`repo_delete_remote_branch(path, remote, branch)`——**网络操作**,async + spawn_blocking + CancelToken 取消(参照 `repo_push_tag`)
+4. 前端 BranchPicker 远程行 `...` 菜单加「删除」项(红色,与本地删除同款确认 `ask()` kind: "warning"),确认后 invoke → 重新 `loadBranches()`
+
+**注意**:
+- `default_remote()` 已在 `tags.rs`,挪到 `repo` 或复用——删除时 remote 名前端从 BranchPicker 的远程分支 `name` 解析(`origin/feature` → remote=`origin`, branch=`feature`)
+- 远程分支名以 `origin/` 开头,解析用 `split_once('/')`;注意分支名本身含 `/` 的情况,取**第一个** `/` 分割
+
+**验收核心**:点删除远程分支 → 二次确认 → 远程分支消失;失败(无网络/权限)有错误提示。
+
+---
+
+### 32. BranchPicker 分支搜索 〔P1 · 体验,小,纯前端〕
+
+**痛点:仓库分支多了(几十个),肉眼扫列表找分支效率低。** WebStorm 分支弹窗顶部有搜索框(Ctrl+F 聚焦),输入即过滤。当前 BranchPicker 是扁平全量渲染,无搜索。
+
+**先读**:`gui/src/lib/BranchPicker.svelte`(本地 507-620 / 远程 622-668 两段渲染)。
+
+**做**:
+1. 加 `let search = $state("")` 状态 + 列表上方 `<input>` 搜索框(placeholder "搜索分支...",自动聚焦)
+2. filter 逻辑:`filtered = branches.filter(b => b.name.toLowerCase().includes(search.toLowerCase()))`;搜索为空时显示全部
+3. 本地/远程**分别过滤**,保持分组标题(过滤后某组为空则不渲染该组)
+4. `{#each}` 遍历 `filteredLocal` / `filteredRemote` 替代原 `localBranches` / `remoteBranches`
+
+**注意**:
+- 纯前端,不碰 gitcore/后端
+- 搜索框样式参考 HistoryView 的 filter 行(`.log-filter`)
+- `prefix-group`(卡 33)与搜索的逻辑叠加:先分组 → 组内搜索,或先搜索 → 搜索结果内分组。建议先做搜索(简单),分组后做时再协调
+
+**验收核心**:输入分支名片段 → 列表实时过滤;清空搜索框恢复全量;匹配不到时显示"无匹配分支"。
+
+---
+
+### 33. 分支名前缀分组 〔P2 · 体验,中,纯前端〕
+
+**痛点:分支命名用 `/` 分层(feature/login、feature/signup、bugfix/oom)很常见,扁平列表失去层级感。** WebStorm 分支弹窗有「Group by Prefix」开关,自动按 `/` 第一段折叠。
+
+**先读**:`gui/src/lib/BranchPicker.svelte`(本地/远程两段渲染)、卡 32 搜索实现。
+
+**做**:
+1. 加 `let groupByPrefix = $state(true)`(默认开启)+ 列表上方 `☰ 分组` toggle
+2. 分组逻辑:`Map<prefix, BranchInfo[]>`——`prefix = name.split('/')[0]`,无 `/` 的分支进 `"(无分组)"` 或直接列出
+3. 每组渲染为可折叠区:`<details open>` 或自定义折叠头(prefix 名 + 分支数),组内分支如现有 `<li>` 渲染
+4. 与搜索联动:搜索先过滤 → 分组作用于过滤结果 → 空组不渲染
+5. 远程分支同理(远程前缀如 `origin/feature/login` 先去 `origin/` 再取 prefix)
+
+**注意**:
+- 纯前端,不碰 gitcore/后端
+- localStorage 记住 `groupByPrefix` 偏好
+- 单层分组即可(取第一段),不嵌套
+
+**验收核心**:`feature/login`、`feature/signup` 归入「feature」组;切换 toggle 恢复扁平;搜索后分组仍正确。
+
+---
+
+### 34. 最近分支 + 收藏置顶 〔P2 · 体验,小,纯前端〕
+
+**痛点:频繁切换的几个分支每次都得从列表里找。** WebStorm 分支弹窗顶部有「Recent Branches」(最近 checkout 过的 5 个)和 Favorite 星标置顶。当前 git-gui 零记录。
+
+**先读**:`gui/src/lib/BranchPicker.svelte`(列表渲染)、`gui/src-tauri/src/lib.rs` 的 `ProjectHistory`(localStorage 模式参照)。
+
+**做**:
+1. **最近分支**:localStorage `git-gui:recent-branches` 存 `{repoPath: [branchName, ...]}`(最近 5 个,新的在前,去重);`switchTo()` 成功后 push 到列表头部;BranchPicker 顶部渲染「最近」区(最多 5 条,与主列表用分隔线隔开)
+2. **收藏分支**:localStorage `git-gui:favorite-branches` 存 `{repoPath: [branchName, ...]}`;分支行名旁加 ☆ 按钮(filled=已收藏,outline=未收藏);收藏分支出现在「最近」区下方「收藏」区;**`main`/`master` 自动收藏**(对标 WebStorm)
+3. 两区都在搜索结果为空时隐藏(与主列表一致)
+
+**注意**:
+- 纯前端,不碰 gitcore/后端
+- 最近/收藏里的分支在主列表中仍正常显示(不重复过滤)
+- 收藏星标在远程分支行也显示(可收藏 `origin/feature`)
+
+**验收核心**:切换分支后 BranchPicker 顶部显示最近切换的分支;点 ☆ 收藏某分支,出现在收藏区;`main` 自动在收藏区;最近/收藏区随搜索过滤。
+
+---
+
+### 35. 复制分支名 〔P2 · 体验,极小,纯前端〕
+
+**痛点:想用分支名去命令行操作或在别处引用,只能手动打字。** WebStorm 分支弹窗 hover 分支名按 Ctrl+C 即复制。
+
+**先读**:`gui/src/lib/HistoryView.svelte` 的 `copySha`(navigator.clipboard.writeText,已有先例)、`gui/src/lib/BranchPicker.svelte`(分支行渲染)。
+
+**做**:
+1. 分支行名旁 hover 显示 📋 小按钮
+2. `onclick` → `navigator.clipboard.writeText(branch.name)` → 短暂显示"已复制" tooltip(或按钮变 ✓ 1s 后恢复)
+
+**注意**:
+- 纯前端,不碰 gitcore/后端
+- 远程分支复制完整名(如 `origin/feature/x`)
+
+**验收核心**:点 📋 后分支名入剪贴板;粘贴验证内容正确。
+
+---
+
+### 36. Remotes 管理(增/删/改远程仓库)〔P2 · 仓库运维,中〕
+
+**痛点:当前完全看不到远程仓库配置,无法添加第二个远程(fork 工作流)、修改 URL、删除远程。** WebStorm 有 `Git | Manage Remotes` 对话框。当前仅在 PushDialog 看到默认 remote 名,TagView 用到 `default_remote()`。
+
+**先读**:`crates/gitcore/src/tags.rs`(`default_remote` 用 `git remote` 取列表)、`gui/src/lib/Settings.svelte`(弹窗模态模式参照)。
+
+**做**:
+1. gitcore:加 `remote` 模块(`remote.rs`):
+   - `RemoteInfo { name, url, push_url, fetch }`(Serialize)
+   - `list_remotes(repo)` → `git remote -v` 解析
+   - `add_remote(repo, name, url)` → `git remote add <name> <url>`
+   - `remove_remote(repo, name)` → `git remote remove <name>`
+   - `set_remote_url(repo, name, url)` → `git remote set-url <name> <url>`
+2. gitcore `lib.rs`:暴露四个 Repo 方法
+3. 后端:四个命令——list sync,add/remove/set-url 网络操作 async+spawn_blocking
+4. 前端:Entry 点在 Settings 页→「管理远程仓库」按钮,弹 `RemoteManager.svelte` 模态:
+   - 远程列表(名称 + URL,当前默认 remote 高亮)
+   - 添加(名称 input + URL input)
+   - 编辑(修改 URL,不支持 rename——git remote rename 低频)
+   - 删除(二次确认,至少保留一个 remote 时警告)
+
+**注意**:
+- 改了 gitcore 公共类型(`RemoteInfo`)→ 跑全 workspace
+- `remove_remote` 用 `repo.git_checked` 非零报 Error
+- 移除唯一 remote 前端给警告但不禁用(允许用户清空后重建)
+
+**验收核心**:列出现有 remote;添加新 remote 后 `git remote -v` 可见;修改 URL 生效;删除 remote 后分支列表远程区该 remote 的分支消失(需 refresh)。
+
+---
+
+### 37. Git Clean 清理未跟踪文件 〔P2 · 安全网,中〕
+
+**痛点:构建产物、临时文件等未跟踪文件积累多了,没有 GUI 方式清理。** 虽可命令行 `git clean`,但对 GUI 用户存在安全盲区——不知道会删哪些文件。WebStorm 无直接 clean 入口(通过 Local Changes 的「Rollback」间接处理),但作为纯 Git 工具,clean 是合理补充。
+
+**先读**:`crates/gitcore/src/git.rs`(命令执行模式)、`gui/src/lib/FileTree.svelte`(未跟踪文件列表渲染)、`gui/src/lib/StashView.svelte`(`ask()` 确认模式)。
+
+**做**:
+1. gitcore:加 `clean` 模块(`clean.rs`):
+   - `clean_preview(repo, directories: bool)` → `git clean -n` + 可选 `-d`(含目录),返回 `Vec<PathBuf>`
+   - `clean_force(repo, directories: bool)` → `git clean -f` + 可选 `-d`,返回删除数
+2. gitcore `lib.rs`:暴露两个方法
+3. 后端:`repo_clean_preview(path, include_dirs)`(sync,轻量)、`repo_clean_force(path, include_dirs)`(sync)
+4. 前端:Changes 面板或顶栏 `⋯ 更多` 加「清理未跟踪文件...」入口 → 弹窗:
+   - 先调 `clean_preview` 展示将被删除的文件列表(不可勾选,整批删——对标 `git clean` 原子性)
+   - check「同时清理空目录」
+   - 「确认清理 N 个文件」按钮(红色,二次 ask)
+   - 清理后 reload status
+
+**注意**:
+- **不做 `-x`**(不删 .gitignore 忽略的文件)——安全优先。需要时后续加选项
+- clean 是本地操作,sync command 即可(非网络)
+- 预览列表为空时显示"没有需要清理的未跟踪文件"
+
+**验收核心**:clean --dry-run 列出文件 → 确认后文件被删 → status 刷新后未跟踪文件消失;取消不删任何文件。
+
+---
+
+### 38. DiffView hunk 间跳转 〔P2 · 体验,小,纯前端〕
+
+**痛点:大 diff 有多个 hunk,只能手动滚动找下一个变更位置。** WebStorm 有「Jump to Next/Previous Change」(Ctrl+Alt+Shift+Down/Up)。当前 DiffView 无跳转按钮。
+
+**先读**:`gui/src/lib/DiffView.svelte`(hunk 渲染,hunk 行有 `.hunk` class)、`gui/src/lib/FileViewer.svelte`(行渲染参考)。
+
+**做**:
+1. DiffView 每个 `.hunk` 行加 `id="hunk-{fileIdx}-{hunkIdx}"`
+2. 工具栏或浮层加 ↓↑ 跳转按钮(仅多 hunk 时显示,单 hunk 隐藏)
+3. `scrollToHunk(n)`:`document.getElementById("hunk-{fileIdx}-{n}")?.scrollIntoView({behavior:"smooth",block:"start"})`
+4. 支持键盘快捷键:J/K 或 Ctrl+↓/↑(加 `svelte:window onkeydown`,仅在 DiffView 可见时生效)
+5. 跨文件跳转:到最后一个 hunk 的 next → 下一个文件的第一个 hunk
+
+**注意**:
+- 纯前端,不碰 gitcore/后端
+- `id` 放在 hunk header 行(已有 `@@` 行,加 `id` 不破坏现有结构)
+- 键盘快捷键只在 DiffView mounted 时监听,unmount 时移除(避免全局污染)
+
+**验收核心**:点 ↓ 跳到下一个 hunk;到文件末尾最后一个 hunk 再点 ↓ 跳到下一个文件(如有);快捷键生效;单 hunk 不显示按钮。
+
+---
+
+### 39. 选择性 Stash(按文件储藏)〔P2 · git-native Shelve 等价,小〕
+
+**痛点:git stash 是全或无——要么全部未提交改动一起 stash,要么不 stash。想只搁置部分文件、保留另一些继续工作时,只能手动 `git stash push -- <path>`。** JetBrains Shelve 的核心差异化就是选择性搁置。做 git-native 版本:给 `stash_push` 加 pathspec 参数。
+
+**先读**:`crates/gitcore/src/stash.rs`(`stash_push` line 147,当前无 pathspec)、`gui/src/lib/StashView.svelte`(当前"创建 Stash"是全量、无文件选择)。
+
+**做**:
+1. gitcore `stash_push`:加 `paths: Option<Vec<PathBuf>>` 参数 → 有值则在 `--include-untracked` 后加 `--` + paths(每项 `.to_string_lossy()` 空格分隔,不加引号——git CLI 接受裸路径)
+2. gitcore `lib.rs`:暴露签名更新
+3. 后端 `repo_stash_push(message, paths)`——sync,不变
+4. 前端 StashView:
+   - "创建 Stash"改为下拉:默认「储藏全部改动」,加「储藏选中文件...」
+   - 选后者 → 弹出文件列表(从 Changes 文件取,多仓仓库标签区分),多选后确认 → invoke 带 paths
+   - 快捷入口:Changes 面板文件行右键「储藏此文件」→ 单文件 stash
+
+**注意**:
+- gitcore `stash_push` **签名变更**→ 补全所有调用点(至少 `gui/src-tauri/src/lib.rs` 的 `repo_stash_push` + TUI `stage_ui.rs` 如有引用)
+- `--include-untracked` + pathspec:未跟踪文件需要 `git add --intent-to-add` 先标记才能被 stash 纳入——**核实 git stash push -- <untracked> 的行为**,可能需要先 `add -N`
+- 这是 git-native 选择性储藏,不是 JetBrains Shelve 的 patch 文件体系(不做 Shelf tab、Recently Deleted、base revision 等)
+
+**验收核心**:选中 2 个文件的改动 stash → 工作区只剩另 1 个文件改动;stash list 可见新 stash;apply 后 2 个文件改动恢复。
+
+---
+
+## 第七批优先级小结
+
+| 优先级 | 任务 | 价值 | 复杂度 |
+|---|---|---|---|
+| **P1** | 31. 删除远程分支 | 功能缺口,日常用 | 小(gitcore 1 函数 + 后端 + UI 1 菜单项) |
+| **P1** | 32. BranchPicker 搜索 | 体验,分支多必用 | 小(纯前端 1 input + filter) |
+| **P2** | 33. 分支名前缀分组 | 体验,分支命名规范 | 中(纯前端分组折叠 UI) |
+| **P2** | 34. 最近分支 + 收藏置顶 | 体验,高频切换 | 小(纯前端 localStorage) |
+| **P2** | 35. 复制分支名 | 便利 | 极小(1 按钮 + clipboard API) |
+| **P2** | 36. Remotes 管理 | 仓库运维必需 | 中(gitcore 新模块 + UI 弹窗) |
+| **P2** | 37. Git Clean | 安全网,清理积压 | 中(gitcore 新模块 + dry-run 预览) |
+| **P2** | 38. DiffView hunk 跳转 | 体验,大 diff 导航 | 小(纯前端 scrollIntoView + 键盘) |
+| **P2** | 39. 选择性 Stash | git-native Shelve | 小(gitcore stash_push +paths + UI) |
+
+**建议实施顺序**:31(删远程分支,独立)→32(搜索)+35(复制)一起做(同组件)→34(最近/收藏)→33(分组,叠加在搜索上)→38(hunk 跳转)→36(Remotes)+37(Clean)+39(选择性 stash)逐步推进。

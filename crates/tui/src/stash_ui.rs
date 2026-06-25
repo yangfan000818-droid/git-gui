@@ -121,7 +121,7 @@ impl StashView {
                 } else {
                     Some(self.input.as_str())
                 };
-                match repo.stash_push(msg) {
+                match repo.stash_push(msg, None) {
                     Ok(()) => {
                         self.message = "已创建 stash".into();
                         self.mode = Mode::List;

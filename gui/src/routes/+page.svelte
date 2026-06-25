@@ -372,6 +372,13 @@
     stagedRepos.map((r) => `${r.label} (${r.staged.length})`).join(" · "),
   );
 
+  // StashView 可选文件的列表（仅主仓库的未暂存文件）
+  let stashableFiles = $derived(
+    repos
+      .filter((r) => r.path === path)
+      .flatMap((r) => r.unstaged.map((f) => ({ path: f.path }))),
+  );
+
   // ── 文件监视:后端 debounce 300ms 后 emit "repo-changed",前端再接一次 debounce 防抖 ──
   let repoChangedUnlisten: UnlistenFn | undefined = $state();
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1848,6 +1855,7 @@
     <StashView
       {path}
       hasChanges={status.dirty}
+      changedFiles={stashableFiles}
       onClose={() => (showStash = false)}
       onChanged={refresh}
     />

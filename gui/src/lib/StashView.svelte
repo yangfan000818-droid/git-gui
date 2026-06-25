@@ -13,11 +13,13 @@
   let {
     path,
     hasChanges,
+    changedFiles = [],
     onClose,
     onChanged,
   }: {
     path: string;
     hasChanges: boolean;
+    changedFiles?: { path: string }[];
     onClose: () => void;
     onChanged: () => void;
   } = $props();
@@ -27,6 +29,91 @@
   let busy = $state(false);
   let error = $state("");
   let newMessage = $state("");
+  let selectedFiles = $state<Set<string>>(new Set());
+
+  // ── 目录树 ──
+  interface StashDirNode {
+    name: string;
+    path: string; // 目录路径，如 "src/lib"
+    dirs: StashDirNode[];
+    files: { name: string; path: string }[];
+    allPaths: string[];
+  }
+
+  function buildStashTree(files: { path: string }[]): StashDirNode {
+    const root: StashDirNode = {
+      name: "",
+      path: "",
+      dirs: [],
+      files: [],
+      allPaths: [],
+    };
+    for (const f of files) {
+      const parts = f.path.split("/");
+      const fileName = parts.pop() ?? f.path;
+      let cur = root;
+      let prefix = "";
+      for (const part of parts) {
+        prefix = prefix ? `${prefix}/${part}` : part;
+        let next = cur.dirs.find((d) => d.name === part);
+        if (!next) {
+          next = {
+            name: part,
+            path: prefix,
+            dirs: [],
+            files: [],
+            allPaths: [],
+          };
+          cur.dirs.push(next);
+        }
+        next.allPaths.push(f.path);
+        cur = next;
+      }
+      cur.files.push({ name: fileName, path: f.path });
+    }
+    compressTree(root);
+    return root;
+  }
+
+  // 连续单子目录合并
+  function compressTree(dir: StashDirNode): void {
+    for (const d of dir.dirs) compressTree(d);
+    while (dir.name !== "" && dir.dirs.length === 1 && dir.files.length === 0) {
+      const child = dir.dirs[0];
+      dir.name = `${dir.name}/${child.name}`;
+      dir.path = child.path;
+      dir.dirs = child.dirs;
+      dir.files = child.files;
+    }
+  }
+
+  let tree = $derived(buildStashTree(changedFiles));
+  let expandedDirs = $state(new Set<string>());
+
+  function toggleDirExpand(path: string) {
+    const next = new Set(expandedDirs);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    expandedDirs = next;
+  }
+
+  function dirCheckState(dir: StashDirNode): "all" | "partial" | "none" {
+    const sel = dir.allPaths.filter((p) => selectedFiles.has(p)).length;
+    if (sel === 0) return "none";
+    if (sel === dir.allPaths.length) return "all";
+    return "partial";
+  }
+
+  function toggleDir(dir: StashDirNode) {
+    const state = dirCheckState(dir);
+    const next = new Set(selectedFiles);
+    if (state === "all") {
+      for (const p of dir.allPaths) next.delete(p);
+    } else {
+      for (const p of dir.allPaths) next.add(p);
+    }
+    selectedFiles = next;
+  }
 
   async function load() {
     loading = true;
@@ -48,6 +135,7 @@
       await invoke("repo_stash_push", {
         path,
         message: newMessage.trim() || null,
+        paths: null,
       });
       newMessage = "";
       await load();
@@ -57,6 +145,35 @@
     } finally {
       busy = false;
     }
+  }
+
+  // 储藏选中文件
+  async function createSelectiveStash() {
+    if (selectedFiles.size === 0) return;
+    busy = true;
+    error = "";
+    try {
+      await invoke("repo_stash_push", {
+        path,
+        message: newMessage.trim() || null,
+        paths: [...selectedFiles],
+      });
+      newMessage = "";
+      selectedFiles = new Set();
+      await load();
+      onChanged();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  function toggleFile(fp: string) {
+    const next = new Set(selectedFiles);
+    if (next.has(fp)) next.delete(fp);
+    else next.add(fp);
+    selectedFiles = next;
   }
 
   // 应用(保留 stash):改动回到工作区,关闭面板让用户在改动列表查看。
@@ -162,17 +279,54 @@
         bind:value={newMessage}
         placeholder={hasChanges ? "储藏说明(可选)" : "工作区干净,无改动可储藏"}
         disabled={busy || !hasChanges}
-        onkeydown={(e) => e.key === "Enter" && hasChanges && createStash()}
+        onkeydown={(e) => {
+          if (e.key !== "Enter" || !hasChanges || busy) return;
+          if (selectedFiles.size > 0) createSelectiveStash();
+          else createStash();
+        }}
       />
-      <button
-        class="sv-create-btn"
-        disabled={busy || !hasChanges}
-        onclick={createStash}
-        title="把当前工作区改动(含未跟踪)储藏起来,工作区恢复干净"
-      >
-        储藏改动
-      </button>
+      {#if changedFiles.length > 0}
+        <button
+          class="sv-create-btn"
+          disabled={busy || selectedFiles.size === 0}
+          onclick={createSelectiveStash}
+          title={selectedFiles.size > 0
+            ? `储藏选中的 ${selectedFiles.size} 个文件`
+            : "请先在下方勾选文件"}
+        >
+          储藏选中{selectedFiles.size > 0 ? `(${selectedFiles.size})` : ""}
+        </button>
+        <button
+          class="sv-all-btn"
+          disabled={busy}
+          onclick={createStash}
+          title="储藏全部 {changedFiles.length} 个文件"
+        >
+          储藏全部
+        </button>
+      {:else}
+        <button
+          class="sv-create-btn"
+          disabled={busy || !hasChanges}
+          onclick={createStash}
+          title="把当前工作区全部改动(含未跟踪)储藏起来"
+        >
+          储藏全部
+        </button>
+      {/if}
     </div>
+
+    <!-- 目录树（有改动文件时始终展示） -->
+    {#if changedFiles.length > 0}
+      <div class="sv-filelist">
+        {#each tree.dirs as d (d.path)}
+          {@render stashTreeDir(d, 0)}
+        {/each}
+        {#each tree.files as f (f.path)}
+          {@render stashTreeFile(f, 0)}
+        {/each}
+      </div>
+    {/if}
 
     {#if loading}
       <p class="sv-muted">加载中…</p>
@@ -213,6 +367,63 @@
   </div>
 </div>
 
+<!-- ── 目录树渲染 snippet ── -->
+{#snippet stashTreeDir(dir: StashDirNode, depth: number)}
+  {@const checkState = dirCheckState(dir)}
+  {@const open = expandedDirs.has(dir.path)}
+  <div
+    class="st-row st-dir"
+    role="button"
+    tabindex="0"
+    style="padding-left: {4 + depth * 10}px"
+    onclick={() => toggleDirExpand(dir.path)}
+    onkeydown={(e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggleDirExpand(dir.path);
+      }
+    }}
+  >
+    <input
+      type="checkbox"
+      class="st-check"
+      checked={checkState === "all"}
+      class:st-partial={checkState === "partial"}
+      onclick={(e) => {
+        e.stopPropagation();
+        toggleDir(dir);
+      }}
+      onkeydown={(e) => e.stopPropagation()}
+      disabled={busy}
+      aria-label="选择目录 {dir.name}"
+    />
+    <span class="st-caret">{open ? "▾" : "▸"}</span>
+    <span class="st-dname">{dir.name}/</span>
+    <span class="st-count">{dir.allPaths.length}</span>
+  </div>
+  {#if open}
+    {#each dir.dirs as d (d.path)}
+      {@render stashTreeDir(d, depth + 1)}
+    {/each}
+    {#each dir.files as f (f.path)}
+      {@render stashTreeFile(f, depth + 1)}
+    {/each}
+  {/if}
+{/snippet}
+
+{#snippet stashTreeFile(file: { name: string; path: string }, depth: number)}
+  <label class="st-row st-file" style="padding-left: {4 + depth * 10}px">
+    <input
+      type="checkbox"
+      class="st-check"
+      checked={selectedFiles.has(file.path)}
+      onchange={() => toggleFile(file.path)}
+      disabled={busy}
+    />
+    <span class="st-fname">{file.name}</span>
+  </label>
+{/snippet}
+
 <style>
   .sv-overlay {
     position: fixed;
@@ -228,7 +439,7 @@
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
     border-radius: 8px;
-    width: 460px;
+    width: 520px;
     max-width: 92%;
     max-height: 82%;
     overflow-y: auto;
@@ -309,6 +520,100 @@
   .sv-create-btn:disabled {
     opacity: 0.4;
     cursor: default;
+  }
+  .sv-all-btn {
+    background: rgba(86, 211, 100, 0.06);
+    border: 1px solid rgba(86, 211, 100, 0.18);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition:
+      background 0.15s,
+      border-color 0.15s,
+      color 0.15s;
+  }
+  .sv-all-btn:hover:not(:disabled) {
+    background: rgba(86, 211, 100, 0.14);
+    border-color: rgba(86, 211, 100, 0.35);
+    color: #fff;
+  }
+  .sv-all-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .sv-filelist {
+    max-height: 260px;
+    overflow-y: auto;
+    padding: 4px 12px 8px 0;
+    border-bottom: 1px solid var(--bg-hover);
+  }
+
+  /* ── 目录树行 ── */
+  .st-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-height: 24px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .st-row:hover {
+    background: var(--bg-hover);
+  }
+  .st-check {
+    accent-color: var(--color-accent, #569cd6);
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    margin: 0;
+  }
+  .st-check.st-partial {
+    accent-color: var(--color-warning, #d4a72c);
+  }
+  .st-caret {
+    color: var(--text-secondary);
+    font-size: 11px;
+    width: 10px;
+    flex-shrink: 0;
+    text-align: center;
+  }
+  .st-dir:hover .st-caret {
+    color: var(--text-primary);
+  }
+  .st-dname {
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .st-fname {
+    font-family:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .st-file:hover .st-fname {
+    color: var(--text-primary);
+  }
+  .st-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .st-file {
+    cursor: pointer;
   }
   .sv-list {
     list-style: none;

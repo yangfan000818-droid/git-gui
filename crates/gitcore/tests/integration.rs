@@ -1315,7 +1315,7 @@ fn stash_push_list_apply_drop_roundtrip() {
     write(&dir, "a.txt", "changed"); // 脏
 
     let repo = Repo::open(&dir).unwrap();
-    repo.stash_push(Some("my wip")).unwrap();
+    repo.stash_push(Some("my wip"), None).unwrap();
     assert!(!repo.status().unwrap().dirty, "stash 后工作区应干净");
     assert_eq!(
         std::fs::read_to_string(dir.join("a.txt")).unwrap(),

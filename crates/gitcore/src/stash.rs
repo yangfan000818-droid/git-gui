@@ -143,13 +143,25 @@ fn parse_stash_message(raw: &str) -> (String, String) {
     }
 }
 
-/// 创建新的 stash（含 untracked 文件）。
-pub(crate) fn stash_push(repo: &Repo, message: Option<&str>) -> Result<(), Error> {
-    let mut args = vec!["stash", "push", "--include-untracked"];
+/// 创建新的 stash（含 untracked 文件）；可指定仅储藏部分文件。
+pub(crate) fn stash_push(
+    repo: &Repo,
+    message: Option<&str>,
+    paths: Option<&[String]>,
+) -> Result<(), Error> {
+    let mut args: Vec<&str> = vec!["stash", "push", "--include-untracked"];
     if let Some(msg) = message {
         if !msg.is_empty() {
             args.push("-m");
             args.push(msg);
+        }
+    }
+    if let Some(paths) = paths {
+        if !paths.is_empty() {
+            args.push("--");
+            for p in paths {
+                args.push(p.as_str());
+            }
         }
     }
     repo.git(&args)?;

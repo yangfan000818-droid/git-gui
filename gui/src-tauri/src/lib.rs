@@ -552,12 +552,20 @@ async fn repo_stashes(path: String) -> Result<Vec<StashEntry>, String> {
 }
 
 /// 把当前工作区改动(含未跟踪)储藏起来;message 为空则用 git 默认描述。
+/// paths 非空时仅储藏指定文件,为 None/空数组时储藏全部。
 #[tauri::command]
-async fn repo_stash_push(path: String, message: Option<String>) -> Result<(), String> {
+async fn repo_stash_push(
+    path: String,
+    message: Option<String>,
+    paths: Option<Vec<String>>,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-        repo.stash_push(message.as_deref().filter(|m| !m.is_empty()))
-            .map_err(|e| e.to_string())
+        repo.stash_push(
+            message.as_deref().filter(|m| !m.is_empty()),
+            paths.as_deref(),
+        )
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
