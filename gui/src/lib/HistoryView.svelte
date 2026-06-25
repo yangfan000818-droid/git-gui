@@ -172,7 +172,7 @@
   let inConflictResolution = $state(false);
 
   // ── 数据加载 ──
-  async function load() {
+  async function load(resetScrollAfter = true) {
     loading = true;
     error = "";
     try {
@@ -197,6 +197,8 @@
       error = String(e);
     } finally {
       loading = false;
+      // 新加载/切换仓库/筛选变更后重置滚动位置;loadMore(追加)时不重置——否则把用户弹回顶部
+      if (resetScrollAfter) resetScroll();
     }
   }
 
@@ -228,7 +230,7 @@
   function onCommitScroll(e: Event) {
     const el = e.target as HTMLElement;
     scrollTop = el.scrollTop;
-    viewportH = el.clientHeight;
+    _viewportH = el.clientHeight;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
       loadMore();
     }
@@ -237,7 +239,7 @@
   async function loadMore() {
     if (loading || filtering) return;
     maxCount += 50;
-    await load();
+    await load(false);
   }
 
   // repoPath:该提交所属仓库的绝对路径(合并视图下可能是子仓);单仓视图传主仓 path。
@@ -538,11 +540,14 @@
   let svgWidth = $derived((maxLane + 1) * LANE_W);
   let svgHeight = $derived(commits.length * ROW_H);
 
-  // ── 虚拟滚动:固定行高,只渲染可视区 ± 缓冲行,避免大历史下 DOM(SVG path/circle + 行)爆炸 ──
+  // ── 虚拟滚动:固定行高,只渲染可视区 ± 缓冲行,避免大历史下 DOM 爆炸 ──
   let scrollEl = $state<HTMLElement | null>(null);
   let scrollTop = $state(0);
-  let viewportH = $state(600);
-  const VBUFFER = 8; // 可视区上下各多渲染的缓冲行,滚动时不露白
+  let _viewportH = $state(600);
+  const VBUFFER = 8;
+  // viewportH 不能低于一个屏幕高度,防止 bind:clientHeight 尚未更新(如切换仓库重建 DOM
+  // 时 clientHeight 短暂为 0)导致 visibleCommits 为空。
+  let viewportH = $derived(Math.max(_viewportH, 200));
 
   // 单仓(SVG 图)视图可视窗口:gi 为全局行索引,SVG 与行均按 gi*ROW_H 定位以保持对齐。
   let visStart = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - VBUFFER));
@@ -687,7 +692,7 @@
         <div
           class="log-scroll merged"
           bind:this={scrollEl}
-          bind:clientHeight={viewportH}
+          bind:clientHeight={_viewportH}
           onscroll={onCommitScroll}
         >
           <div
@@ -732,7 +737,7 @@
         <div
           class="log-scroll"
           bind:this={scrollEl}
-          bind:clientHeight={viewportH}
+          bind:clientHeight={_viewportH}
           onscroll={onCommitScroll}
         >
           {#if !filtering}
