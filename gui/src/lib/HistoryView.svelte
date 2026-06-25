@@ -500,7 +500,7 @@
   }
 
   // ── SVG 图常量 ──
-  const ROW_H = 24;
+  const ROW_H = 44; // 单仓/合并统一行高(两行布局)
   const LANE_W = 16;
   const NODE_R = 5;
 
@@ -543,7 +543,6 @@
   let scrollTop = $state(0);
   let viewportH = $state(600);
   const VBUFFER = 8; // 可视区上下各多渲染的缓冲行,滚动时不露白
-  const MERGED_ROW_H = 44; // 合并视图行高(两行布局,固定;须与 CSS .merged-row height 一致)
 
   // 单仓(SVG 图)视图可视窗口:gi 为全局行索引,SVG 与行均按 gi*ROW_H 定位以保持对齐。
   let visStart = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - VBUFFER));
@@ -560,14 +559,12 @@
   );
 
   // 合并视图可视窗口。
-  let mergedHeight = $derived(mergedRows.length * MERGED_ROW_H);
-  let mStart = $derived(
-    Math.max(0, Math.floor(scrollTop / MERGED_ROW_H) - VBUFFER),
-  );
+  let mergedHeight = $derived(mergedRows.length * ROW_H);
+  let mStart = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - VBUFFER));
   let mEnd = $derived(
     Math.min(
       mergedRows.length,
-      Math.ceil((scrollTop + viewportH) / MERGED_ROW_H) + VBUFFER,
+      Math.ceil((scrollTop + viewportH) / ROW_H) + VBUFFER,
     ),
   );
   let visibleMerged = $derived(
@@ -706,7 +703,7 @@
                 role="button"
                 tabindex="0"
                 style="position:absolute;top:{gi *
-                  MERGED_ROW_H}px;left:0;right:0;height:{MERGED_ROW_H}px"
+                  ROW_H}px;left:0;right:0;height:{ROW_H}px"
                 onclick={() => selectCommit(entry, row.repo_path)}
                 onkeydown={(e) =>
                   onActivate(e, () => selectCommit(entry, row.repo_path))}
@@ -792,10 +789,15 @@
                 onkeydown={(e) =>
                   onActivate(e, () => selectCommit(entry, path))}
               >
-                <span class="log-sha">{entry.sha}</span>
-                <span class="log-author">{entry.author}</span>
-                <span class="log-date">{fmtDate(entry.date)}</span>
-                <span class="log-msg">{entry.message}</span>
+                <div class="log-top">
+                  <span class="log-sha">{entry.sha}</span>
+                  <span class="log-msg">{entry.message}</span>
+                </div>
+                <div class="log-bot">
+                  <span class="log-author">{entry.author}</span>
+                  <span class="log-dot">·</span>
+                  <span class="log-date">{fmtDate(entry.date)}</span>
+                </div>
               </div>
             {/each}
           </div>
@@ -1215,15 +1217,18 @@
 
   .log-row {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 8px;
-    box-sizing: border-box;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 5px 8px;
+    cursor: pointer;
     font-family:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
-    line-height: 1;
-    white-space: nowrap;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.04));
+    height: 44px;
+    box-sizing: border-box;
+    overflow: hidden;
   }
   .log-row:hover {
     background: var(--bg-surface);
@@ -1232,25 +1237,45 @@
   .log-row.selected {
     background: rgba(88, 166, 255, 0.15);
   }
+  .log-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .log-bot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 2px;
+    color: var(--text-muted);
+    font-size: 11px;
+  }
   .log-sha {
     color: var(--accent-gold);
     flex-shrink: 0;
   }
   .log-author {
     color: var(--text-muted);
-    flex-shrink: 0;
-    max-width: 80px;
+    max-width: 220px;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .log-date {
     color: var(--text-muted);
     flex-shrink: 0;
   }
   .log-msg {
+    flex: 1;
+    min-width: 0;
     color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .log-dot {
+    opacity: 0.5;
   }
 
   /* ── 合并视图:仓库标识 chip ── */
@@ -1282,7 +1307,7 @@
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
     border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.04));
-    /* 固定行高(= JS MERGED_ROW_H),配合虚拟滚动的绝对定位;box-sizing 含 padding/border。 */
+    /* 固定行高(= JS ROW_H),配合虚拟滚动的绝对定位;box-sizing 含 padding/border。 */
     height: 44px;
     box-sizing: border-box;
     overflow: hidden;
