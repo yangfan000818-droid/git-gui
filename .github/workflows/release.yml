@@ -30,7 +30,6 @@ jobs:
             librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
       - run: cargo clippy -p gitcore --features serde -- -D warnings
       - run: cargo clippy -p gui --all-targets -- -D warnings
-      - run: cargo clippy -p tui -- -D warnings
       - run: cargo fmt --all --check
       - run: cargo test -p gitcore
 

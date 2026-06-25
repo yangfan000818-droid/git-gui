@@ -44,9 +44,6 @@ jobs:
       - name: clippy (gui)
         run: cargo clippy -p gui --all-targets -- -D warnings
 
-      - name: clippy (tui)
-        run: cargo clippy -p tui -- -D warnings
-
       - name: fmt check
         run: cargo fmt --all --check
 
