@@ -148,30 +148,19 @@ jobs:
           EXE=$(ls assets/*.exe 2>/dev/null | head -1)
           WIN_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$(basename "$EXE")"
 
-          # 签名
+          # 签名 → 写文件避免 Shell 内联转义问题
           cd gui
-          WIN_SIG=$(npx tauri signer sign \
+          npx tauri signer sign \
             --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
             -p "" \
-            "../$EXE" 2>/dev/null || echo "")
+            "../$EXE" > ../win.sig 2>/dev/null || true
           cd ..
 
-          # 构造 manifest
-          node -e "
-            const m = {
-              version: '$VERSION',
-              notes: 'See https://github.com/${{ github.repository }}/releases',
-              pub_date: new Date().toISOString(),
-              platforms: {}
-            };
-            if ('$WIN_SIG'.length > 0) {
-              m.platforms['windows-x86_64'] = {
-                signature: '$WIN_SIG',
-                url: '$WIN_URL'
-              };
-            }
-            require('fs').writeFileSync('latest.json', JSON.stringify(m, null, 2));
-          "
+          # 用环境变量传值给 Node 脚本,避免内联注入
+          export WIN_URL WIN_SIG VERSION
+          WIN_SIG=$(cat win.sig 2>/dev/null || echo "")
+          export WIN_SIG
+          node scripts/build-manifest.mjs
           cat latest.json
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
