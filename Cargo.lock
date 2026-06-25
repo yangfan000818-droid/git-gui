@@ -1441,7 +1441,7 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "0.12.2"
+version = "0.12.3"
 dependencies = [
  "gitcore",
  "notify",
