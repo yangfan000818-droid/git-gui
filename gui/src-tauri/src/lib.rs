@@ -501,6 +501,24 @@ async fn repo_commit(
     .map_err(|e| e.to_string())?
 }
 
+/// 只提交指定路径(Changelist 按组提交):忽略其它已暂存改动,只提交这些文件的工作区内容。
+#[tauri::command]
+async fn repo_commit_paths(
+    app: AppHandle,
+    path: String,
+    message: String,
+    paths: Vec<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let no_verify = AppSettings::load(&app).skip_hooks;
+        repo.commit_paths(&message, &paths, no_verify)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ── Stash 管理命令(对标 WebStorm Stash / Unstash Changes) ──
 
 #[tauri::command]
@@ -625,6 +643,45 @@ async fn repo_push(path: String) -> Result<gitcore::PushOutcome, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Push 对话框预览:目标 upstream + 待推送提交(`@{u}..HEAD`),供推送前安全网。
+#[tauri::command]
+async fn repo_push_preview(path: String) -> Result<gitcore::PushPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.push_preview().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 流式推送:进度经 "push-progress" 事件推送,取消走 CancelRegistry。
+/// `force_with_lease` 为真时安全强制推送(仅当远端未被他人推进时才覆盖)。
+#[tauri::command]
+async fn repo_push_streaming(
+    app: AppHandle,
+    path: String,
+    op_id: String,
+    force_with_lease: bool,
+    state: State<'_, CancelRegistry>,
+) -> Result<gitcore::PushOutcome, String> {
+    let cancel = CancelToken::default();
+    state.insert(op_id.clone(), cancel.clone());
+
+    let res = tauri::async_runtime::spawn_blocking(move || -> Result<gitcore::PushOutcome, String> {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let mut on_progress = |p: Progress| {
+            let _ = app.emit("push-progress", p);
+        };
+        repo.push_streaming(force_with_lease, &mut on_progress, &cancel)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    state.remove(&op_id);
+    res
+}
+
 // ── Update 视图命令 ──
 
 /// 执行完整 Update 流程(autostash → 整合 → restore)。
@@ -695,6 +752,34 @@ fn read_repo_file(path: String, file_path: String) -> Result<String, String> {
     let workdir = Path::new(&path);
     std::fs::read_to_string(workdir.join(&file_path))
         .map_err(|e| format!("读取 {file_path} 失败: {e}"))
+}
+
+/// 读取任意 revision 下某文件的全文(文件查看器看历史版本用)。可能 fork git,故 async。
+#[tauri::command]
+async fn repo_cat_file(
+    path: String,
+    revision: String,
+    file_path: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.cat_file_at_rev(&revision, Path::new(&file_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 工作区文件相对 HEAD 的 diff(文件查看器据此画行内变更标记)。无改动返回 None。
+#[tauri::command]
+async fn repo_file_diff_head(path: String, file: String) -> Result<Option<FileDiff>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.file_diff_vs_head(Path::new(&file))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 写回某文件的冲突解决结果并 git add。
@@ -1164,6 +1249,7 @@ async fn repo_log_topology(
 async fn repo_log_merged(
     path: String,
     max_count: usize,
+    branch: Option<String>,
     author: Option<String>,
     grep: Option<String>,
 ) -> Result<Vec<gitcore::MergedLogEntry>, String> {
@@ -1172,7 +1258,7 @@ async fn repo_log_merged(
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         let opts = gitcore::LogOptions {
             max_count,
-            branch: None,
+            branch,
             author,
             grep,
         };
@@ -1276,6 +1362,7 @@ pub fn run() {
             repo_stage_lines,
             repo_unstage_lines,
             repo_commit,
+            repo_commit_paths,
             repo_stashes,
             repo_stash_push,
             repo_stash_apply,
@@ -1286,10 +1373,14 @@ pub fn run() {
             repo_submodule_sync,
             repo_fetch,
             repo_push,
+            repo_push_preview,
+            repo_push_streaming,
             execute_update,
             repo_clone,
             cancel_op,
             read_repo_file,
+            repo_cat_file,
+            repo_file_diff_head,
             resolve_conflict_file,
             read_conflict_segments,
             continue_update_cmd,

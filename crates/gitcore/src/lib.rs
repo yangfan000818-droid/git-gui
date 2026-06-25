@@ -41,7 +41,7 @@ pub use error::Error;
 pub use git::{CancelToken, Progress};
 pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
 pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions, MergedLogEntry};
-pub use push::PushOutcome;
+pub use push::{PushOutcome, PushPreview};
 pub use rebase::{RebaseAction, RebaseItem};
 pub use reflog::ReflogEntry;
 pub use reset::ResetMode;
@@ -230,9 +230,24 @@ impl Repo {
         commit::commit(self, opts)
     }
 
+    /// 只提交指定路径(供 Changelist 按组提交),忽略其它已暂存改动。返回新提交 SHA(前 8 位)。
+    pub fn commit_paths(
+        &self,
+        message: &str,
+        paths: &[String],
+        no_verify: bool,
+    ) -> Result<String, Error> {
+        commit::commit_paths(self, message, paths, no_verify)
+    }
+
     /// 推送当前分支到 upstream。
     pub fn push(&self) -> Result<PushOutcome, Error> {
         push::push(self)
+    }
+
+    /// Push 对话框预览:目标 upstream + 待推送提交(`@{u}..HEAD`)。
+    pub fn push_preview(&self) -> Result<PushPreview, Error> {
+        push::push_preview(self)
     }
 
     /// 流式 fetch:进度经 `on_progress` 上报,`cancel` 置位则中止并返回 `Error::Cancelled`。
@@ -255,12 +270,14 @@ impl Repo {
     }
 
     /// 流式推送:进度经 `on_progress` 上报,`cancel` 置位则中止。判定同 [`Repo::push`]。
+    /// `force_with_lease` 为真时用 `--force-with-lease`(安全强制推送)。
     pub fn push_streaming(
         &self,
+        force_with_lease: bool,
         on_progress: &mut dyn FnMut(Progress),
         cancel: &CancelToken,
     ) -> Result<PushOutcome, Error> {
-        push::push_streaming(self, on_progress, cancel)
+        push::push_streaming(self, force_with_lease, on_progress, cancel)
     }
 
     /// 获取提交历史。
@@ -448,6 +465,57 @@ impl Repo {
     /// 选定分支(或任意 ref)与当前工作区的差异文件列表(Show Diff with Working Tree)。
     pub fn diff_with_workdir(&self, rev: &str) -> Result<Vec<FileDiff>, Error> {
         hunk::diff_with_workdir(self, rev)
+    }
+
+    /// 读取任意 revision 下某文件的全文(`git show <rev>:<path>`),供文件查看器。
+    /// 超过 1MB 返回 Precondition 错误(提示改用命令行),避免一次性塞进 UI 卡死。
+    pub fn cat_file_at_rev(&self, revision: &str, path: &Path) -> Result<String, Error> {
+        let p = path
+            .to_str()
+            .ok_or_else(|| Error::Parse("文件路径含非 UTF-8 字符".into()))?;
+        let spec = format!("{revision}:{p}");
+        let size = self.git_checked(&["cat-file", "-s", &spec])?;
+        if size.success {
+            if let Ok(bytes) = size.stdout.trim().parse::<u64>() {
+                if bytes > 1_000_000 {
+                    return Err(Error::Precondition(format!(
+                        "文件过大（{} KB），请在命令行查看",
+                        bytes / 1024
+                    )));
+                }
+            }
+        }
+        self.git(&["show", &spec])
+    }
+
+    /// 工作区文件相对 HEAD 的 diff(供文件查看器的行内变更标记)。
+    /// 已跟踪且无改动返回 None;未跟踪文件补成"全新增"(`git diff HEAD` 不含未跟踪)。
+    pub fn file_diff_vs_head(&self, file: &Path) -> Result<Option<FileDiff>, Error> {
+        let p = file
+            .to_str()
+            .ok_or_else(|| Error::Parse("文件路径含非 UTF-8 字符".into()))?;
+        let text = self.git(&[
+            "-c",
+            "diff.noprefix=false",
+            "-c",
+            "diff.mnemonicprefix=false",
+            "diff",
+            "HEAD",
+            "--no-color",
+            "--",
+            p,
+        ])?;
+        if let Some(fd) = hunk::parse(&text).into_iter().next() {
+            return Ok(Some(fd));
+        }
+        let tracked = self
+            .git_checked(&["ls-files", "--error-unmatch", "--", p])?
+            .success;
+        if tracked {
+            Ok(None)
+        } else {
+            Ok(hunk::untracked_file(self, p))
+        }
     }
 
     /// 逐行 blame 一个文件(每行的作者/提交)。

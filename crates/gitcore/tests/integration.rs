@@ -1057,7 +1057,7 @@ fn push_streaming_succeeds_to_bare_remote() {
     let cancel = CancelToken::default();
     let mut cb = |_p: Progress| {};
     assert_eq!(
-        repo.push_streaming(&mut cb, &cancel).unwrap(),
+        repo.push_streaming(false, &mut cb, &cancel).unwrap(),
         gitcore::PushOutcome::Success
     );
 
@@ -1818,4 +1818,57 @@ fn smart_checkout_remote_dirty_nonconflicting_creates_tracking_branch() {
     );
 
     cleanup(&[&origin, &setup, &work]);
+}
+
+// commit_paths(Changelist 按组提交)只提交指定路径,忽略其它已暂存改动,且能纳入未跟踪文件。
+#[test]
+fn commit_paths_commits_only_listed_files() {
+    let dir = init_repo("clcommit");
+    write(&dir, "a.txt", "a0\n");
+    write(&dir, "b.txt", "b0\n");
+    commit_all(&dir, "base");
+
+    // 改 a、b,并把 b 暂存(模拟 b 属另一变更集且已 stage);再加未跟踪 c。
+    write(&dir, "a.txt", "a1\n");
+    write(&dir, "b.txt", "b1\n");
+    git(&dir, &["add", "b.txt"]);
+    write(&dir, "c.txt", "c1\n");
+
+    let repo = Repo::open(&dir).unwrap();
+    let sha = repo
+        .commit_paths(
+            "commit changelist A",
+            &["a.txt".to_string(), "c.txt".to_string()],
+            false,
+        )
+        .unwrap();
+    assert!(!sha.is_empty());
+
+    // HEAD 只应含 a.txt + c.txt,不含 b.txt。
+    let names = String::from_utf8(
+        Command::new("git")
+            .args(["show", "--name-only", "--pretty=format:", "HEAD"])
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert!(names.contains("a.txt"), "a.txt 应被提交: {names}");
+    assert!(names.contains("c.txt"), "c.txt 应被提交: {names}");
+    assert!(!names.contains("b.txt"), "b.txt 不应被提交: {names}");
+
+    // b.txt 的改动仍在(未被这次提交带走)。
+    let status = String::from_utf8(
+        Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert!(status.contains("b.txt"), "b.txt 应仍未提交: {status}");
+
+    cleanup(&[&dir]);
 }

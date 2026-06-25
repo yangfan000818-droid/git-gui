@@ -51,6 +51,11 @@
   interface StashRef {
     label: string;
   }
+  // 分支下拉(仅取本地分支名,用于按分支筛选 log)
+  interface BranchInfo {
+    name: string;
+    is_remote: boolean;
+  }
   // smart checkout 结果(externally tagged)
   type SwitchOutcome = "Switched" | { StashConflict: { files: string[] } };
   interface ConflictedData {
@@ -121,6 +126,9 @@
   let authorFilter = $state("");
   let grepFilter = $state("");
   let filterTimeout: number | undefined;
+  // 分支筛选:"" = 全部(当前 HEAD),否则按选中本地分支查 log。
+  let branches = $state<string[]>([]);
+  let selectedBranch = $state("");
 
   // ── 子模块变更检测 ──
   // 用 diff header 里的 gitlink mode 160000 判定(普通文件是 100644/100755/120000);
@@ -172,6 +180,7 @@
         mergedRows = await invoke<MergedLogEntry[]>("repo_log_merged", {
           path,
           maxCount,
+          branch: selectedBranch || null,
           author: authorFilter || null,
           grep: grepFilter || null,
         });
@@ -179,7 +188,7 @@
         commits = await invoke<GraphCommit[]>("repo_log_topology", {
           path,
           maxCount,
-          branch: null,
+          branch: selectedBranch || null,
           author: authorFilter || null,
           grep: grepFilter || null,
         });
@@ -189,6 +198,22 @@
     } finally {
       loading = false;
     }
+  }
+
+  // 拉本地分支名填充下拉(切到 history tab 会重新挂载,故无需跨组件实时同步)。
+  async function loadBranches() {
+    try {
+      const list = await invoke<BranchInfo[]>("repo_branches", { path });
+      branches = list.filter((b) => !b.is_remote).map((b) => b.name);
+    } catch {
+      branches = [];
+    }
+  }
+
+  // 切换筛选分支:重置分页并立即重载(下拉是离散选择,无需 debounce)。
+  function onBranchChange() {
+    maxCount = 50;
+    load();
   }
 
   // 列表总条数(供标题与空态判断,合并/单仓两种来源统一)。
@@ -549,12 +574,14 @@
       maxCount = 50;
       authorFilter = "";
       grepFilter = "";
+      selectedBranch = "";
       selectedCommit = null;
       selectedRepoPath = path;
       commitMsg = "";
       commitDiffs = [];
       commits = [];
       mergedRows = [];
+      loadBranches();
       load();
     }
   });
@@ -580,6 +607,18 @@
 
       <!-- 筛选栏 -->
       <div class="filter-row">
+        <select
+          class="filter-input branch-select"
+          aria-label="按分支筛选"
+          title="选择要查看历史的分支(全部=当前 HEAD)"
+          bind:value={selectedBranch}
+          onchange={onBranchChange}
+        >
+          <option value="">全部分支</option>
+          {#each branches as b (b)}
+            <option value={b}>{b}</option>
+          {/each}
+        </select>
         <input
           type="text"
           class="filter-input"
@@ -1087,6 +1126,11 @@
   }
   .filter-input::placeholder {
     color: var(--text-muted);
+  }
+  .branch-select {
+    flex: 0 0 110px;
+    cursor: pointer;
+    appearance: auto;
   }
 
   /* ── SVG + 信息行(同滚容器) ── */

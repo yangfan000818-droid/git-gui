@@ -33,10 +33,13 @@
     path,
     filePath,
     onClose,
+    onViewFile,
   }: {
     path: string;
     filePath: string;
     onClose: () => void;
+    // 点文件名打开文件查看器(整文件 + 行内变更标记);不传则文件名不可点。
+    onViewFile?: () => void;
   } = $props();
 
   let lines: BlameLine[] = $state([]);
@@ -94,6 +97,15 @@
             >← 返回</button
           >
           <h2>{detailSha.slice(0, 8)}</h2>
+        {:else if onViewFile}
+          <h2>
+            blame:
+            <button
+              class="file-link"
+              onclick={onViewFile}
+              title="打开文件查看器(整文件 + 行内变更标记)">{filePath}</button
+            >
+          </h2>
         {:else}
           <h2>blame: {filePath}</h2>
         {/if}
@@ -178,6 +190,19 @@
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
+  }
+  .file-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--accent-cyan);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .file-link:hover {
+    color: var(--accent-neon);
   }
   .back-btn {
     background: var(--bg-hover);

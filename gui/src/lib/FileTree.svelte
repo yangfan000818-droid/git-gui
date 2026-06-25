@@ -10,6 +10,12 @@
     onStage: (paths: string[]) => void;
     onUnstage: (paths: string[]) => void;
     onDiscard: (paths: string[]) => void;
+    // 打开文件查看器(整文件 + 行内变更标记);不传则不显示查看按钮。
+    onView?: (file: F) => void;
+    // Changelist 移动:传入可选目标分组 + 取文件当前分组 + 移动回调时,文件行显示分组下拉。
+    moveTargets?: { id: string; name: string }[];
+    clOf?: (file: F) => string;
+    onMove?: (file: F, targetId: string) => void;
   }
   let {
     files,
@@ -20,6 +26,10 @@
     onStage,
     onUnstage,
     onDiscard,
+    onView,
+    moveTargets,
+    clOf,
+    onMove,
   }: Props = $props();
 
   interface FileNode {
@@ -179,6 +189,33 @@
   >
     <span class="fname">{node.name}</span>
     <span class="actions">
+      {#if moveTargets && onMove && clOf}
+        <select
+          class="act-move"
+          title="移动到变更集"
+          value={clOf(node.file)}
+          onclick={(e) => e.stopPropagation()}
+          onkeydown={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            e.stopPropagation();
+            onMove(node.file, e.currentTarget.value);
+          }}
+        >
+          {#each moveTargets as t (t.id)}
+            <option value={t.id}>{t.name}</option>
+          {/each}
+        </select>
+      {/if}
+      {#if onView}
+        <button
+          class="act view"
+          title="查看整文件 + 行内变更标记"
+          onclick={(e) => {
+            e.stopPropagation();
+            onView?.(node.file);
+          }}>📄</button
+        >
+      {/if}
       {#if kind === "unstaged"}
         <button
           class="act stage"
@@ -299,6 +336,17 @@
   }
   .act:hover {
     background: var(--bg-hover);
+  }
+  .act-move {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 3px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 11px;
+    max-width: 88px;
+    height: 18px;
+    padding: 0 2px;
   }
   .act:disabled {
     opacity: 0.3;

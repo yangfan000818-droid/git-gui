@@ -108,7 +108,7 @@ pub(crate) fn compare_commits(repo: &Repo, other: &str) -> Result<BranchComparis
 }
 
 /// 取某个 `A..B` 范围的提交列表(newest first)。
-fn rev_range(repo: &Repo, range: &str) -> Result<Vec<LogEntry>, Error> {
+pub(crate) fn rev_range(repo: &Repo, range: &str) -> Result<Vec<LogEntry>, Error> {
     let output = repo.git(&["log", "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ai", range])?;
     let entries = output
         .lines()

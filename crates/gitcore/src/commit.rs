@@ -40,3 +40,32 @@ pub(crate) fn commit(repo: &Repo, opts: &CommitOptions) -> Result<String, Error>
     let sha = repo.git(&["rev-parse", "--short=8", "HEAD"])?;
     Ok(sha.trim().to_string())
 }
+
+/// 只提交指定路径的工作区内容(供 Changelist 按组提交),忽略其它已暂存改动。
+/// 先 `git add -- <paths>`(让未跟踪文件可被纳入,已跟踪幂等),再 `git commit -- <paths>`
+/// ——`git commit -- <pathspec>` 只提交这些路径的工作区版本,其它已暂存内容保持不动。
+pub(crate) fn commit_paths(
+    repo: &Repo,
+    message: &str,
+    paths: &[String],
+    no_verify: bool,
+) -> Result<String, Error> {
+    if paths.is_empty() {
+        return Err(Error::Precondition("没有要提交的文件".into()));
+    }
+
+    let mut add_args: Vec<&str> = vec!["add", "--"];
+    add_args.extend(paths.iter().map(|p| p.as_str()));
+    repo.git(&add_args)?;
+
+    let mut args: Vec<&str> = vec!["commit", "-m", message];
+    if no_verify {
+        args.push("--no-verify");
+    }
+    args.push("--");
+    args.extend(paths.iter().map(|p| p.as_str()));
+    repo.git(&args)?;
+
+    let sha = repo.git(&["rev-parse", "--short=8", "HEAD"])?;
+    Ok(sha.trim().to_string())
+}

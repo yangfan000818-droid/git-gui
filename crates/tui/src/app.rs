@@ -639,7 +639,7 @@ fn spawn_push(state: &mut AppState) {
         let mut on_progress = move |p: Progress| {
             let _ = progress_tx.send(OpMsg::Progress(p));
         };
-        let result = repo.push_streaming(&mut on_progress, &token);
+        let result = repo.push_streaming(false, &mut on_progress, &token);
         let _ = tx.send(OpMsg::Push(result));
     });
     state.running = Some(RunningOp { cancel, rx, handle });

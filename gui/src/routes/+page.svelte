@@ -5,8 +5,21 @@
   import { onMount } from "svelte";
   import UpdateView from "$lib/UpdateView.svelte";
   import HistoryView from "$lib/HistoryView.svelte";
+  import PushDialog from "$lib/PushDialog.svelte";
   import DiffView from "$lib/DiffView.svelte";
   import FileTree from "$lib/FileTree.svelte";
+  import FileViewer from "$lib/FileViewer.svelte";
+  import {
+    type ChangelistStore,
+    type Changelist,
+    CL_DEFAULT,
+    loadStore as loadCLStore,
+    saveStore as saveCLStore,
+    ensureRepo as ensureRepoCL,
+    syncFiles as syncCLFiles,
+    clOf as clOfFile,
+    newId as newCLId,
+  } from "$lib/changelists";
   import ProjectPicker from "$lib/ProjectPicker.svelte";
   import FileHistory from "$lib/FileHistory.svelte";
   import BlameView from "$lib/BlameView.svelte";
@@ -43,6 +56,13 @@
 
   // 启动时加载外观设置
   onMount(async () => {
+    try {
+      commitThenPush = localStorage.getItem(COMMIT_PUSH_KEY) === "1";
+    } catch {
+      // localStorage 不可用:用默认值
+    }
+    clStore = loadCLStore();
+    clLoaded = true;
     try {
       const s = await invoke<AppearanceSettings>("get_settings");
       applyAppearance(s);
@@ -140,6 +160,12 @@
   let pushTargetPath = $state("");
   // 「全部推送」队列:被拒的仓逐个「更新后推送」,队首为当前正在处理的仓。
   let pushQueue = $state<RepoView[]>([]);
+  let pushDialogRepo = $state<RepoView | null>(null); // Push 对话框目标仓(null=关闭)
+  // 文件查看器目标(null=关闭):整文件 + 相对 HEAD 的行内变更标记。
+  let fileViewer = $state<{ repoPath: string; filePath: string } | null>(null);
+  function openFileViewer(repoPath: string, filePath: string) {
+    fileViewer = { repoPath, filePath };
+  }
   let showFileHistory = $state(false); // 文件历史弹窗
   let fileHistoryPath = $state(""); // 文件历史查看的文件路径
   let fileHistoryRepoPath = $state(""); // 该文件所属仓库(主仓或子仓),History 子仓提交用
@@ -184,6 +210,157 @@
   let commitMessage = $state("");
   let amendMode = $state(false); // amend 模式:仅修改主仓库上次提交
   let commitResult = $state("");
+  // 提交后自动推送(记住上次选择,存 localStorage)。
+  const COMMIT_PUSH_KEY = "git-gui:commit-then-push";
+  let commitThenPush = $state(false);
+  function toggleCommitThenPush(on: boolean) {
+    commitThenPush = on;
+    try {
+      localStorage.setItem(COMMIT_PUSH_KEY, on ? "1" : "0");
+    } catch {
+      // localStorage 不可用:仅本会话生效
+    }
+  }
+
+  // ── Changelist(命名变更集):每仓库独立,分组未暂存文件,可按组提交。纯前端 localStorage ──
+  let clStore = $state<ChangelistStore>({});
+  // 新建/重命名变更集的内联输入:{repoPath, mode, id?, value}(null=未在编辑)。
+  let clEditing = $state<{
+    repoPath: string;
+    mode: "new" | "rename";
+    id?: string;
+    value: string;
+  } | null>(null);
+
+  let clLoaded = $state(false);
+  // 持久化(任一变更集状态变动即写回);加载完成前不写,避免用 {} 覆盖已存数据。
+  $effect(() => {
+    void clStore; // 建立对 clStore 重新赋值的依赖
+    if (!clLoaded) return;
+    saveCLStore(clStore);
+  });
+
+  // 把每个仓库当前未暂存文件同步进其变更集分配:新文件归活跃组、消失文件清理(幂等)。
+  $effect(() => {
+    for (const r of repos) {
+      const cl = ensureRepoCL(clStore, r.path);
+      syncCLFiles(
+        cl,
+        r.unstaged.map((f) => f.path),
+      );
+    }
+  });
+
+  // 仓库是否启用了变更集分组(有非默认分组才显示分组 UI,否则维持原扁平列表零打扰)。
+  function clActive(repoPath: string): boolean {
+    const r = clStore[repoPath];
+    return !!r && r.lists.length > 1;
+  }
+
+  // 仓库的变更集分组(每组带其未暂存文件);仅返回有文件或非默认的组,避免空默认组占位。
+  function clGroups(
+    repo: RepoView,
+  ): { list: Changelist; files: FileEntry[] }[] {
+    const r = clStore[repo.path];
+    if (!r) return [];
+    return r.lists
+      .map((list) => ({
+        list,
+        files: repo.unstaged.filter((f) => clOfFile(r, f.path) === list.id),
+      }))
+      .filter((g) => g.files.length > 0 || g.list.id !== CL_DEFAULT);
+  }
+
+  function clName(repoPath: string, id: string): string {
+    return clStore[repoPath]?.lists.find((l) => l.id === id)?.name ?? "变更集";
+  }
+
+  // 新建变更集:打开内联输入。
+  function startNewChangelist(repoPath: string) {
+    clEditing = { repoPath, mode: "new", value: "" };
+  }
+  function startRenameChangelist(repoPath: string, id: string) {
+    clEditing = {
+      repoPath,
+      mode: "rename",
+      id,
+      value: clName(repoPath, id),
+    };
+  }
+  function confirmClEditing() {
+    if (!clEditing) return;
+    const name = clEditing.value.trim();
+    if (!name) {
+      clEditing = null;
+      return;
+    }
+    const r = ensureRepoCL(clStore, clEditing.repoPath);
+    if (clEditing.mode === "new") {
+      const id = newCLId();
+      r.lists.push({ id, name });
+      r.activeId = id; // 新建即设为活跃,后续新改动归入它
+    } else if (clEditing.id) {
+      const l = r.lists.find((x) => x.id === clEditing!.id);
+      if (l) l.name = name;
+    }
+    clEditing = null;
+  }
+
+  function setActiveChangelist(repoPath: string, id: string) {
+    const r = ensureRepoCL(clStore, repoPath);
+    r.activeId = id;
+  }
+
+  // 删除变更集:其文件移回默认组(不丢改动),活跃组若被删则回默认。
+  async function deleteChangelist(repoPath: string, id: string) {
+    if (id === CL_DEFAULT) return;
+    const r = clStore[repoPath];
+    if (!r) return;
+    if (
+      !(await ask(`删除变更集「${clName(repoPath, id)}」？其文件移回默认组。`, {
+        title: "删除变更集",
+      }))
+    )
+      return;
+    for (const p of Object.keys(r.assign)) {
+      if (r.assign[p] === id) r.assign[p] = CL_DEFAULT;
+    }
+    r.lists = r.lists.filter((l) => l.id !== id);
+    if (r.activeId === id) r.activeId = CL_DEFAULT;
+  }
+
+  function moveFileToChangelist(
+    repoPath: string,
+    filePath: string,
+    id: string,
+  ) {
+    const r = ensureRepoCL(clStore, repoPath);
+    r.assign[filePath] = id;
+  }
+
+  // 提交单个变更集:只提交该组文件(工作区内容,经 commit_paths 隔离其它已暂存改动)。
+  async function commitChangelist(repo: RepoView, files: FileEntry[]) {
+    const message = commitMessage.trim();
+    if (!message || files.length === 0) return;
+    operating = true;
+    error = "";
+    commitResult = "";
+    try {
+      await invoke<string>("repo_commit_paths", {
+        path: repo.path,
+        message,
+        paths: files.map((f) => f.path),
+      });
+      commitMessage = "";
+      commitResult = `已提交变更集（${files.length} 个文件）`;
+      await refresh();
+      if (commitThenPush) await pushAfterCommit([repo]);
+    } catch (e) {
+      error = String(e);
+    } finally {
+      operating = false;
+    }
+  }
   let totalUnstaged = $derived(
     repos.reduce((n, r) => n + r.unstaged.length, 0),
   );
@@ -600,11 +777,28 @@
       commitMessage = "";
       commitResult = `已提交 ${targets.length} 个仓库`;
       await refresh();
+      if (commitThenPush) await pushAfterCommit(targets);
     } catch (e) {
       error = String(e);
     } finally {
       operating = false;
     }
+  }
+
+  // 提交后推送:逐个推送刚提交的仓库,结果就地汇总到 opMessage(不阻塞、不吞错)。
+  // 远端领先(NonFastForward)只如实提示,不自动开「更新后推送」流程(那走独立推送按钮)。
+  async function pushAfterCommit(targets: RepoView[]) {
+    const lines: string[] = [];
+    for (const r of targets) {
+      try {
+        const out = await invoke<PushOutcome>("repo_push", { path: r.path });
+        lines.push(`${r.label}：${pushMsg(out)}`);
+      } catch (e) {
+        lines.push(`${r.label}：推送失败 ${String(e)}`);
+      }
+    }
+    opMessage = lines.join("\n");
+    await refresh();
   }
 
   // ── 子仓库管理(在主仓库执行 git submodule ...) ──
@@ -678,26 +872,9 @@
     return "远端领先,待更新后推送";
   }
 
-  // 推送单个仓库(主仓库组的独立「推送」)。被拒于"远端领先"时走「更新后推送」。
-  async function doPush(repo: RepoView) {
-    operating = true;
-    error = "";
-    opMessage = "";
-    try {
-      const r = await invoke<PushOutcome>("repo_push", { path: repo.path });
-      if (r === "Success") {
-        opMessage = "推送成功";
-        await refresh();
-      } else if (r === "NoUpstream") {
-        error = "当前分支没有 upstream，请先设置上游分支";
-      } else {
-        await offerUpdateThenPush(repo);
-      }
-    } catch (e) {
-      error = String(e);
-    } finally {
-      operating = false;
-    }
+  // 推送单个仓库:打开 Push 对话框(待推预览 + force-with-lease + 进度),替代直接推。
+  function openPushDialog(repo: RepoView) {
+    pushDialogRepo = repo;
   }
 
   // 当前全局更新策略的中文名(合并/变基),用于确认文案。
@@ -720,19 +897,6 @@
     updateTitle = `更新后推送 · ${repo.label}`;
     updateSubsOnly = false;
     showUpdate = true;
-  }
-
-  // 单仓:远端领先 → 确认(显示当前策略)后更新并推送。
-  async function offerUpdateThenPush(repo: RepoView) {
-    const strat = await globalStrategyLabel();
-    if (
-      !(await ask(
-        `「${repo.label}」推送被拒绝:远端领先。\n按当前全局策略「${strat}」更新后再推送?`,
-        { title: "更新后推送" },
-      ))
-    )
-      return;
-    openUpdateThenPush(repo);
   }
 
   // 队列:从队首取下一个仓走「更新后推送」;队空则收尾关闭弹层。
@@ -1093,7 +1257,7 @@
                         class="sub-btn sub-btn-push"
                         disabled={operating || repo.ahead === 0}
                         title="推送主仓库当前分支到远程"
-                        onclick={() => doPush(repo)}>↑ 推送</button
+                        onclick={() => openPushDialog(repo)}>↑ 推送</button
                       >
                     </div>
                   {:else if repo.subStatus !== "Uninitialized"}
@@ -1108,7 +1272,7 @@
                         class="sub-btn sub-btn-push"
                         disabled={operating || repo.ahead === 0}
                         title="推送子仓库当前分支到远程"
-                        onclick={() => doPush(repo)}>↑ 推送</button
+                        onclick={() => openPushDialog(repo)}>↑ 推送</button
                       >
                       <button
                         class="sub-btn sub-btn-sync"
@@ -1120,19 +1284,131 @@
                   {/if}
                   {#if repo.subStatus === "Uninitialized"}
                     <p class="muted">未初始化 — 点顶部「更新子仓库」</p>
-                  {:else if repo.unstaged.length === 0}
+                  {:else if repo.unstaged.length === 0 && !clActive(repo.path)}
                     <p class="muted">无改动</p>
                   {:else}
-                    <FileTree
-                      files={repo.unstaged}
-                      selectedPath={selKey(repo, "unstaged")}
-                      kind="unstaged"
-                      {operating}
-                      onSelect={(f) => selectFile(repo.path, f, "unstaged")}
-                      onStage={(p) => stagePaths(repo.path, p)}
-                      onUnstage={(p) => unstagePaths(repo.path, p)}
-                      onDiscard={(p) => discardPaths(repo.path, p)}
-                    />
+                    <!-- 变更集工具栏:活跃组切换 + 新建 -->
+                    <div class="cl-bar">
+                      {#if clActive(repo.path)}
+                        <span class="cl-bar-label">活跃</span>
+                        <select
+                          class="cl-active-select"
+                          value={clStore[repo.path]?.activeId}
+                          title="新改动归入活跃变更集"
+                          onchange={(e) =>
+                            setActiveChangelist(
+                              repo.path,
+                              e.currentTarget.value,
+                            )}
+                        >
+                          {#each clStore[repo.path]?.lists ?? [] as l (l.id)}
+                            <option value={l.id}>{l.name}</option>
+                          {/each}
+                        </select>
+                      {/if}
+                      <button
+                        class="cl-add-btn"
+                        disabled={operating}
+                        title="新建变更集(分组未暂存改动,可按组提交)"
+                        onclick={() => startNewChangelist(repo.path)}
+                        >＋ 变更集</button
+                      >
+                    </div>
+
+                    {#if clEditing && clEditing.repoPath === repo.path}
+                      <div class="cl-edit">
+                        <!-- svelte-ignore a11y_autofocus -->
+                        <input
+                          class="cl-edit-input"
+                          placeholder="变更集名称"
+                          autofocus
+                          bind:value={clEditing.value}
+                          onkeydown={(e) => {
+                            if (e.key === "Enter") confirmClEditing();
+                            else if (e.key === "Escape") clEditing = null;
+                          }}
+                        />
+                        <button class="cl-edit-ok" onclick={confirmClEditing}
+                          >{clEditing.mode === "new" ? "新建" : "改名"}</button
+                        >
+                        <button
+                          class="cl-edit-cancel"
+                          onclick={() => (clEditing = null)}>取消</button
+                        >
+                      </div>
+                    {/if}
+
+                    {#if clActive(repo.path)}
+                      {#each clGroups(repo) as g (g.list.id)}
+                        <div class="cl-group">
+                          <div class="cl-group-head">
+                            <span class="cl-name">{g.list.name}</span>
+                            {#if g.list.id === clStore[repo.path]?.activeId}
+                              <span class="cl-active-tag">活跃</span>
+                            {/if}
+                            <span class="cl-count">{g.files.length}</span>
+                            <button
+                              class="cl-commit-btn"
+                              disabled={operating ||
+                                !commitMessage.trim() ||
+                                g.files.length === 0}
+                              title="只提交此变更集的文件(忽略其它已暂存改动)"
+                              onclick={() => commitChangelist(repo, g.files)}
+                              >提交此变更集</button
+                            >
+                            {#if g.list.id !== CL_DEFAULT}
+                              <button
+                                class="cl-mini"
+                                title="重命名"
+                                onclick={() =>
+                                  startRenameChangelist(repo.path, g.list.id)}
+                                >✎</button
+                              >
+                              <button
+                                class="cl-mini"
+                                title="删除(文件移回默认)"
+                                onclick={() =>
+                                  deleteChangelist(repo.path, g.list.id)}
+                                >×</button
+                              >
+                            {/if}
+                          </div>
+                          {#if g.files.length > 0}
+                            <FileTree
+                              files={g.files}
+                              selectedPath={selKey(repo, "unstaged")}
+                              kind="unstaged"
+                              {operating}
+                              onSelect={(f) =>
+                                selectFile(repo.path, f, "unstaged")}
+                              onStage={(p) => stagePaths(repo.path, p)}
+                              onUnstage={(p) => unstagePaths(repo.path, p)}
+                              onDiscard={(p) => discardPaths(repo.path, p)}
+                              onView={(f) => openFileViewer(repo.path, f.path)}
+                              moveTargets={clStore[repo.path]?.lists ?? []}
+                              clOf={(f) =>
+                                clOfFile(clStore[repo.path]!, f.path)}
+                              onMove={(f, id) =>
+                                moveFileToChangelist(repo.path, f.path, id)}
+                            />
+                          {:else}
+                            <p class="cl-empty">（空 — 用文件右侧下拉移入)</p>
+                          {/if}
+                        </div>
+                      {/each}
+                    {:else}
+                      <FileTree
+                        files={repo.unstaged}
+                        selectedPath={selKey(repo, "unstaged")}
+                        kind="unstaged"
+                        {operating}
+                        onSelect={(f) => selectFile(repo.path, f, "unstaged")}
+                        onStage={(p) => stagePaths(repo.path, p)}
+                        onUnstage={(p) => unstagePaths(repo.path, p)}
+                        onDiscard={(p) => discardPaths(repo.path, p)}
+                        onView={(f) => openFileViewer(repo.path, f.path)}
+                      />
+                    {/if}
                   {/if}
                 </div>
               {/each}
@@ -1192,6 +1468,7 @@
                         onStage={(p) => stagePaths(repo.path, p)}
                         onUnstage={(p) => unstagePaths(repo.path, p)}
                         onDiscard={(p) => discardPaths(repo.path, p)}
+                        onView={(f) => openFileViewer(repo.path, f.path)}
                       />
                     </div>
                   {/if}
@@ -1243,16 +1520,32 @@
                 <p class="commit-targets">将提交：{commitSummary}</p>
               {/if}
               <div class="commit-bar">
+                {#if !amendMode}
+                  <label class="push-toggle" title="提交成功后自动推送到远程">
+                    <input
+                      type="checkbox"
+                      checked={commitThenPush}
+                      disabled={operating}
+                      onchange={(e) =>
+                        toggleCommitThenPush(e.currentTarget.checked)}
+                    />
+                    提交后推送
+                  </label>
+                {/if}
                 <button
                   class="btn-commit"
                   disabled={operating || !commitMessage.trim()}
                   onclick={amendMode ? doAmend : doCommit}
                   title={amendMode
                     ? "用当前消息修改主仓库的上次提交（git commit --amend）"
-                    : "把暂存的改动提交到所有有暂存内容的仓库（统一提交）"}
+                    : commitThenPush
+                      ? "提交并推送：提交到所有有暂存内容的仓库，成功后自动推送"
+                      : "把暂存的改动提交到所有有暂存内容的仓库（统一提交）"}
                   >{amendMode
                     ? "修改主仓库上次提交"
-                    : `提交（${totalStaged} 个文件）`}</button
+                    : commitThenPush
+                      ? `提交并推送（${totalStaged} 个文件）`
+                      : `提交（${totalStaged} 个文件）`}</button
                 >
               </div>
             {/if}
@@ -1341,6 +1634,27 @@
     </div>
   {/if}
 
+  <!-- ── Push 对话框(待推预览 + force-with-lease + 进度) ── -->
+  {#if pushDialogRepo}
+    <PushDialog
+      path={pushDialogRepo.path}
+      label={pushDialogRepo.label}
+      onClose={(pushed) => {
+        pushDialogRepo = null;
+        if (pushed) void refresh();
+      }}
+    />
+  {/if}
+
+  <!-- ── 文件查看器(整文件 + 行内变更标记) ── -->
+  {#if fileViewer}
+    <FileViewer
+      repoPath={fileViewer.repoPath}
+      filePath={fileViewer.filePath}
+      onClose={() => (fileViewer = null)}
+    />
+  {/if}
+
   <!-- ── 文件历史弹窗 ── -->
   {#if showFileHistory}
     <FileHistory
@@ -1355,6 +1669,7 @@
       path={blameRepoPath}
       filePath={blamePath}
       onClose={() => (showBlame = false)}
+      onViewFile={() => openFileViewer(blameRepoPath, blamePath)}
     />
   {/if}
 
@@ -2350,6 +2665,141 @@
     padding: 4px 10px;
     border-bottom: 1px solid var(--border-dim);
   }
+
+  /* ── Changelist 变更集 ── */
+  .cl-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px 2px;
+  }
+  .cl-bar-label {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .cl-active-select {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 11px;
+    padding: 2px 4px;
+    max-width: 160px;
+  }
+  .cl-add-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 8px;
+  }
+  .cl-add-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .cl-add-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .cl-edit {
+    display: flex;
+    gap: 6px;
+    padding: 2px 10px 6px;
+  }
+  .cl-edit-input {
+    flex: 1;
+    background: var(--bg-surface);
+    border: 1px solid var(--accent-cyan);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 4px 8px;
+    min-width: 0;
+  }
+  .cl-edit-ok,
+  .cl-edit-cancel {
+    background: var(--bg-hover);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 10px;
+  }
+  .cl-edit-ok {
+    color: var(--accent-neon);
+    border-color: rgba(86, 211, 100, 0.3);
+  }
+  .cl-group {
+    border-top: 1px solid var(--border-dim);
+  }
+  .cl-group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+  }
+  .cl-name {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+  .cl-active-tag {
+    font-size: 9px;
+    color: var(--accent-cyan);
+    border: 1px solid rgba(88, 166, 255, 0.3);
+    border-radius: 3px;
+    padding: 0 4px;
+  }
+  .cl-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    border-radius: 8px;
+    padding: 0 6px;
+  }
+  .cl-commit-btn {
+    margin-left: auto;
+    background: rgba(86, 211, 100, 0.1);
+    border: 1px solid rgba(86, 211, 100, 0.3);
+    border-radius: 4px;
+    color: var(--accent-neon);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 8px;
+  }
+  .cl-commit-btn:hover:not(:disabled) {
+    background: var(--accent-neon);
+    color: #000;
+  }
+  .cl-commit-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .cl-mini {
+    background: transparent;
+    border: 1px solid var(--border-default);
+    border-radius: 3px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 11px;
+    width: 20px;
+    height: 18px;
+    padding: 0;
+  }
+  .cl-mini:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .cl-empty {
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 2px 10px 6px;
+    margin: 0;
+  }
   .sub-dot {
     font-size: 8px;
     flex-shrink: 0;
@@ -2477,6 +2927,15 @@
     display: flex;
     gap: 6px;
     align-items: center;
+  }
+  .push-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: auto;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
   }
   .btn-commit {
     background: rgba(86, 211, 100, 0.1);
