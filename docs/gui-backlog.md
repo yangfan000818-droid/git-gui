@@ -3,7 +3,7 @@
 GUI MVP 四视图(Changes / Update / Conflicts / History)已合入 main。本文是 MVP 之后的后续工作,
 每个任务卡**自包含、可直接派发给新会话**。
 
-> **状态(2026-06-24)**:第一批 1–7 ✅ / 第二批 8–12 ✅ / 第三批 13–14 ✅ / 第四批 15–21 ✅。**第五批 22–26(P0 缺口)待派发**。
+> **状态(2026-06-25)**:第一批 1–7 ✅ / 第二批 8–12 ✅ / 第三批 13–14 ✅ / 第四批 15–21 ✅ / 第五批 22–26 ✅。**第六批 27–30(收尾补缺)待派发**。
 
 **派发方式**:把下面的【通用约束】+ 对应【任务卡】一起贴给新会话即可。做完按【工作流】交回审核。
 
@@ -743,3 +743,115 @@ detached 本无"要保留的分支位置",同步到记录点更有用。
 | **P0** | 26. 文件查看器 + 行内变更标记 | WebStorm 招牌,新组件 | 大(需 gitcore 新能力+FileViewer) |
 
 **建议实施顺序**:22→23(轻量收口)→24(补 push 安全网)→25(大功能,独立)→26(大功能,需新组件,最后做)。
+
+---
+
+## 第六批:收尾补缺
+
+> 来源:全量对标扫尾。第五批 22–26(P0 缺口)完成后,剩余 4 项功能缺口与安全加固,按优先级排列。2026-06-25。
+
+### 27. 一键推送全部 Tag 〔P1 · 功能缺口〕
+
+**痛点:Tag 视图只能逐条推送(tag 列表每行一个"推送"按钮),有多条未推送 tag 时要逐个点击。**
+对标 WebStorm 的 Push Tags 对话框支持一次推送全部 tag。
+
+**先读**:`crates/gitcore/src/tags.rs`(`push_tag` + `default_remote` 已有先例,照着加)、
+`crates/gitcore/src/lib.rs`(`push_tag` 暴露模式)、
+`gui/src-tauri/src/lib.rs`(`repo_push_tag` 命令,参照其 async+spawn_blocking 模式)、
+`gui/src/lib/TagView.svelte`(tag 列表 UI + 已有 per-tag push 按钮)。
+
+**已就绪**:`push_tag(name)` 已有推单个 tag 的完整流程(gitcore → Repo → Tauri command → UI);
+`default_remote()` 已抽成独立函数,直接复用。
+
+**做**:
+1. **gitcore** `tags.rs`:加 `push_all_tags(repo) -> Result<(), Error>`——复用 `default_remote()`,
+   跑 `git push <remote> --tags`(用 `repo.git_checked`,非零时构造 `Error::Git` 返回,与 `push_tag` 一致)。
+2. **gitcore** `lib.rs`:暴露 `pub fn push_all_tags(&self) -> Result<(), Error>` 一行的桥方法(放 `push_tag` 下面)。
+3. **后端** `lib.rs`:加 `#[tauri::command] async fn repo_push_all_tags(path: String) -> Result<(), String>`——
+   网络操作,**必须 async + `tauri::async_runtime::spawn_blocking`**(参照 `repo_push_tag` 的 async 模式)。
+4. **前端** `TagView.svelte`:在 tag 列表 header 行加「推送全部 Tag」按钮,
+   `onclick` 调 `invoke("repo_push_all_tags", { path })`,成功后标记全部 tag 为 ☑ 已推送。
+
+**注意**:
+- `push_all_tags` 是网络操作 → 后端命令必须 async+spawn_blocking。
+- 用 `repo.git_checked`(非零报错),与 `push_tag` 一致。git 对已存在的 tag 会报 non-zero,
+  前端展示 stderr 即可——比静默吞掉真正失败更安全。
+- 按钮放在列表上方 header 行,与逐条推送按钮区分;加上 `disabled={busy}`。
+
+**验收核心**:点"推送全部 Tag"后远程出现所有本地 tag;按钮逐条推送和批量推送行为一致;失败有错误展示。
+
+---
+
+### 28. Reflog 恢复可自选软/混合/硬重置模式 〔P1 · 功能缺口〕
+
+**痛点:Reflog 恢复时只能做混合重置,不能选择软重置(改动留在暂存区)或硬重置(丢弃全部未提交改动)。**
+HistoryView 的"重置到此"面板已有三模式 radio 选择器,ReflogView 完全缺失此能力。
+
+**先读**:`gui/src/lib/ReflogView.svelte`(`restore()` 函数硬编码 `mode: "Mixed"`——唯一的改动点)、
+`gui/src/lib/HistoryView.svelte` 的 reset-mode radio 按钮布局 + CSS(直接照搬)、
+`crates/gitcore/src/reset.rs`(`ResetMode` 枚举:Soft/Mixed/Hard,已就绪)。
+
+**已就绪**:`repo_reset` Tauri 命令已接受 `mode: ResetMode` 参数(后端零改动);
+HistoryView 已有三模式 radio 选择器的完整实现(HTML + CSS),直接照搬样式和结构。
+
+**做**:
+1. **前端** `ReflogView.svelte` 加状态:`let resetMode = $state<"Soft"|"Mixed"|"Hard">("Mixed")`——默认 Mixed,
+   保持当前行为不变。
+2. 在 `restore()` 的 `ask()` 确认文案中去掉"混合重置"字眼,根据 `resetMode` 动态描述。
+3. `invoke("repo_reset", ...)` 的 mode 参数用 `resetMode` 变量替代硬编码 `"Mixed"`。
+4. 插入模式选择 UI:三个 `<label>` 包 `radio` + 说明文字,照搬 HistoryView 的 `.reset-mode` 样式。
+5. Hard 模式加二次确认(与 HistoryView 的 `doReset` 一致)。
+
+**注意**:
+- 纯前端改动,不碰 gitcore/后端。
+- 默认 Mixed 保持向后兼容。
+- ResetMode 前端传字符串 `"Soft"` / `"Mixed"` / `"Hard"`,与 HistoryView 一致。
+
+**验收核心**:Reflog 恢复时可自选 Soft/Mixed/Hard;选 Soft 后改动留在暂存区;选 Hard 有二次确认;默认 Mixed 行为不变。
+
+---
+
+### 29. Stash 应用前加确认对话框 〔P2 · 安全性〕
+
+**痛点:点击 Stash 的"应用"按钮直接修改工作区文件,无任何确认。** 应用 stash 可能覆盖当前正在编辑的文件。
+`pop()` 和 `drop()` 已有确认,唯独 `apply()` 缺。
+
+**先读**:`gui/src/lib/StashView.svelte` 的 `apply()` 函数、`drop()` 的 `ask()` 调用模式(照抄)。
+
+**已就绪**:`ask` 已 import;`drop()` 已有完全相同的确认模式,直接照搬。
+
+**做**:
+1. **前端** `StashView.svelte` 的 `apply()` 函数:在 `busy = true` 之前加 `ask()` 确认,
+   文案包含 stash message,`kind: "warning"` 与 `drop()` 一致。
+
+**注意**:
+- 纯前端改动,不碰 gitcore/后端。
+- `kind: "warning"` 与 `drop()` 一致。
+- 确认走 `@tauri-apps/plugin-dialog` 的 `ask()`,不用 `window.confirm`。
+
+**验收核心**:点"应用"弹出确认对话框,取消则工作区不变,确认后正常应用 stash。
+
+---
+
+### 30. 交互式变基开始前加确认汇总 〔P2 · 安全性〕
+
+**痛点:点击"开始变基"直接执行,无任何确认。** 交互式变基改写提交历史(squash/fixup/drop/reword),
+是不可逆操作,应在执行前展示变更汇总。
+
+**先读**:`gui/src/lib/RebaseTodoView.svelte` 的 `summary` derived + `start()` 函数、
+`gui/src/lib/StashView.svelte` 的 `ask()` 调用模式(参照)。
+
+**已就绪**:`summary` derived 已计算 keep/fold/drop 计数,可直接用于确认文案。
+
+**做**:
+1. **前端** `RebaseTodoView.svelte`:
+   a. 加 `import { ask } from "@tauri-apps/plugin-dialog"`(当前未 import)。
+   b. 在 `start()` 函数中加 `ask()` 确认,文案包含保留/折叠/丢弃数量汇总 + 改写历史警告,
+      `kind: "warning"`。
+   c. 确认后才设 `busy = true`(调整顺序:确认→busy→invoke)。
+
+**注意**:
+- 纯前端改动,不碰 gitcore/后端。
+- 确认文案必须包含改写历史警告,与面板顶部 hint 文案一致。
+
+**验收核心**:点"开始变基"弹出确认对话框含操作汇总;取消不变基;确认后正常执行。

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { ask } from "@tauri-apps/plugin-dialog";
 
   interface LogEntry {
     sha: string;
@@ -116,6 +117,13 @@
 
   async function start() {
     if (validation || busy) return;
+    if (
+      !(await ask(
+        `开始交互式变基：保留 ${summary.keep} 个提交、折叠 ${summary.fold} 个、丢弃 ${summary.drop} 个。\n此操作会改写提交历史，已推送的提交请谨慎。确定?`,
+        { title: "交互式变基", kind: "warning" },
+      ))
+    )
+      return;
     busy = true;
     error = "";
     try {

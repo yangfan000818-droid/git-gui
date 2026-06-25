@@ -967,6 +967,17 @@ async fn repo_push_tag(path: String, name: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// 把所有本地 tag 推送到默认远程(一键全推,对标 WebStorm Push Tags)。
+#[tauri::command]
+async fn repo_push_all_tags(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.push_all_tags().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 列出仓库所有本地分支。
 #[tauri::command]
 async fn repo_branches(path: String) -> Result<Vec<BranchInfo>, String> {
@@ -1415,6 +1426,7 @@ pub fn run() {
             repo_create_tag,
             repo_delete_tag,
             repo_push_tag,
+            repo_push_all_tags,
             repo_branches,
             repo_switch_branch,
             repo_checkout_commit,

@@ -97,6 +97,20 @@
     }
   }
 
+  // 一键全推所有 tag。
+  async function pushAll() {
+    busy = true;
+    error = "";
+    try {
+      await invoke("repo_push_all_tags", { path });
+      pushedNames = tags.map((t) => t.name);
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") onClose();
   }
@@ -157,6 +171,16 @@
     {:else if tags.length === 0}
       <p class="tv-muted">没有 tag</p>
     {:else}
+      <div class="tv-pushall-bar">
+        <button
+          class="tv-pushall-btn"
+          disabled={busy}
+          onclick={pushAll}
+          title="把全部本地 tag 推送到远程(git push --tags)"
+        >
+          推送全部 Tag
+        </button>
+      </div>
       <ul class="tv-list">
         {#each tags as t (t.name)}
           <li class="tv-item">
@@ -372,6 +396,27 @@
     color: #f88;
   }
   .tv-del:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .tv-pushall-bar {
+    padding: 8px 18px 0;
+    border-top: 1px solid var(--bg-hover);
+  }
+  .tv-pushall-btn {
+    width: 100%;
+    background: rgba(88, 166, 255, 0.12);
+    border: 1px solid rgba(88, 166, 255, 0.2);
+    border-radius: 4px;
+    color: var(--accent-cyan);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 14px;
+  }
+  .tv-pushall-btn:hover:not(:disabled) {
+    background: rgba(88, 166, 255, 0.18);
+  }
+  .tv-pushall-btn:disabled {
     opacity: 0.4;
     cursor: default;
   }

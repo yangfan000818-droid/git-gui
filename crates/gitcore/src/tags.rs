@@ -86,6 +86,21 @@ pub(crate) fn push_tag(repo: &Repo, name: &str) -> Result<(), Error> {
     }
 }
 
+/// 把所有本地 tag 推送到默认远程(对标 WebStorm Push Tags 一键全推,补齐逐条推送缺口)。
+pub(crate) fn push_all_tags(repo: &Repo) -> Result<(), Error> {
+    let remote = default_remote(repo)?;
+    let out = repo.git_checked(&["push", &remote, "--tags"])?;
+    if out.success {
+        Ok(())
+    } else {
+        Err(Error::Git {
+            args: vec!["push".into(), remote, "--tags".into()],
+            code: out.code,
+            stderr: out.stderr,
+        })
+    }
+}
+
 // 默认远程:优先当前分支 upstream 的远程名,否则取第一个 remote,都没有则报错。
 fn default_remote(repo: &Repo) -> Result<String, Error> {
     let up = repo.git_checked(&["rev-parse", "--abbrev-ref", "@{u}"])?;

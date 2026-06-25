@@ -177,6 +177,11 @@ impl Repo {
         tags::push_tag(self, name)
     }
 
+    /// 把所有本地 tag 推送到默认远程(一键全推,无需逐条)。
+    pub fn push_all_tags(&self) -> Result<(), Error> {
+        tags::push_all_tags(self)
+    }
+
     /// 把另一个分支合并到当前分支(对标 WebStorm "Merge into current")。
     pub fn merge_branch(&self, branch: &str, opts: &UpdateOptions) -> Result<UpdateOutcome, Error> {
         update::merge_branch(self, branch, opts)

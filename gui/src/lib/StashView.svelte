@@ -61,6 +61,15 @@
 
   // 应用(保留 stash):改动回到工作区,关闭面板让用户在改动列表查看。
   async function apply(reff: string) {
+    const s = stashes.find((x) => x.reff === reff);
+    const label = s?.message || reff;
+    if (
+      !(await ask(`确定应用 stash「${label}」? 应用会修改当前工作区文件。`, {
+        title: "应用 Stash",
+        kind: "warning",
+      }))
+    )
+      return;
     busy = true;
     error = "";
     try {
