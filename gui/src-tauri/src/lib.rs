@@ -687,16 +687,17 @@ async fn repo_push_streaming(
     let cancel = CancelToken::default();
     state.insert(op_id.clone(), cancel.clone());
 
-    let res = tauri::async_runtime::spawn_blocking(move || -> Result<gitcore::PushOutcome, String> {
-        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-        let mut on_progress = |p: Progress| {
-            let _ = app.emit("push-progress", p);
-        };
-        repo.push_streaming(force_with_lease, &mut on_progress, &cancel)
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    let res =
+        tauri::async_runtime::spawn_blocking(move || -> Result<gitcore::PushOutcome, String> {
+            let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+            let mut on_progress = |p: Progress| {
+                let _ = app.emit("push-progress", p);
+            };
+            repo.push_streaming(force_with_lease, &mut on_progress, &cancel)
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?;
 
     state.remove(&op_id);
     res
