@@ -70,6 +70,18 @@
     } catch {
       // 使用默认外观
     }
+    // AI 提交助手:读取启用状态和 API Key 配置
+    try {
+      const s = await invoke<{
+        ai_enabled: boolean;
+        ai_api_key: string;
+      }>("get_settings");
+      aiEnabled = !!s.ai_enabled;
+      aiConfigured = aiEnabled && !!s.ai_api_key?.trim();
+    } catch {
+      aiEnabled = false;
+      aiConfigured = false;
+    }
   });
 
   // ── 类型（与 gitcore serde 对应） ──
@@ -225,6 +237,13 @@
 
   // 统一提交框(WebStorm 风格):一条提交信息应用于所有有暂存改动的仓库
   let commitMessage = $state("");
+  // ── AI 提交助手:启用时按仓库分别持有 message(未启用 / amend 仍用上面的 commitMessage)──
+  let commitMessages = $state<Record<string, string>>({});
+  let aiEnabled = $state(false); // 是否启用了 AI(来自 settings)
+  let aiConfigured = $state(false); // 启用且填了 Key
+  let generating = $state(false); // 批量生成进行中
+  let generatingRepo = $state<string | null>(null); // 当前正在生成的仓库(单/批量)
+  let aiError = $state<Record<string, string>>({}); // per-repo 生成错误
   let amendMode = $state(false); // amend 模式:仅修改主仓库上次提交
   let commitResult = $state("");
   // 提交后自动推送(记住上次选择,存 localStorage)。
@@ -780,12 +799,105 @@
     }
   }
 
-  // 提交所有有暂存改动的仓库:子仓库先提交(主仓库可能含其指针变更),同一条 message。
+  // 未配置时引导去设置(用 plugin-dialog,不用原生 confirm)。
+  async function ensureAiConfigured(): Promise<boolean> {
+    if (aiConfigured) return true;
+    const ok = await ask(
+      "请先在「设置 → AI 提交助手」中填写 API Key 并启用。是否现在打开设置?",
+      {
+        title: "未配置 AI 提交助手",
+        okLabel: "打开设置",
+        cancelLabel: "取消",
+      },
+    );
+    if (ok) showSettings = true;
+    return false;
+  }
+
+  // 为单个仓库生成提交信息,结果填入 commitMessages(可编辑,不自动提交)。
+  async function generateForRepo(r: { path: string }) {
+    if (!(await ensureAiConfigured())) return;
+    generatingRepo = r.path;
+    try {
+      const msg = await invoke<string>("ai_generate_commit_message", {
+        path: r.path,
+      });
+      commitMessages[r.path] = msg;
+      delete aiError[r.path];
+    } catch (e) {
+      aiError[r.path] = String(e);
+    } finally {
+      generatingRepo = null;
+    }
+  }
+
+  // 顺序为所有暂存仓库生成(避免触发 API 限流),逐个填入。
+  async function generateAll() {
+    if (!(await ensureAiConfigured())) return;
+    generating = true;
+    try {
+      for (const r of stagedRepos) {
+        generatingRepo = r.path;
+        try {
+          const msg = await invoke<string>("ai_generate_commit_message", {
+            path: r.path,
+          });
+          commitMessages[r.path] = msg;
+          delete aiError[r.path];
+        } catch (e) {
+          aiError[r.path] = String(e);
+        }
+      }
+      generatingRepo = null;
+    } finally {
+      generating = false;
+    }
+  }
+
+  // 提交所有有暂存改动的仓库。
+  // - 启用 AI 且非 amend:每仓库用各自 commitMessages[path](空则跳过)
+  // - 否则(未启用 / amend):所有仓库共用 commitMessage(原逻辑,零改动)
   async function doCommit() {
-    if (totalStaged === 0 || !commitMessage.trim()) return;
     const targets = [...stagedRepos].sort(
       (a, b) => Number(a.isMain) - Number(b.isMain),
     );
+
+    if (aiEnabled && !amendMode) {
+      if (totalStaged === 0) return;
+      operating = true;
+      error = "";
+      commitResult = "";
+      try {
+        let count = 0;
+        for (const r of targets) {
+          const message = commitMessages[r.path] ?? "";
+          if (!message.trim()) continue;
+          await invoke<string>("repo_commit", {
+            path: r.path,
+            message,
+            amend: false,
+          });
+          count++;
+        }
+        if (count === 0) {
+          commitResult = "没有可提交的信息(请先填写或生成提交信息)";
+        } else {
+          commitMessages = {};
+          aiError = {};
+          commitResult = `已提交 ${count} 个仓库`;
+          await refresh();
+          if (commitThenPush) await pushAfterCommit(targets);
+        }
+      } catch (e) {
+        error = String(e);
+      } finally {
+        operating = false;
+      }
+      return;
+    }
+
+    // ── 原逻辑:未启用 AI / amend 模式 ──
+    if (totalStaged === 0 || !commitMessage.trim()) return;
     operating = true;
     error = "";
     commitResult = "";
@@ -1845,7 +1957,49 @@
               />
               修改主仓库上次提交（amend）
             </label>
-            {#if totalStaged === 0 && !amendMode}
+            {#if aiEnabled && !amendMode && totalStaged > 0}
+              <!-- ── AI 多框列表:每仓库独立 message + 生成按钮 ── -->
+              <div class="ai-commit-list">
+                <button
+                  class="btn-ai-all"
+                  disabled={generating || operating}
+                  onclick={generateAll}
+                  >{generating
+                    ? `生成中…${generatingRepo ? `(${generatingRepo})` : ""}`
+                    : "✨ 全部生成"}</button
+                >
+                {#each stagedRepos as r (r.path)}
+                  <div class="ai-commit-row">
+                    <div class="ai-row-head">
+                      <span>{r.label}</span>
+                      <button
+                        class="ai-gen"
+                        disabled={generating || operating}
+                        onclick={() => generateForRepo(r)}
+                        >{generatingRepo === r.path
+                          ? "生成中…"
+                          : "✨ 生成"}</button
+                      >
+                    </div>
+                    <textarea
+                      bind:value={commitMessages[r.path]}
+                      placeholder="提交信息(可生成后编辑)"
+                      rows={2}
+                      disabled={operating}></textarea>
+                    {#if aiError[r.path]}
+                      <p class="ai-err">{aiError[r.path]}</p>
+                    {/if}
+                  </div>
+                {/each}
+                <button
+                  class="btn-commit"
+                  disabled={operating}
+                  onclick={doCommit}
+                  title="把每个仓库的暂存改动各自提交(统一提交)"
+                  >提交全部（{totalStaged} 个文件）</button
+                >
+              </div>
+            {:else if totalStaged === 0 && !amendMode}
               <p class="muted">暂存文件以创建提交</p>
             {:else}
               <textarea
@@ -3333,5 +3487,56 @@
     font-size: var(--fs-base, 13px);
     text-align: center;
     margin-top: 60px;
+  }
+
+  /* ═══ AI COMMIT LIST ═══ */
+  .ai-commit-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .btn-ai-all {
+    align-self: flex-start;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: var(--fs-sm, 12px);
+    padding: 5px 12px;
+  }
+  .btn-ai-all:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+  .ai-commit-row {
+    border: 1px solid var(--border-dim);
+    border-radius: 4px;
+    padding: 6px 8px;
+  }
+  .ai-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    font-size: var(--fs-sm, 12px);
+    color: var(--text-secondary);
+  }
+  .ai-gen {
+    background: transparent;
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--fs-xs, 11px);
+    padding: 2px 8px;
+  }
+  .ai-gen:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+  }
+  .ai-err {
+    margin: 4px 0 0;
+    color: var(--color-error);
+    font-size: var(--fs-xs, 11px);
   }
 </style>
