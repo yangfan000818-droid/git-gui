@@ -1453,6 +1453,7 @@ dependencies = [
 name = "gui"
 version = "0.14.0"
 dependencies = [
+ "futures-util",
  "gitcore",
  "notify",
  "reqwest 0.12.28",

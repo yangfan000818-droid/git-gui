@@ -146,6 +146,7 @@ pub fn truncate_diff(diff: &str, max_chars: usize) -> String {
 const MIN_MAX_DIFF_CHARS: usize = 1000;
 
 /// AI 调用配置(从 AppSettings 提取,解耦 ai 模块与完整设置结构)。
+#[derive(Clone)]
 pub struct AiConfig {
     pub base_url: String,
     pub api_key: String,
