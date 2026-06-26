@@ -4,6 +4,9 @@ on:
   push:
     tags: ["v*"]
 
+env:
+  HUSKY: "0" # CI 跳过 husky 安装(pre-commit hook 只在本地需要)
+
 jobs:
   # ── 质量门(同 CI) ──
   lint-test:
