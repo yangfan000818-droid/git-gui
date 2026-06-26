@@ -114,21 +114,19 @@ fn split_diff_packs_multiple_files_into_one_chunk_when_under_limit() {
 
 #[test]
 fn split_diff_splits_when_exceeding_limit_at_file_boundary() {
-    // 每块 14 字符,limit=14:第一块正好满,第二块另起一段。
-    let block_a = "diff --git a/a b/a\n+a\n"; // 20 字符,超 limit
-    let block_b = "diff --git a/b b/b\n+b\n"; // 20 字符
+    // 每块 22 字符(≤ limit=40),两块合计 44 > limit → 在文件边界切两段,不在单文件中间断。
+    let block_a = "diff --git a/a b/a\n+a\n";
+    let block_b = "diff --git a/b b/b\n+b\n";
     let diff = format!("{block_a}{block_b}");
-    let chunks = split_diff(&diff, 14);
+    let chunks = split_diff(&diff, 40);
     assert_eq!(chunks.len(), 2);
-    // 不应在文件块中间切断:a 块完整留在第一段。
-    assert!(chunks[0].contains("a/a b/a"));
-    assert!(!chunks[0].contains("a/b b/b"));
-    assert!(chunks[1].contains("a/b b/b"));
+    assert_eq!(chunks[0], block_a); // a 块完整保留在第一段
+    assert_eq!(chunks[1], block_b);
 }
 
 #[test]
 fn split_diff_oversized_single_file_truncated_alone() {
-    // 单个文件块自身超 limit:独占一段并被截断标注。
+    // 单个文件块自身超 limit(74 > 20):独占一段并被截断标注。
     let big: String = format!("diff --git a/big b/big\n{}\n", "x".repeat(50));
     let chunks = split_diff(&big, 20);
     assert_eq!(chunks.len(), 1);
