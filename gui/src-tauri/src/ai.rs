@@ -1,5 +1,9 @@
 //! AI 提交助手:基于暂存 diff 生成 Conventional Commits 提交信息(OpenAI 兼容协议)。
 
+use serde_json::json;
+
+use crate::AppSettings;
+
 /// 提交信息语言。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
@@ -112,4 +116,64 @@ pub fn truncate_diff(diff: &str, max_chars: usize) -> String {
     }
     let head: String = diff.chars().take(max_chars).collect();
     format!("{head}\n\n…（diff 已截断,仅展示前 {max_chars} 字符）")
+}
+
+/// AI 调用配置(从 AppSettings 提取,解耦 ai 模块与完整设置结构)。
+pub struct AiConfig {
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub language: Language,
+    pub max_diff_chars: usize,
+}
+
+impl AiConfig {
+    pub fn from_settings(s: &AppSettings) -> Self {
+        Self {
+            base_url: s.ai_base_url.clone(),
+            api_key: s.ai_api_key.clone(),
+            model: s.ai_model.clone(),
+            language: if s.ai_language == "en" {
+                Language::En
+            } else {
+                Language::Zh
+            },
+            max_diff_chars: s.ai_max_diff_chars,
+        }
+    }
+}
+
+/// 调用 OpenAI 兼容 `{base_url}/chat/completions`,返回生成的提交信息。
+pub async fn chat_complete(cfg: &AiConfig, system: &str, user: &str) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("构建 HTTP 客户端失败:{e}"))?;
+    let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
+    let body = json!({
+        "model": cfg.model,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": user }
+        ],
+        "temperature": 0.4,
+    });
+    let resp = client
+        .post(&url)
+        .bearer_auth(&cfg.api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("网络错误:{e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return if status.as_u16() == 401 {
+            Err("API Key 无效或未授权(401)".into())
+        } else {
+            Err(format!("AI 服务异常:{status} {text}"))
+        };
+    }
+    let value: serde_json::Value = resp.json().await.map_err(|e| format!("解析响应失败:{e}"))?;
+    parse_chat_completion(&value)
 }
