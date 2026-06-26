@@ -230,6 +230,11 @@ impl Repo {
         stage::stage_all(self)
     }
 
+    /// 取消暂存所有改动。
+    pub fn unstage_all(&self) -> Result<(), Error> {
+        stage::unstage_all(self)
+    }
+
     /// 创建提交,返回新提交的 SHA(前 8 位)。
     pub fn commit(&self, opts: &CommitOptions) -> Result<String, Error> {
         commit::commit(self, opts)

@@ -32,6 +32,12 @@ pub(crate) fn stage_all(repo: &Repo) -> Result<(), Error> {
     Ok(())
 }
 
+/// 取消暂存所有改动(把 index 重置回 HEAD,工作区不动)。index 为空时为 no-op。
+pub(crate) fn unstage_all(repo: &Repo) -> Result<(), Error> {
+    repo.git(&["reset"])?;
+    Ok(())
+}
+
 /// 回滚指定文件的改动:先用 stash 兜底(可在 Stash 视图 pop 找回),工作区随即回到 HEAD。
 /// 含未跟踪文件(`--include-untracked`)。指定路径无改动时静默视作无操作。
 pub(crate) fn discard_files(repo: &Repo, paths: &[&Path]) -> Result<(), Error> {

@@ -487,6 +487,26 @@ async fn repo_unstage(path: String, files: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn repo_stage_all(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.stage_all().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn repo_unstage_all(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.unstage_all().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn repo_discard(path: String, files: Vec<String>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
@@ -1475,6 +1495,8 @@ pub fn run() {
             repo_file_staged_diff,
             repo_stage,
             repo_unstage,
+            repo_stage_all,
+            repo_unstage_all,
             repo_discard,
             repo_stage_hunk,
             repo_unstage_hunk,

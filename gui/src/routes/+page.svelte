@@ -744,6 +744,32 @@
     }
   }
 
+  async function stageAll(repoPath: string) {
+    operating = true;
+    error = "";
+    try {
+      await invoke("repo_stage_all", { path: repoPath });
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      operating = false;
+    }
+  }
+
+  async function unstageAll(repoPath: string) {
+    operating = true;
+    error = "";
+    try {
+      await invoke("repo_unstage_all", { path: repoPath });
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      operating = false;
+    }
+  }
+
   async function discardPaths(repoPath: string, paths: string[]) {
     if (paths.length === 0) return;
     const msg =
@@ -1705,6 +1731,12 @@
                   {#if repo.isMain}
                     <div class="repo-manage">
                       <button
+                        class="sub-btn sub-btn-stage"
+                        disabled={operating || repo.unstaged.length === 0}
+                        title="暂存该仓库全部改动"
+                        onclick={() => stageAll(repo.path)}>+ 全部暂存</button
+                      >
+                      <button
                         class="sub-btn sub-btn-update"
                         disabled={operating}
                         title="更新主仓库:走 update 流程,可处理冲突"
@@ -1719,6 +1751,12 @@
                     </div>
                   {:else if repo.subStatus !== "Uninitialized"}
                     <div class="repo-manage">
+                      <button
+                        class="sub-btn sub-btn-stage"
+                        disabled={operating || repo.unstaged.length === 0}
+                        title="暂存该仓库全部改动"
+                        onclick={() => stageAll(repo.path)}>+ 全部暂存</button
+                      >
                       <button
                         class="sub-btn sub-btn-update"
                         disabled={operating}
@@ -1915,6 +1953,15 @@
                             <span class="repo-branch detached">(detached)</span>
                           </button>
                         {/if}
+                      </div>
+                      <div class="repo-manage">
+                        <button
+                          class="sub-btn sub-btn-unstage"
+                          disabled={operating}
+                          title="取消该仓库全部暂存"
+                          onclick={() => unstageAll(repo.path)}
+                          >- 取消全部</button
+                        >
                       </div>
                       <FileTree
                         files={repo.staged}
@@ -3376,6 +3423,23 @@
   .sub-btn-sync:hover {
     background: rgba(188, 140, 255, 0.12);
     border-color: var(--accent-purple);
+  }
+  .sub-btn-stage {
+    background: rgba(227, 179, 65, 0.14);
+    border-color: rgba(227, 179, 65, 0.45);
+    color: var(--accent-gold);
+  }
+  .sub-btn-stage:hover {
+    background: rgba(227, 179, 65, 0.22);
+    border-color: var(--accent-gold);
+  }
+  .sub-btn-unstage {
+    border-color: rgba(239, 68, 68, 0.3);
+    color: var(--color-error);
+  }
+  .sub-btn-unstage:hover {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: var(--color-error);
   }
 
   /* ═══ COMMIT AREA ═══ */
