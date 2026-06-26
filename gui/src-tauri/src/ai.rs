@@ -11,14 +11,28 @@ pub enum Language {
     En,
 }
 
-/// 构造 (system, user) 提示词:要求按 Conventional Commits 规范、指定语言,只返回信息本身。
+/// 构造 (system, user) 提示词:引导按 Conventional Commits 规范、提炼改动意图,只返回信息本身。
 pub fn build_prompt(diff: &str, language: Language) -> (String, String) {
     let lang = match language {
         Language::Zh => "中文",
         Language::En => "英文",
     };
     let system = format!(
-        "你是一个提交信息生成助手。根据给定的 git 暂存区 diff,生成一条符合 Conventional Commits 规范的提交信息。格式 `type(scope): 描述`;type 从 feat/fix/chore/docs/style/refactor/perf/test/build/ci/release 中选最贴切的;scope 可选、简短。只返回提交信息本身,不要解释、不要代码块标记、不要引号。语言:{lang}。"
+        "你是专业的 git commit message 作者。根据给定的 git 暂存区 diff,生成一条符合 Conventional Commits 规范的提交信息。
+
+要求:
+- 重点说明改动的意图(为什么这样改),而非逐条罗列改了哪些文件;diff 本身已说明「改了什么」,你要提炼「为什么改」。
+- 格式 `type(scope): 描述`,例如 `feat(gui): 接入 AI 生成提交信息`。
+- type 必须小写,从下列选最贴切的:feat=新功能;fix=修复缺陷;docs=文档;style=代码格式/空白(不影响逻辑);refactor=重构(不改功能也不修缺陷);perf=性能优化;test=测试;build=构建系统或依赖;ci=CI 配置;chore=其他杂项(不涉及源码/测试);revert=回滚。
+- scope 可选且简短:从文件路径或模块名推断(如 gui、gitcore);改动跨多个无关模块时省略 scope。
+- 描述用简洁的动宾结构,不加句号,整行不超过 72 个字符。
+
+严格输出:
+- 只返回一条 commit message,不要任何解释、前言或候选选项。
+- 不要代码块标记(如 ```),不要用引号包裹,不要给多个候选。
+- 若 diff 仅是格式或空白调整,用 style 类型并给极简描述。
+
+输出语言:{lang}。"
     );
     let user = format!("暂存区 diff:\n\n{diff}\n\n生成提交信息。");
     (system, user)
@@ -79,6 +93,15 @@ mod tests {
     fn prompt_en_uses_english() {
         let (sys, _) = build_prompt("diff", Language::En);
         assert!(sys.contains("英文"));
+    }
+
+    #[test]
+    fn prompt_guides_why_and_strict_output() {
+        let (sys, _) = build_prompt("diff", Language::Zh);
+        assert!(sys.contains("为什么")); // 引导 why 而非 what
+        assert!(sys.contains("feat=新功能")); // type 带中文描述(模型选得更准)
+        assert!(sys.contains("72")); // 描述长度约束
+        assert!(sys.contains("style")); // 格式化 diff 的处理规则
     }
 
     #[test]
