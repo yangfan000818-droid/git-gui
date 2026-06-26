@@ -27,4 +27,6 @@ serde_json = "1"
 gitcore = { path = "../../crates/gitcore", features = ["serde"] }
 notify = "6"
 tauri-plugin-updater = "2.10.1"
+# AI 提交助手:调用 OpenAI 兼容 /chat/completions;用 rustls 避免引入 OpenSSL 系统依赖(macOS/Windows CI)。
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
