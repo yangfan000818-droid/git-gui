@@ -584,6 +584,34 @@ async fn repo_commit_paths(
     .map_err(|e| e.to_string())?
 }
 
+/// 用 AI 为指定仓库的暂存改动生成提交信息(OpenAI 兼容协议)。
+/// 同步 git 操作放 spawn_blocking,网络调用走 async,避免阻塞 webview。
+#[tauri::command]
+async fn ai_generate_commit_message(app: AppHandle, path: String) -> Result<String, String> {
+    let settings = AppSettings::load(&app);
+    if !settings.ai_enabled || settings.ai_api_key.trim().is_empty() {
+        return Err("未配置 AI 提交助手,请在设置中填写 API Key 并启用".into());
+    }
+    let cfg = ai::AiConfig::from_settings(&settings);
+    let max_chars = cfg.max_diff_chars;
+    let language = cfg.language;
+    // 同步部分:取 staged diff + 截断 + 构造 prompt。
+    let (system, user) =
+        tauri::async_runtime::spawn_blocking(move || -> Result<(String, String), String> {
+            let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+            let diff_text = repo.staged_diff_text().map_err(|e| e.to_string())?;
+            if diff_text.trim().is_empty() {
+                return Err("没有暂存的改动".into());
+            }
+            let truncated = ai::truncate_diff(&diff_text, max_chars);
+            Ok(ai::build_prompt(&truncated, language))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+    // 异步部分:网络调用。
+    ai::chat_complete(&cfg, &system, &user).await
+}
+
 // ── Stash 管理命令(对标 WebStorm Stash / Unstash Changes) ──
 
 #[tauri::command]
@@ -1449,6 +1477,7 @@ pub fn run() {
             repo_unstage_lines,
             repo_commit,
             repo_commit_paths,
+            ai_generate_commit_message,
             repo_stashes,
             repo_stash_push,
             repo_stash_apply,
