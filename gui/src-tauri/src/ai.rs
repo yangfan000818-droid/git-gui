@@ -20,11 +20,48 @@ pub fn build_prompt(diff: &str, language: Language) -> (String, String) {
     (system, user)
 }
 
+/// 从 OpenAI 兼容响应 JSON 提取 `choices[0].message.content`,trim 并拒绝空结果。
+pub fn parse_chat_completion(body: &serde_json::Value) -> Result<String, String> {
+    body.get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "AI 返回为空或格式不符".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::truncate_diff;
 
+    use super::parse_chat_completion;
     use super::{build_prompt, Language};
+    use serde_json::json;
+
+    #[test]
+    fn parses_content_from_response() {
+        let body = json!({
+            "choices": [{ "message": { "content": "  feat(gui): 优化暂存交互  " } }]
+        });
+        assert_eq!(
+            parse_chat_completion(&body).unwrap(),
+            "feat(gui): 优化暂存交互"
+        );
+    }
+
+    #[test]
+    fn empty_content_is_error() {
+        let body = json!({ "choices": [{ "message": { "content": "   " } }] });
+        assert!(parse_chat_completion(&body).is_err());
+    }
+
+    #[test]
+    fn malformed_response_is_error() {
+        let body = json!({ "error": "x" });
+        assert!(parse_chat_completion(&body).is_err());
+    }
 
     #[test]
     fn prompt_zh_contains_conventional_rule() {
