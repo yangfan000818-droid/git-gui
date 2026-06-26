@@ -54,7 +54,6 @@ pub fn build_prompt(diff: &str, language: Language, generate_body: bool) -> (Str
 
 /// 构造 map 阶段提示词:让 AI 提炼这批 diff 的改动要点(≤3 条短语),非 commit 格式。
 /// system 不依赖 chunk;user 含 chunk。
-#[allow(dead_code)] // Task 6 generate_map_reduce 将消费
 pub fn build_map_prompt(chunk: &str, language: Language) -> (String, String) {
     let lang = match language {
         Language::Zh => "中文",
@@ -75,7 +74,6 @@ pub fn build_map_prompt(chunk: &str, language: Language) -> (String, String) {
 }
 
 /// map 阶段清洗:剥离 think 块 → 去围栏 → 去包裹引号,但保留多行(要点可多行)。
-#[allow(dead_code)] // Task 6 generate_map_reduce 将消费
 fn sanitize_notes(raw: &str) -> String {
     let stripped = strip_think_blocks(raw.trim());
     let fenced = strip_code_fence(&stripped);
@@ -84,7 +82,6 @@ fn sanitize_notes(raw: &str) -> String {
 
 /// 构造 reduce 阶段提示词:把分批要点合成一条覆盖全部改动的 conventional commit。
 /// system 复用 build_prompt 的规范规则;user 换成"要点列表 → 合成一条 commit"。
-#[allow(dead_code)] // Task 6 generate_map_reduce 将消费
 pub fn build_reduce_prompt(
     notes: &[String],
     language: Language,
@@ -205,7 +202,6 @@ pub fn truncate_diff(diff: &str, max_chars: usize) -> String {
 /// 把超长 diff 按文件块(`diff --git` 边界)切成多段,每段 ≤ max_chars。
 /// 单个文件块自身超 max_chars 时,该块独占一段并截断标注(极端兜底)。
 /// 不会在单个文件块中间切断,保持每段语义完整。
-#[allow(dead_code)] // Task 6 map-reduce 编排将消费此函数
 pub fn split_diff(diff: &str, max_chars: usize) -> Vec<String> {
     if diff.trim().is_empty() {
         return Vec::new();
@@ -328,7 +324,6 @@ pub type RequestFn =
 
 /// 分批 map-reduce:并发(≤3)对每批 diff 生成要点,再一次 reduce 合成 commit。
 /// 任一批 map 或 reduce 失败 → 向上传播 Err(由调用方决定是否回退)。
-#[allow(dead_code)] // Task 7 lib.rs ai_generate_commit_message 将接入
 pub async fn generate_map_reduce(
     cfg: &AiConfig,
     chunks: &[String],
