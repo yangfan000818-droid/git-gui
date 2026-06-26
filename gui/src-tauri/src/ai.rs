@@ -142,6 +142,49 @@ pub fn truncate_diff(diff: &str, max_chars: usize) -> String {
     format!("{head}\n\n…（diff 已截断,仅展示前 {max_chars} 字符）")
 }
 
+/// 把超长 diff 按文件块(`diff --git` 边界)切成多段,每段 ≤ max_chars。
+/// 单个文件块自身超 max_chars 时,该块独占一段并截断标注(极端兜底)。
+/// 不会在单个文件块中间切断,保持每段语义完整。
+#[allow(dead_code)] // Task 6 map-reduce 编排将消费此函数
+pub fn split_diff(diff: &str, max_chars: usize) -> Vec<String> {
+    if diff.trim().is_empty() {
+        return Vec::new();
+    }
+    // 1. 按文件块切分:每块以 "diff --git" 开头的行作为边界。
+    let mut blocks: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for line in diff.split_inclusive('\n') {
+        if line.starts_with("diff --git") && !current.is_empty() {
+            blocks.push(std::mem::take(&mut current));
+        }
+        current.push_str(line);
+    }
+    if !current.is_empty() {
+        blocks.push(current);
+    }
+    // 2. 贪心装箱:每段 ≤ max_chars;单块超长则独占 + 截断。
+    let mut chunks: Vec<String> = Vec::new();
+    let mut acc = String::new();
+    for block in blocks {
+        let block_chars = block.chars().count();
+        if block_chars > max_chars {
+            if !acc.is_empty() {
+                chunks.push(std::mem::take(&mut acc));
+            }
+            chunks.push(truncate_diff(&block, max_chars));
+            continue;
+        }
+        if acc.chars().count() + block_chars > max_chars {
+            chunks.push(std::mem::take(&mut acc));
+        }
+        acc.push_str(&block);
+    }
+    if !acc.is_empty() {
+        chunks.push(acc);
+    }
+    chunks
+}
+
 /// diff 截断字符数下界:防止用户误填 0/小值导致 diff 全被截断、生成质量不可控。
 const MIN_MAX_DIFF_CHARS: usize = 1000;
 
@@ -210,6 +253,7 @@ pub async fn chat_complete(cfg: &AiConfig, system: &str, user: &str) -> Result<S
 
 #[cfg(test)]
 mod tests {
+    use super::split_diff;
     use super::truncate_diff;
 
     use super::parse_chat_completion;
@@ -372,5 +416,46 @@ mod tests {
             parse_chat_completion(&body, false).unwrap(),
             "feat(gui): 接入 AI"
         );
+    }
+
+    #[test]
+    fn split_diff_empty_returns_empty() {
+        assert!(split_diff("", 1000).is_empty());
+        assert!(split_diff("   \n  ", 1000).is_empty());
+    }
+
+    #[test]
+    fn split_diff_single_file_under_limit_one_chunk() {
+        let diff = "diff --git a/x b/x\nindex 1..2\n+hello";
+        assert_eq!(split_diff(diff, 1000), vec![diff.to_string()]);
+    }
+
+    #[test]
+    fn split_diff_packs_multiple_files_into_one_chunk_when_under_limit() {
+        let block_a = "diff --git a/a b/a\n+a\n";
+        let block_b = "diff --git a/b b/b\n+b\n";
+        let diff = format!("{block_a}{block_b}");
+        assert_eq!(split_diff(&diff, 1000), vec![diff.to_string()]);
+    }
+
+    #[test]
+    fn split_diff_splits_when_exceeding_limit_at_file_boundary() {
+        // 每块 22 字符(≤ limit=40),两块合计 44 > limit → 在文件边界切两段,不在单文件中间断。
+        let block_a = "diff --git a/a b/a\n+a\n";
+        let block_b = "diff --git a/b b/b\n+b\n";
+        let diff = format!("{block_a}{block_b}");
+        let chunks = split_diff(&diff, 40);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0], block_a); // a 块完整保留在第一段
+        assert_eq!(chunks[1], block_b);
+    }
+
+    #[test]
+    fn split_diff_oversized_single_file_truncated_alone() {
+        // 单个文件块自身超 limit(74 > 20):独占一段并被截断标注。
+        let big: String = format!("diff --git a/big b/big\n{}\n", "x".repeat(50));
+        let chunks = split_diff(&big, 20);
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].contains("diff 已截断"));
     }
 }
