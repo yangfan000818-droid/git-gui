@@ -90,6 +90,19 @@ mod tests {
         assert!(out.starts_with(&"あ".repeat(10)));
         assert!(out.contains("diff 已截断"));
     }
+
+    #[test]
+    fn missing_ai_fields_use_defaults() {
+        // 模拟旧版 settings.json(无任何 ai_* 字段)。
+        let json = r#"{"update_strategy":"Merge","ignore_whitespace":true}"#;
+        let s: crate::AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.ai_enabled, false);
+        assert_eq!(s.ai_base_url, "https://api.openai.com/v1");
+        assert_eq!(s.ai_model, "gpt-4o-mini");
+        assert_eq!(s.ai_language, "zh");
+        assert_eq!(s.ai_max_diff_chars, 30000);
+        assert_eq!(s.ai_api_key, "");
+    }
 }
 
 /// 超长 diff 按字符数截断并注明,避免超出模型上下文。

@@ -125,6 +125,26 @@ struct AppSettings {
     /// Glow 强度: "off" | "subtle" | "medium" | "strong"
     #[serde(default = "default_glow")]
     glow_intensity: String,
+
+    // ── AI 提交助手 ──
+    /// 是否启用 AI 生成提交信息。默认关闭。
+    #[serde(default)]
+    ai_enabled: bool,
+    /// OpenAI 兼容端点(可改智谱 / DeepSeek / Kimi / 通义等)。
+    #[serde(default = "default_ai_base_url")]
+    ai_base_url: String,
+    /// API Key(明文存 settings.json)。
+    #[serde(default)]
+    ai_api_key: String,
+    /// 模型名。
+    #[serde(default = "default_ai_model")]
+    ai_model: String,
+    /// 提交信息语言:"zh" | "en"。
+    #[serde(default = "default_ai_language")]
+    ai_language: String,
+    /// diff 文本截断阈值(字符数)。
+    #[serde(default = "default_ai_max_diff_chars")]
+    ai_max_diff_chars: usize,
 }
 
 fn default_theme() -> String {
@@ -142,6 +162,18 @@ fn default_true() -> bool {
 fn default_glow() -> String {
     "medium".into()
 }
+fn default_ai_base_url() -> String {
+    "https://api.openai.com/v1".into()
+}
+fn default_ai_model() -> String {
+    "gpt-4o-mini".into()
+}
+fn default_ai_language() -> String {
+    "zh".into()
+}
+fn default_ai_max_diff_chars() -> usize {
+    30000
+}
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -156,6 +188,12 @@ impl Default for AppSettings {
             animations_enabled: true,
             scanline_enabled: true,
             glow_intensity: default_glow(),
+            ai_enabled: false,
+            ai_base_url: default_ai_base_url(),
+            ai_api_key: String::new(),
+            ai_model: default_ai_model(),
+            ai_language: default_ai_language(),
+            ai_max_diff_chars: default_ai_max_diff_chars(),
         }
     }
 }
