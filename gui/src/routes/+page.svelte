@@ -1142,23 +1142,8 @@
     operating = true;
     error = "";
     opMessage = "";
-    const lines: string[] = [];
-    const rejected: RepoView[] = [];
-    for (const r of repos) {
-      try {
-        const out = await invoke<PushOutcome>("repo_push", { path: r.path });
-        if (out === "NonFastForward") rejected.push(r);
-        lines.push(`${r.label}：${pushMsg(out)}`);
-      } catch (e) {
-        lines.push(`${r.label}：${String(e)}`);
-      }
-    }
-    opMessage = lines.join("\n");
-    operating = false;
-    await refresh();
-    if (rejected.length === 0) return;
-
-    // 静默模式:跳过确认对话框,后台逐个「更新后推送」,冲突才弹 UpdateView。
+    // 预读静默设置:静默模式下 NonFastForward 仓由后台更新+推送,
+    // 不生成"远端领先"中间行,顶部提示改由 toast 汇总最终结果。
     let silent = false;
     try {
       const s = await invoke<{ silent_update: boolean }>("get_settings");
@@ -1166,12 +1151,38 @@
     } catch {
       // 读设置失败:退回到确认 + 弹窗模式
     }
+    const lines: string[] = [];
+    const rejected: RepoView[] = [];
+    for (const r of repos) {
+      try {
+        const out = await invoke<PushOutcome>("repo_push", { path: r.path });
+        if (out === "NonFastForward") {
+          rejected.push(r);
+          // 静默模式:该仓结果由后续更新+推送替代,不生成中间行。
+          if (!silent) lines.push(`${r.label}：${pushMsg(out)}`);
+        } else {
+          lines.push(`${r.label}：${pushMsg(out)}`);
+        }
+      } catch (e) {
+        lines.push(`${r.label}：${String(e)}`);
+      }
+    }
+    operating = false;
+    await refresh();
+    if (rejected.length === 0) {
+      // 无远端领先:直接在顶部显示推送结果(静默/非静默一致)。
+      opMessage = lines.join("\n");
+      return;
+    }
+
     if (silent) {
+      // 静默模式:不在顶部显示中间结果,改由 toast 汇总更新后推送的完整结果。
       await silentUpdateThenPushBatch(rejected, lines);
       return;
     }
 
-    // 非静默:一次确认 → 逐个「更新后推送」(复用 UpdateView,含冲突解决)。
+    // 非静默:顶部显示推送结果 + 一次确认 → 逐个「更新后推送」。
+    opMessage = lines.join("\n");
     const strat = await globalStrategyLabel();
     const names = rejected.map((r) => r.label).join("、");
     if (
