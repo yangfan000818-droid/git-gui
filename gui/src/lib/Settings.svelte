@@ -529,6 +529,9 @@
                 min="1000"
                 bind:value={aiMaxDiffChars}
               />
+              <em style="display:block;opacity:.7;font-size:.85em"
+                >超过此值时自动分批请求,确保覆盖全部改动</em
+              >
             </span>
           </label>
         </fieldset>
