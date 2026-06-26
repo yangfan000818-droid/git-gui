@@ -368,7 +368,18 @@ impl Repo {
 
     /// 解析已暂存改动(暂存区 vs HEAD)为结构化 diff。
     pub fn staged_diff(&self) -> Result<Vec<FileDiff>, Error> {
-        let text = self.git(&[
+        let text = self.cached_diff_text()?;
+        Ok(hunk::parse(&text))
+    }
+
+    /// 已暂存改动(暂存区 vs HEAD)的原始 diff 文本,供 AI 生成提交信息等用途。
+    pub fn staged_diff_text(&self) -> Result<String, Error> {
+        self.cached_diff_text()
+    }
+
+    /// `git diff --cached` 原始文本(staged_diff 与 staged_diff_text 共用)。
+    fn cached_diff_text(&self) -> Result<String, Error> {
+        self.git(&[
             "-c",
             "diff.noprefix=false",
             "-c",
@@ -376,8 +387,7 @@ impl Repo {
             "diff",
             "--cached",
             "--no-color",
-        ])?;
-        Ok(hunk::parse(&text))
+        ])
     }
 
     /// 单个文件的未暂存 diff(懒加载用):普通改动走 git diff,未跟踪文件补成"全新增"。
