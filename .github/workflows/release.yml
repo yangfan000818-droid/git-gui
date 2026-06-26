@@ -147,17 +147,24 @@ jobs:
           EXE=$(ls assets/*.exe 2>/dev/null | head -1)
           WIN_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$(basename "$EXE")"
 
-          # 签名 → 写文件避免 Shell 内联转义问题
+          # 签名:tauri signer 把真正的签名写入 <FILE>.sig 文件;
+          # stdout 只是人类提示文本("Your file was signed successfully..."),
+          # 切勿重定向 stdout 当签名(会导致客户端 base64 解码报 Invalid symbol 32, offset 4)。
           cd gui
           npx tauri signer sign \
             --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
             -p "" \
-            "../$EXE" > ../win.sig 2>/dev/null || true
+            "../$EXE"
           cd ..
 
-          # 用环境变量传值给 Node 脚本,避免内联注入
-          export WIN_URL WIN_SIG VERSION
-          WIN_SIG=$(cat win.sig 2>/dev/null || echo "")
+          # 签名文件与输入同名加 .sig,内容是一整段 base64(Tauri updater signature 字段所需格式)。
+          SIG_FILE="$EXE.sig"
+          if [ ! -f "$SIG_FILE" ]; then
+            echo "ERROR: signature file not found: $SIG_FILE"
+            exit 1
+          fi
+          export WIN_URL VERSION
+          WIN_SIG=$(cat "$SIG_FILE")
           export WIN_SIG
           node scripts/build-manifest.mjs
           cat latest.json
