@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
-use futures_util::stream::{self, StreamExt};
+use futures_util::stream::{self, StreamExt, TryStreamExt};
 use serde_json::json;
 
 use crate::AppSettings;
@@ -112,7 +112,8 @@ fn extract_content(body: &serde_json::Value) -> Result<String, String> {
 }
 
 /// 从响应 JSON 取 raw content 并清洗;keep_body=false 只取标题首行。
-#[allow(dead_code)] // chat_complete 改用 chat_complete_raw+sanitize_message;此为 JSON 直解便捷封装,供测试与未来扩展
+#[cfg(test)]
+// 重构后仅供测试使用(chat_complete 已改用 chat_complete_raw+sanitize_message)。
 pub fn parse_chat_completion(body: &serde_json::Value, keep_body: bool) -> Result<String, String> {
     let raw = extract_content(body)?;
     let cleaned = sanitize_message(&raw, keep_body);
@@ -347,10 +348,8 @@ pub async fn generate_map_reduce(
             }
         })
         .buffer_unordered(3)
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
+        .try_collect()
+        .await?;
     // reduce:要点 → 一条 commit。
     let (red_sys, red_user) = build_reduce_prompt(&notes, cfg.language, cfg.generate_body);
     let raw = request(red_sys, red_user).await?;
@@ -630,6 +629,7 @@ mod tests {
     }
 
     /// 按调用顺序返回预设 raw content 的 mock request;某次返回 Err 模拟失败。
+    /// async 测试用 tauri::async_runtime::block_on 驱动(项目无 async test runtime,免引 tokio macros)。
     fn mock_request(responses: Vec<Result<&str, &str>>) -> RequestFn {
         let counter = Arc::new(AtomicUsize::new(0));
         let responses: Arc<Vec<Result<String, String>>> = Arc::new(

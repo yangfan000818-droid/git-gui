@@ -637,11 +637,14 @@ async fn ai_generate_commit_message(app: AppHandle, path: String) -> Result<Stri
     // 分批路径:split → map-reduce;任一失败回退单次截断(永不比现状差)。
     let chunks = ai::split_diff(&diff_text, max_chars);
     let cfg_for_request = cfg.clone();
-    let request: ai::RequestFn = Arc::new(move |system: String, user: String| {
-        let cfg = cfg_for_request.clone();
-        Box::pin(async move { ai::chat_complete_raw(&cfg, &system, &user).await })
-            as futures_util::future::BoxFuture<'static, Result<String, String>>
-    });
+    let request: ai::RequestFn = Arc::new(
+        move |system: String,
+              user: String|
+              -> futures_util::future::BoxFuture<'static, Result<String, String>> {
+            let cfg = cfg_for_request.clone();
+            Box::pin(async move { ai::chat_complete_raw(&cfg, &system, &user).await })
+        },
+    );
     match ai::generate_map_reduce(&cfg, &chunks, request).await {
         Ok(msg) => Ok(msg),
         Err(_) => {

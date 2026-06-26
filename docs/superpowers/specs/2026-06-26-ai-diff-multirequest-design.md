@@ -61,7 +61,7 @@
 |---|---|---|
 | `split_diff(diff, max) -> Vec<String>` | 按 `diff --git` 文件边界贪心装箱,每块 ≤ max;单文件块自身 > max 时该块单独截断并标注 | 纯函数,核心测试目标 |
 | `build_map_prompt(chunk, lang) -> (sys, user)` | 让 AI 输出**这批改动要点 ≤3 条短语**(非 commit 格式),严格无解释 | 纯函数 |
-| `parse_map_output(body) -> Result<String>` | 提取要点文本(复用 `strip_think_blocks`/`strip_code_fence`/`strip_wrapping_quotes`,但保留多行) | 纯函数 |
+| `sanitize_notes(raw: &str) -> String` | map 清洗:剥离 think/围栏/引号,保留多行要点 | 纯函数 |
 | `build_reduce_prompt(notes, lang, generate_body) -> (sys, user)` | 复用现有 conventional commits 规则,user 部分换成"要点列表 → 合成一条 commit" | 纯函数 |
 | `chat_complete_raw(cfg, system, user) -> Result<String>` | 发请求,返回**未清洗的 raw content**(从 `chat_complete` 拆出 HTTP + 取 content 部分) | 纯网络,不单测 |
 | `generate_map_reduce(cfg, chunks, request_fn) -> Result<String>` | 编排:并发 map(≤3) → reduce;`request_fn` 返回 raw content,map/reduce 各用对应 parse;任一失败向上传播 `Err` | 注入 `request_fn` 可测 |
@@ -88,7 +88,7 @@
 `generate_map_reduce` 接受 `request_fn: impl Fn(&str, &str) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>>`,返回**未清洗的 raw content**(生产传 `|s, u| chat_complete_raw(&cfg, s, u)`,测试传 mock 返回预设 content)。
 
 parse 按阶段分流,在编排内部完成:
-- map 阶段:每批 raw content → `parse_map_output`(保留多行要点)。
+- map 阶段:每批 raw content → `sanitize_notes`(保留多行要点)。
 - reduce 阶段:raw content → `parse_chat_completion(.., generate_body)`(复用现有清洗,取标题 / 标题+正文)。
 
 这样 map / reduce 的 parse 逻辑解耦(要点多行 vs commit 单行),编排逻辑(并发、失败传播)可离线测试,不必真发网络请求。
@@ -105,7 +105,7 @@ parse 按阶段分流,在编排内部完成:
 
 - `split_diff`:按文件边界切、跨文件不切断、单文件超长保底截断、空 diff、刚好等于阈值。
 - `build_map_prompt` / `build_reduce_prompt`:断言关键引导词(要点 / conventional / body 规则)。
-- `parse_map_output`:多行保留、think 块 / 围栏 / 引号清洗。
+- `sanitize_notes`:多行保留、think 块 / 围栏 / 引号清洗。
 - 编排 + 回退(经 `request_fn` 注入 mock):
   - 小 diff → 单次路径(不进 `generate_map_reduce`)。
   - 大 diff → 分批 map+reduce 成功。
