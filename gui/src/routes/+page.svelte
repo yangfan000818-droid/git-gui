@@ -1156,19 +1156,119 @@
     opMessage = lines.join("\n");
     operating = false;
     await refresh();
-    // 远端领先的仓:一次确认 → 逐个「更新后推送」(复用 UpdateView,含冲突解决)。
-    if (rejected.length > 0) {
-      const strat = await globalStrategyLabel();
-      const names = rejected.map((r) => r.label).join("、");
-      if (
-        await ask(
-          `以下仓库远端领先:${names}\n按当前全局策略「${strat}」逐个更新后推送?`,
-          { title: "更新后推送" },
-        )
-      ) {
-        pushQueue = rejected;
-        advancePushQueue();
+    if (rejected.length === 0) return;
+
+    // 静默模式:跳过确认对话框,后台逐个「更新后推送」,冲突才弹 UpdateView。
+    let silent = false;
+    try {
+      const s = await invoke<{ silent_update: boolean }>("get_settings");
+      silent = s.silent_update;
+    } catch {
+      // 读设置失败:退回到确认 + 弹窗模式
+    }
+    if (silent) {
+      await silentUpdateThenPushBatch(rejected, lines);
+      return;
+    }
+
+    // 非静默:一次确认 → 逐个「更新后推送」(复用 UpdateView,含冲突解决)。
+    const strat = await globalStrategyLabel();
+    const names = rejected.map((r) => r.label).join("、");
+    if (
+      await ask(
+        `以下仓库远端领先:${names}\n按当前全局策略「${strat}」逐个更新后推送?`,
+        { title: "更新后推送" },
+      )
+    ) {
+      pushQueue = rejected;
+      advancePushQueue();
+    }
+  }
+
+  // 静默批量「更新后推送」:逐个仓后台更新+推送,结果汇总到 lines 并以 toast 展示。
+  // 遇冲突弹 UpdateView(pushAfterSuccess=true,解决后自动推送)并停止批量,剩余仓需重试。
+  async function silentUpdateThenPushBatch(rejected: RepoView[], lines: string[]) {
+    showToast("正在更新后推送…", "info", 0);
+    const resultLines: string[] = [];
+    let conflictHit = false;
+    for (const repo of rejected) {
+      const line = await silentUpdateThenPushOne(repo);
+      if (line === null) {
+        // 冲突:UpdateView 已弹出,停止批量(避免连环弹窗)。
+        resultLines.push(`${repo.label}：冲突,已打开解决窗口`);
+        conflictHit = true;
+        break;
       }
+      resultLines.push(`${repo.label}：${line}`);
+    }
+    closeToast();
+    if (conflictHit) {
+      // 冲突弹窗已开,部分结果就地显示在 opMessage。
+      opMessage = lines.concat(resultLines).join("\n");
+    } else {
+      showToast(
+        "推送完成:\n" + lines.concat(resultLines).join("\n"),
+        "success",
+        5000,
+      );
+    }
+    await refresh();
+  }
+
+  // 静默「更新后推送」单仓:按全局策略更新,成功后推送,冲突弹 UpdateView。
+  // 返回结果行;冲突返回 null(调用方应停止批量)。
+  async function silentUpdateThenPushOne(repo: RepoView): Promise<string | null> {
+    let strategy: "Merge" | "Rebase" = "Merge";
+    let ignoreWhitespace = true;
+    try {
+      const s = await invoke<{
+        update_strategy: "Merge" | "Rebase";
+        ignore_whitespace: boolean;
+      }>("get_settings");
+      strategy = s.update_strategy;
+      ignoreWhitespace = s.ignore_whitespace;
+    } catch {
+      // 读设置失败用默认值
+    }
+    const options = {
+      strategy,
+      ignore_whitespace: ignoreWhitespace,
+      recurse_submodules: false,
+    };
+
+    try {
+      const outcome = await invoke<
+        | "AlreadyUpToDate"
+        | "Resolved"
+        | { FastForwarded: { commits: number } }
+        | { Integrated: { commits: number; strategy: string } }
+        | { Conflicted: { files: string[]; autostash: unknown } }
+        | { StashRestoreConflict: { files: string[] } }
+        | { SubmoduleSyncFailed: { error: string } }
+      >("execute_update", {
+        path: repo.path,
+        opId: crypto.randomUUID(),
+        options,
+      });
+      if (typeof outcome === "object" && "Conflicted" in outcome) {
+        // 冲突:弹 UpdateView(pushAfterSuccess=true,解决后自动推送)。
+        // 清空 pushQueue 避免UpdateView onFinished 推进连环弹窗。
+        pushQueue = [];
+        pushAfterSuccess = true;
+        pushTargetPath = repo.path;
+        updateSubmodules = [];
+        updateTitle = `更新后推送 · ${repo.label}`;
+        updateSubsOnly = false;
+        showUpdate = true;
+        return null;
+      }
+      // 更新成功 → 推送。
+      const r = await invoke<PushOutcome>("repo_push", { path: repo.path });
+      if (r === "Success") return "更新后推送成功";
+      if (r === "NoUpstream") return "更新成功,但无 upstream 未推送";
+      return "更新成功,但推送时远端再次领先";
+    } catch (e) {
+      return `失败:${String(e)}`;
     }
   }
 
