@@ -12,10 +12,20 @@ pub enum Language {
 }
 
 /// 构造 (system, user) 提示词:引导按 Conventional Commits 规范、提炼改动意图,只返回信息本身。
-pub fn build_prompt(diff: &str, language: Language) -> (String, String) {
+/// generate_body=true 时允许标题后附简短正文(解释 why)。
+pub fn build_prompt(diff: &str, language: Language, generate_body: bool) -> (String, String) {
     let lang = match language {
         Language::Zh => "中文",
         Language::En => "英文",
+    };
+    // 标题后的正文规则 + 输出形态,按是否生成正文切换。
+    let (body_rule, output_form) = if generate_body {
+        (
+            "\n- 标题行后空一行,可附 1~3 行正文简要说明「为什么改」(不要与标题重复;改动很简单时可只写标题,不强制正文)。",
+            "标题,必要时附空行 + 简短正文",
+        )
+    } else {
+        ("", "仅一行标题")
     };
     let system = format!(
         "你是专业的 git commit message 作者。根据给定的 git 暂存区 diff,生成一条符合 Conventional Commits 规范的提交信息。
@@ -25,10 +35,10 @@ pub fn build_prompt(diff: &str, language: Language) -> (String, String) {
 - 格式 `type(scope): 描述`,例如 `feat(gui): 接入 AI 生成提交信息`。
 - type 必须小写,从下列选最贴切的:feat=新功能;fix=修复缺陷;docs=文档;style=代码格式/空白(不影响逻辑);refactor=重构(不改功能也不修缺陷);perf=性能优化;test=测试;build=构建系统或依赖;ci=CI 配置;chore=其他杂项(不涉及源码/测试);revert=回滚。
 - scope 可选且简短:从文件路径或模块名推断(如 gui、gitcore);改动跨多个无关模块时省略 scope。
-- 描述用简洁的动宾结构,不加句号,整行不超过 72 个字符。
+- 描述用简洁的动宾结构,不加句号,整行不超过 72 个字符。{body_rule}
 
 严格输出:
-- 只返回一条 commit message,不要任何解释、前言或候选选项。
+- 只返回一条 commit message({output_form}),不要任何解释、前言或候选选项。
 - 不要代码块标记(如 ```),不要用引号包裹,不要给多个候选。
 - 若 diff 仅是格式或空白调整,用 style 类型并给极简描述。
 
@@ -39,7 +49,8 @@ pub fn build_prompt(diff: &str, language: Language) -> (String, String) {
 }
 
 /// 从 OpenAI 兼容响应 JSON 提取 `choices[0].message.content`,清洗后返回。
-pub fn parse_chat_completion(body: &serde_json::Value) -> Result<String, String> {
+/// keep_body=true 时保留「标题 + 空行 + 正文」,否则只取标题首行。
+pub fn parse_chat_completion(body: &serde_json::Value, keep_body: bool) -> Result<String, String> {
     let raw = body
         .get("choices")
         .and_then(|c| c.get(0))
@@ -47,18 +58,22 @@ pub fn parse_chat_completion(body: &serde_json::Value) -> Result<String, String>
         .and_then(|m| m.get("content"))
         .and_then(|v| v.as_str())
         .ok_or_else(|| "AI 返回为空或格式不符".to_string())?;
-    let cleaned = sanitize_message(raw);
+    let cleaned = sanitize_message(raw, keep_body);
     if cleaned.is_empty() {
         return Err("AI 返回为空或格式不符".into());
     }
     Ok(cleaned)
 }
 
-/// 清洗模型返回:剥离 reasoning 标签 → 去代码块围栏 → 只取首行 → 去包裹引号。
+/// 清洗模型返回:剥离 reasoning 标签 → 去代码块围栏 → 去包裹引号。
+/// keep_body=false 时再只取首行(只要标题);keep_body=true 保留「标题 + 空行 + 正文」。
 /// prompt 约束不足以杜绝 LLM 画蛇添足(<think>、代码块、引号、多行解释),这里兜底。
-fn sanitize_message(raw: &str) -> String {
+fn sanitize_message(raw: &str, keep_body: bool) -> String {
     let stripped = strip_think_blocks(raw.trim());
     let fenced = strip_code_fence(&stripped);
+    if keep_body {
+        return strip_wrapping_quotes(fenced.trim()).to_string();
+    }
     let line = fenced.lines().next().unwrap_or("").trim();
     strip_wrapping_quotes(line).to_string()
 }
@@ -132,7 +147,7 @@ mod tests {
             "choices": [{ "message": { "content": "  feat(gui): 优化暂存交互  " } }]
         });
         assert_eq!(
-            parse_chat_completion(&body).unwrap(),
+            parse_chat_completion(&body, false).unwrap(),
             "feat(gui): 优化暂存交互"
         );
     }
@@ -140,13 +155,13 @@ mod tests {
     #[test]
     fn empty_content_is_error() {
         let body = json!({ "choices": [{ "message": { "content": "   " } }] });
-        assert!(parse_chat_completion(&body).is_err());
+        assert!(parse_chat_completion(&body, false).is_err());
     }
 
     #[test]
     fn malformed_response_is_error() {
         let body = json!({ "error": "x" });
-        assert!(parse_chat_completion(&body).is_err());
+        assert!(parse_chat_completion(&body, false).is_err());
     }
 
     #[test]
@@ -155,7 +170,7 @@ mod tests {
             "choices": [{ "message": { "content": "<think>分析改动…</think>feat(gui): 优化暂存交互" } }]
         });
         assert_eq!(
-            parse_chat_completion(&body).unwrap(),
+            parse_chat_completion(&body, false).unwrap(),
             "feat(gui): 优化暂存交互"
         );
     }
@@ -166,7 +181,7 @@ mod tests {
             "choices": [{ "message": { "content": "feat(gui): 优化暂存交互\n\n这是解释,不应进入提交信息。" } }]
         });
         assert_eq!(
-            parse_chat_completion(&body).unwrap(),
+            parse_chat_completion(&body, false).unwrap(),
             "feat(gui): 优化暂存交互"
         );
     }
@@ -176,7 +191,7 @@ mod tests {
         for c in ["`feat: x`", "\"feat: x\"", "'feat: x'"] {
             let body = json!({ "choices": [{ "message": { "content": c } }] });
             assert_eq!(
-                parse_chat_completion(&body).unwrap(),
+                parse_chat_completion(&body, false).unwrap(),
                 "feat: x",
                 "case: {c}"
             );
@@ -189,14 +204,14 @@ mod tests {
             "choices": [{ "message": { "content": "```rust\nfeat(gui): 优化暂存交互\n```" } }]
         });
         assert_eq!(
-            parse_chat_completion(&body).unwrap(),
+            parse_chat_completion(&body, false).unwrap(),
             "feat(gui): 优化暂存交互"
         );
     }
 
     #[test]
     fn prompt_zh_contains_conventional_rule() {
-        let (sys, user) = build_prompt("diff", Language::Zh);
+        let (sys, user) = build_prompt("diff", Language::Zh, false);
         assert!(sys.contains("Conventional Commits"));
         assert!(sys.contains("中文"));
         assert!(user.contains("diff"));
@@ -204,13 +219,13 @@ mod tests {
 
     #[test]
     fn prompt_en_uses_english() {
-        let (sys, _) = build_prompt("diff", Language::En);
+        let (sys, _) = build_prompt("diff", Language::En, false);
         assert!(sys.contains("英文"));
     }
 
     #[test]
     fn prompt_guides_why_and_strict_output() {
-        let (sys, _) = build_prompt("diff", Language::Zh);
+        let (sys, _) = build_prompt("diff", Language::Zh, false);
         assert!(sys.contains("为什么")); // 引导 why 而非 what
         assert!(sys.contains("feat=新功能")); // type 带中文描述(模型选得更准)
         assert!(sys.contains("72")); // 描述长度约束
@@ -242,6 +257,7 @@ mod tests {
         assert_eq!(s.ai_language, "zh");
         assert_eq!(s.ai_max_diff_chars, 30000);
         assert_eq!(s.ai_api_key, "");
+        assert_eq!(s.ai_generate_body, false);
     }
 
     #[test]
@@ -256,6 +272,29 @@ mod tests {
         s.ai_max_diff_chars = 30000;
         let cfg = AiConfig::from_settings(&s);
         assert_eq!(cfg.max_diff_chars, 30000);
+    }
+
+    #[test]
+    fn build_prompt_with_body_adds_body_rule() {
+        let (sys, _) = build_prompt("diff", Language::Zh, true);
+        assert!(sys.contains("正文")); // generate_body=true 时允许正文
+    }
+
+    #[test]
+    fn parse_keeps_body_when_requested() {
+        let body = json!({
+            "choices": [{ "message": { "content": "feat(gui): 接入 AI\n\n解释为什么改。" } }]
+        });
+        // keep_body=true:保留「标题 + 空行 + 正文」。
+        assert_eq!(
+            parse_chat_completion(&body, true).unwrap(),
+            "feat(gui): 接入 AI\n\n解释为什么改。"
+        );
+        // keep_body=false:只取标题首行。
+        assert_eq!(
+            parse_chat_completion(&body, false).unwrap(),
+            "feat(gui): 接入 AI"
+        );
     }
 }
 
@@ -275,6 +314,7 @@ pub struct AiConfig {
     pub model: String,
     pub language: Language,
     pub max_diff_chars: usize,
+    pub generate_body: bool,
 }
 
 /// diff 截断字符数下界:防止用户误填 0/小值导致 diff 全被截断、生成质量不可控。
@@ -292,6 +332,7 @@ impl AiConfig {
                 Language::Zh
             },
             max_diff_chars: s.ai_max_diff_chars.max(MIN_MAX_DIFF_CHARS),
+            generate_body: s.ai_generate_body,
         }
     }
 }
@@ -328,5 +369,5 @@ pub async fn chat_complete(cfg: &AiConfig, system: &str, user: &str) -> Result<S
         };
     }
     let value: serde_json::Value = resp.json().await.map_err(|e| format!("解析响应失败:{e}"))?;
-    parse_chat_completion(&value)
+    parse_chat_completion(&value, cfg.generate_body)
 }

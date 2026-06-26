@@ -22,6 +22,7 @@
     ai_model: string;
     ai_language: string;
     ai_max_diff_chars: number;
+    ai_generate_body: boolean;
   }
 
   let {
@@ -53,6 +54,7 @@
   let aiModel = $state("gpt-4o-mini");
   let aiLanguage = $state("zh");
   let aiMaxDiffChars = $state(30000);
+  let aiGenerateBody = $state(false);
 
   let loading = $state(true);
   let saving = $state(false);
@@ -147,6 +149,7 @@
       aiModel = s.ai_model || "gpt-4o-mini";
       aiLanguage = s.ai_language || "zh";
       aiMaxDiffChars = s.ai_max_diff_chars ?? 30000;
+      aiGenerateBody = s.ai_generate_body ?? false;
     } catch (e) {
       error = String(e);
     } finally {
@@ -175,6 +178,7 @@
         ai_model: aiModel,
         ai_language: aiLanguage,
         ai_max_diff_chars: aiMaxDiffChars,
+        ai_generate_body: aiGenerateBody,
       };
       await invoke("save_settings", { settings });
       onAppearanceChanged?.(settings);
@@ -450,6 +454,16 @@
               <b>启用 AI 生成提交信息</b>
               <small
                 >开启后,提交区会为每个有暂存改动的仓库显示独立输入框 + 生成按钮</small
+              >
+            </span>
+          </label>
+
+          <label class="st-check">
+            <input type="checkbox" bind:checked={aiGenerateBody} />
+            <span>
+              <b>生成提交信息正文</b>
+              <small
+                >开启后生成「标题 + 空行 + 简短正文」;关闭则只生成一行标题</small
               >
             </span>
           </label>

@@ -145,6 +145,9 @@ struct AppSettings {
     /// diff 文本截断阈值(字符数)。
     #[serde(default = "default_ai_max_diff_chars")]
     ai_max_diff_chars: usize,
+    /// 是否生成提交信息正文(header + body),默认只生成 header。
+    #[serde(default)]
+    ai_generate_body: bool,
 }
 
 fn default_theme() -> String {
@@ -194,6 +197,7 @@ impl Default for AppSettings {
             ai_model: default_ai_model(),
             ai_language: default_ai_language(),
             ai_max_diff_chars: default_ai_max_diff_chars(),
+            ai_generate_body: false,
         }
     }
 }
@@ -595,6 +599,7 @@ async fn ai_generate_commit_message(app: AppHandle, path: String) -> Result<Stri
     let cfg = ai::AiConfig::from_settings(&settings);
     let max_chars = cfg.max_diff_chars;
     let language = cfg.language;
+    let generate_body = cfg.generate_body;
     // 同步部分:取 staged diff + 截断 + 构造 prompt。
     let (system, user) =
         tauri::async_runtime::spawn_blocking(move || -> Result<(String, String), String> {
@@ -604,7 +609,7 @@ async fn ai_generate_commit_message(app: AppHandle, path: String) -> Result<Stri
                 return Err("没有暂存的改动".into());
             }
             let truncated = ai::truncate_diff(&diff_text, max_chars);
-            Ok(ai::build_prompt(&truncated, language))
+            Ok(ai::build_prompt(&truncated, language, generate_body))
         })
         .await
         .map_err(|e| e.to_string())??;
