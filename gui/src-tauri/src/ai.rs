@@ -38,16 +38,84 @@ pub fn build_prompt(diff: &str, language: Language) -> (String, String) {
     (system, user)
 }
 
-/// 从 OpenAI 兼容响应 JSON 提取 `choices[0].message.content`,trim 并拒绝空结果。
+/// 从 OpenAI 兼容响应 JSON 提取 `choices[0].message.content`,清洗后返回。
 pub fn parse_chat_completion(body: &serde_json::Value) -> Result<String, String> {
-    body.get("choices")
+    let raw = body
+        .get("choices")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("message"))
         .and_then(|m| m.get("content"))
         .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| "AI 返回为空或格式不符".into())
+        .ok_or_else(|| "AI 返回为空或格式不符".to_string())?;
+    let cleaned = sanitize_message(raw);
+    if cleaned.is_empty() {
+        return Err("AI 返回为空或格式不符".into());
+    }
+    Ok(cleaned)
+}
+
+/// 清洗模型返回:剥离 reasoning 标签 → 去代码块围栏 → 只取首行 → 去包裹引号。
+/// prompt 约束不足以杜绝 LLM 画蛇添足(<think>、代码块、引号、多行解释),这里兜底。
+fn sanitize_message(raw: &str) -> String {
+    let stripped = strip_think_blocks(raw.trim());
+    let fenced = strip_code_fence(&stripped);
+    let line = fenced.lines().next().unwrap_or("").trim();
+    strip_wrapping_quotes(line).to_string()
+}
+
+/// 去除 `<think>...</think>` 块(reasoning model 如 DeepSeek-R1 可能输出思考过程)。
+fn strip_think_blocks(mut s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    while let Some(start) = s.find("<think") {
+        out.push_str(&s[..start]);
+        match s[start..].find("</think>") {
+            Some(close) => s = &s[start + close + "</think>".len()..],
+            None => {
+                // 未闭合:丢弃 <think 之后的内容(尚在思考,无有效输出)。
+                s = "";
+                break;
+            }
+        }
+    }
+    out.push_str(s);
+    out
+}
+
+/// 去掉 ``` 代码块围栏(模型偶尔用 ``` 包裹整条 message),返回围栏内内容。
+fn strip_code_fence(s: &str) -> &str {
+    let s = s.trim();
+    let rest = match s.strip_prefix("```") {
+        Some(r) => r,
+        None => return s,
+    };
+    let inner = rest.strip_suffix("```").unwrap_or(rest);
+    // 跳过开头的语言标记行(如 ```rust / ```ts)。
+    if let Some(nl) = inner.find('\n') {
+        let tag = &inner[..nl];
+        if !tag.is_empty()
+            && tag.len() <= 16
+            && !tag.contains(' ')
+            && tag
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '+')
+        {
+            return inner[nl + 1..].trim_start_matches('\n');
+        }
+    }
+    inner.trim()
+}
+
+/// 去掉首尾成对的单字符包裹:反引号、单引号、双引号。
+fn strip_wrapping_quotes(s: &str) -> &str {
+    let s = s.trim();
+    for q in ['`', '\'', '"'] {
+        if let Some(rest) = s.strip_prefix(q) {
+            if let Some(inner) = rest.strip_suffix(q) {
+                return inner.trim();
+            }
+        }
+    }
+    s
 }
 
 #[cfg(test)]
@@ -79,6 +147,51 @@ mod tests {
     fn malformed_response_is_error() {
         let body = json!({ "error": "x" });
         assert!(parse_chat_completion(&body).is_err());
+    }
+
+    #[test]
+    fn sanitize_strips_think_block() {
+        let body = json!({
+            "choices": [{ "message": { "content": "<think>分析改动…</think>feat(gui): 优化暂存交互" } }]
+        });
+        assert_eq!(
+            parse_chat_completion(&body).unwrap(),
+            "feat(gui): 优化暂存交互"
+        );
+    }
+
+    #[test]
+    fn sanitize_takes_first_line_only() {
+        let body = json!({
+            "choices": [{ "message": { "content": "feat(gui): 优化暂存交互\n\n这是解释,不应进入提交信息。" } }]
+        });
+        assert_eq!(
+            parse_chat_completion(&body).unwrap(),
+            "feat(gui): 优化暂存交互"
+        );
+    }
+
+    #[test]
+    fn sanitize_strips_wrapping_quotes() {
+        for c in ["`feat: x`", "\"feat: x\"", "'feat: x'"] {
+            let body = json!({ "choices": [{ "message": { "content": c } }] });
+            assert_eq!(
+                parse_chat_completion(&body).unwrap(),
+                "feat: x",
+                "case: {c}"
+            );
+        }
+    }
+
+    #[test]
+    fn sanitize_strips_code_fence_with_lang_tag() {
+        let body = json!({
+            "choices": [{ "message": { "content": "```rust\nfeat(gui): 优化暂存交互\n```" } }]
+        });
+        assert_eq!(
+            parse_chat_completion(&body).unwrap(),
+            "feat(gui): 优化暂存交互"
+        );
     }
 
     #[test]
