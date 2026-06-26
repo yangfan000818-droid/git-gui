@@ -67,15 +67,21 @@
   }
   .toast-success {
     border-color: rgba(86, 211, 100, 0.35);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 12px rgba(86, 211, 100, 0.15);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.5),
+      0 0 12px rgba(86, 211, 100, 0.15);
   }
   .toast-error {
     border-color: rgba(247, 120, 139, 0.35);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 12px rgba(247, 120, 139, 0.15);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.5),
+      0 0 12px rgba(247, 120, 139, 0.15);
   }
   .toast-info {
     border-color: rgba(88, 166, 255, 0.35);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 12px rgba(88, 166, 255, 0.15);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.5),
+      0 0 12px rgba(88, 166, 255, 0.15);
   }
   .toast-icon {
     flex-shrink: 0;

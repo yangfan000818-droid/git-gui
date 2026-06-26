@@ -988,7 +988,13 @@
           | "SkippedNoUpstream"
           | "StashConflict"
           | { Updated: { commits: number } }
-          | { Conflicted: { repo_path: string; files: string[]; autostash: unknown } }
+          | {
+              Conflicted: {
+                repo_path: string;
+                files: string[];
+                autostash: unknown;
+              };
+            }
         >("repo_update_submodule_on_branch", {
           path: opts.path,
           subPath: sub.path,
@@ -1198,7 +1204,10 @@
 
   // 静默批量「更新后推送」:逐个仓后台更新+推送,结果汇总到 lines 并以 toast 展示。
   // 遇冲突弹 UpdateView(pushAfterSuccess=true,解决后自动推送)并停止批量,剩余仓需重试。
-  async function silentUpdateThenPushBatch(rejected: RepoView[], lines: string[]) {
+  async function silentUpdateThenPushBatch(
+    rejected: RepoView[],
+    lines: string[],
+  ) {
     showToast("正在更新后推送…", "info", 0);
     const resultLines: string[] = [];
     let conflictHit = false;
@@ -1228,7 +1237,9 @@
 
   // 静默「更新后推送」单仓:按全局策略更新,成功后推送,冲突弹 UpdateView。
   // 返回结果行;冲突返回 null(调用方应停止批量)。
-  async function silentUpdateThenPushOne(repo: RepoView): Promise<string | null> {
+  async function silentUpdateThenPushOne(
+    repo: RepoView,
+  ): Promise<string | null> {
     let strategy: "Merge" | "Rebase" = "Merge";
     let ignoreWhitespace = true;
     try {
