@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -618,23 +619,37 @@ async fn ai_generate_commit_message(app: AppHandle, path: String) -> Result<Stri
     }
     let cfg = ai::AiConfig::from_settings(&settings);
     let max_chars = cfg.max_diff_chars;
-    let language = cfg.language;
-    let generate_body = cfg.generate_body;
-    // 同步部分:取 staged diff + 截断 + 构造 prompt。
-    let (system, user) =
-        tauri::async_runtime::spawn_blocking(move || -> Result<(String, String), String> {
-            let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-            let diff_text = repo.staged_diff_text().map_err(|e| e.to_string())?;
-            if diff_text.trim().is_empty() {
-                return Err("没有暂存的改动".into());
-            }
+    // 同步部分:取 staged diff(git 调用放 spawn_blocking,不阻塞 webview)。
+    let diff_text = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.staged_diff_text().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if diff_text.trim().is_empty() {
+        return Err("没有暂存的改动".into());
+    }
+    // 单次路径(小 diff):与现状一致。
+    if diff_text.chars().count() <= max_chars {
+        let (system, user) = ai::build_prompt(&diff_text, cfg.language, cfg.generate_body);
+        return ai::chat_complete(&cfg, &system, &user).await;
+    }
+    // 分批路径:split → map-reduce;任一失败回退单次截断(永不比现状差)。
+    let chunks = ai::split_diff(&diff_text, max_chars);
+    let cfg_for_request = cfg.clone();
+    let request: ai::RequestFn = Arc::new(move |system: String, user: String| {
+        let cfg = cfg_for_request.clone();
+        Box::pin(async move { ai::chat_complete_raw(&cfg, &system, &user).await })
+            as futures_util::future::BoxFuture<'static, Result<String, String>>
+    });
+    match ai::generate_map_reduce(&cfg, &chunks, request).await {
+        Ok(msg) => Ok(msg),
+        Err(_) => {
             let truncated = ai::truncate_diff(&diff_text, max_chars);
-            Ok(ai::build_prompt(&truncated, language, generate_body))
-        })
-        .await
-        .map_err(|e| e.to_string())??;
-    // 异步部分:网络调用。
-    ai::chat_complete(&cfg, &system, &user).await
+            let (system, user) = ai::build_prompt(&truncated, cfg.language, cfg.generate_body);
+            ai::chat_complete(&cfg, &system, &user).await
+        }
+    }
 }
 
 // ── Stash 管理命令(对标 WebStorm Stash / Unstash Changes) ──
