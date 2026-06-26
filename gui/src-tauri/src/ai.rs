@@ -78,6 +78,27 @@ fn sanitize_notes(raw: &str) -> String {
     strip_wrapping_quotes(fenced.trim()).trim().to_string()
 }
 
+/// 构造 reduce 阶段提示词:把分批要点合成一条覆盖全部改动的 conventional commit。
+/// system 复用 build_prompt 的规范规则;user 换成"要点列表 → 合成一条 commit"。
+#[allow(dead_code)] // Task 6 generate_map_reduce 将消费
+pub fn build_reduce_prompt(
+    notes: &[String],
+    language: Language,
+    generate_body: bool,
+) -> (String, String) {
+    // system 与 build_prompt 完全一致(含 conventional 规则与 body 规则)。
+    let (system, _) = build_prompt("", language, generate_body);
+    let notes_text = notes
+        .iter()
+        .map(|n| format!("- {n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let user = format!(
+        "以下是某次提交按文件分组提取的改动要点:\n\n{notes_text}\n\n请综合全部要点,生成一条覆盖全部改动的 commit message。"
+    );
+    (system, user)
+}
+
 /// 从 OpenAI 兼容响应 JSON 提取 `choices[0].message.content`,清洗后返回。
 /// keep_body=true 时保留「标题 + 空行 + 正文」,否则只取标题首行。
 pub fn parse_chat_completion(body: &serde_json::Value, keep_body: bool) -> Result<String, String> {
@@ -287,7 +308,7 @@ mod tests {
     use super::truncate_diff;
 
     use super::parse_chat_completion;
-    use super::{build_map_prompt, sanitize_notes};
+    use super::{build_map_prompt, build_reduce_prompt, sanitize_notes};
     use super::{build_prompt, AiConfig, Language, MIN_MAX_DIFF_CHARS};
     use serde_json::json;
 
@@ -510,5 +531,25 @@ mod tests {
         let raw = "<think>分析</think>\n```\n要点一\n要点二\n```";
         let out = sanitize_notes(raw);
         assert_eq!(out, "要点一\n要点二");
+    }
+
+    #[test]
+    fn build_reduce_prompt_reuses_conventional_rules_and_lists_notes() {
+        let notes = vec!["改了 A".to_string(), "改了 B".to_string()];
+        let (sys, user) = build_reduce_prompt(&notes, Language::Zh, false);
+        assert!(sys.contains("Conventional Commits"));
+        assert!(sys.contains("feat=新功能"));
+        assert!(user.contains("改了 A"));
+        assert!(user.contains("改了 B"));
+        assert!(user.contains("覆盖全部改动"));
+    }
+
+    #[test]
+    fn build_reduce_prompt_body_flag_propagates() {
+        let notes = vec!["改了 A".to_string()];
+        let (sys_with, _) = build_reduce_prompt(&notes, Language::Zh, true);
+        let (sys_without, _) = build_reduce_prompt(&notes, Language::Zh, false);
+        assert!(sys_with.contains("正文"));
+        assert!(!sys_without.contains("正文"));
     }
 }
