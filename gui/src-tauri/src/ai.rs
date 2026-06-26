@@ -41,7 +41,7 @@ mod tests {
     use super::truncate_diff;
 
     use super::parse_chat_completion;
-    use super::{build_prompt, Language};
+    use super::{build_prompt, AiConfig, Language, MIN_MAX_DIFF_CHARS};
     use serde_json::json;
 
     #[test]
@@ -107,6 +107,20 @@ mod tests {
         assert_eq!(s.ai_max_diff_chars, 30000);
         assert_eq!(s.ai_api_key, "");
     }
+
+    #[test]
+    fn from_settings_clamps_small_max_diff_chars() {
+        // 用户误填 0 会被 clamp 到下界,避免 diff 全被截断。
+        let mut s = crate::AppSettings::default();
+        s.ai_max_diff_chars = 0;
+        let cfg = AiConfig::from_settings(&s);
+        assert_eq!(cfg.max_diff_chars, MIN_MAX_DIFF_CHARS);
+
+        // 正常大值不受影响。
+        s.ai_max_diff_chars = 30000;
+        let cfg = AiConfig::from_settings(&s);
+        assert_eq!(cfg.max_diff_chars, 30000);
+    }
 }
 
 /// 超长 diff 按字符数截断并注明,避免超出模型上下文。
@@ -127,6 +141,9 @@ pub struct AiConfig {
     pub max_diff_chars: usize,
 }
 
+/// diff 截断字符数下界:防止用户误填 0/小值导致 diff 全被截断、生成质量不可控。
+const MIN_MAX_DIFF_CHARS: usize = 1000;
+
 impl AiConfig {
     pub fn from_settings(s: &AppSettings) -> Self {
         Self {
@@ -138,7 +155,7 @@ impl AiConfig {
             } else {
                 Language::Zh
             },
-            max_diff_chars: s.ai_max_diff_chars,
+            max_diff_chars: s.ai_max_diff_chars.max(MIN_MAX_DIFF_CHARS),
         }
     }
 }
