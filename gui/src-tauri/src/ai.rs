@@ -48,6 +48,36 @@ pub fn build_prompt(diff: &str, language: Language, generate_body: bool) -> (Str
     (system, user)
 }
 
+/// 构造 map 阶段提示词:让 AI 提炼这批 diff 的改动要点(≤3 条短语),非 commit 格式。
+/// system 不依赖 chunk;user 含 chunk。
+#[allow(dead_code)] // Task 6 generate_map_reduce 将消费
+pub fn build_map_prompt(chunk: &str, language: Language) -> (String, String) {
+    let lang = match language {
+        Language::Zh => "中文",
+        Language::En => "英文",
+    };
+    let system = format!(
+        "你是代码审查助手。根据给定的 git diff 片段,提炼这批改动的要点。
+
+要求:
+- 输出不超过 3 条要点,每条一行,描述「改了什么 + 为什么这样改」。
+- 只输出要点本身,不要 commit message 格式(不要 type(scope): 前缀),不要解释、前言或编号。
+- 若片段仅为格式/空白调整,用一句话说明。
+
+输出语言:{lang}。"
+    );
+    let user = format!("diff 片段:\n\n{chunk}\n\n提炼要点。");
+    (system, user)
+}
+
+/// map 阶段清洗:剥离 think 块 → 去围栏 → 去包裹引号,但保留多行(要点可多行)。
+#[allow(dead_code)] // Task 6 generate_map_reduce 将消费
+fn sanitize_notes(raw: &str) -> String {
+    let stripped = strip_think_blocks(raw.trim());
+    let fenced = strip_code_fence(&stripped);
+    strip_wrapping_quotes(fenced.trim()).trim().to_string()
+}
+
 /// 从 OpenAI 兼容响应 JSON 提取 `choices[0].message.content`,清洗后返回。
 /// keep_body=true 时保留「标题 + 空行 + 正文」,否则只取标题首行。
 pub fn parse_chat_completion(body: &serde_json::Value, keep_body: bool) -> Result<String, String> {
@@ -257,6 +287,7 @@ mod tests {
     use super::truncate_diff;
 
     use super::parse_chat_completion;
+    use super::{build_map_prompt, sanitize_notes};
     use super::{build_prompt, AiConfig, Language, MIN_MAX_DIFF_CHARS};
     use serde_json::json;
 
@@ -457,5 +488,27 @@ mod tests {
         let chunks = split_diff(&big, 20);
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].contains("diff 已截断"));
+    }
+
+    #[test]
+    fn build_map_prompt_asks_for_notes_not_commit() {
+        let (sys, user) = build_map_prompt("diff", Language::Zh);
+        assert!(sys.contains("要点")); // 要点而非 commit
+        assert!(!sys.contains("Conventional Commits")); // 不要求 commit 格式
+        assert!(sys.contains("中文"));
+        assert!(user.contains("diff"));
+    }
+
+    #[test]
+    fn sanitize_notes_keeps_multiple_lines() {
+        let raw = "改了 A 模块\n改了 B 模块";
+        assert_eq!(sanitize_notes(raw), "改了 A 模块\n改了 B 模块");
+    }
+
+    #[test]
+    fn sanitize_notes_strips_think_and_fence_but_keeps_lines() {
+        let raw = "<think>分析</think>\n```\n要点一\n要点二\n```";
+        let out = sanitize_notes(raw);
+        assert_eq!(out, "要点一\n要点二");
     }
 }
