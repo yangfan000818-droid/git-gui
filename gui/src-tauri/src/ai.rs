@@ -99,17 +99,22 @@ pub fn build_reduce_prompt(
     (system, user)
 }
 
-/// 从 OpenAI 兼容响应 JSON 提取 `choices[0].message.content`,清洗后返回。
-/// keep_body=true 时保留「标题 + 空行 + 正文」,否则只取标题首行。
-pub fn parse_chat_completion(body: &serde_json::Value, keep_body: bool) -> Result<String, String> {
-    let raw = body
-        .get("choices")
+/// 从 OpenAI 兼容响应 JSON 提取 `choices[0].message.content` 原文(未清洗)。
+fn extract_content(body: &serde_json::Value) -> Result<String, String> {
+    body.get("choices")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("message"))
         .and_then(|m| m.get("content"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| "AI 返回为空或格式不符".to_string())?;
-    let cleaned = sanitize_message(raw, keep_body);
+        .map(|s| s.to_string())
+        .ok_or_else(|| "AI 返回为空或格式不符".to_string())
+}
+
+/// 从响应 JSON 取 raw content 并清洗;keep_body=false 只取标题首行。
+#[allow(dead_code)] // chat_complete 改用 chat_complete_raw+sanitize_message;此为 JSON 直解便捷封装,供测试与未来扩展
+pub fn parse_chat_completion(body: &serde_json::Value, keep_body: bool) -> Result<String, String> {
+    let raw = extract_content(body)?;
+    let cleaned = sanitize_message(&raw, keep_body);
     if cleaned.is_empty() {
         return Err("AI 返回为空或格式不符".into());
     }
@@ -267,8 +272,18 @@ impl AiConfig {
     }
 }
 
-/// 调用 OpenAI 兼容 `{base_url}/chat/completions`,返回生成的提交信息。
+/// 调用 OpenAI 兼容 `{base_url}/chat/completions`,返回清洗后的提交信息。
 pub async fn chat_complete(cfg: &AiConfig, system: &str, user: &str) -> Result<String, String> {
+    let raw = chat_complete_raw(cfg, system, user).await?;
+    let cleaned = sanitize_message(&raw, cfg.generate_body);
+    if cleaned.is_empty() {
+        return Err("AI 返回为空或格式不符".into());
+    }
+    Ok(cleaned)
+}
+
+/// 发请求并返回**未清洗的 raw content**(供 map/reduce 各自清洗)。HTTP/鉴权/错误处理与 chat_complete 一致。
+pub async fn chat_complete_raw(cfg: &AiConfig, system: &str, user: &str) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -299,7 +314,7 @@ pub async fn chat_complete(cfg: &AiConfig, system: &str, user: &str) -> Result<S
         };
     }
     let value: serde_json::Value = resp.json().await.map_err(|e| format!("解析响应失败:{e}"))?;
-    parse_chat_completion(&value, cfg.generate_body)
+    extract_content(&value)
 }
 
 #[cfg(test)]
