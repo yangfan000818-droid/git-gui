@@ -1,5 +1,9 @@
 //! AI 提交助手:基于暂存 diff 生成 Conventional Commits 提交信息(OpenAI 兼容协议)。
 
+use std::sync::Arc;
+
+use futures_util::future::BoxFuture;
+use futures_util::stream::{self, StreamExt};
 use serde_json::json;
 
 use crate::AppSettings;
@@ -317,6 +321,51 @@ pub async fn chat_complete_raw(cfg: &AiConfig, system: &str, user: &str) -> Resu
     extract_content(&value)
 }
 
+/// 注入的请求函数:接收 (system, user),返回未清洗 raw content 的 future。
+/// 用 Arc<dyn Fn> + 'static BoxFuture,便于生产闭包与测试 mock 各自构造。
+pub type RequestFn =
+    Arc<dyn Fn(String, String) -> BoxFuture<'static, Result<String, String>> + Send + Sync>;
+
+/// 分批 map-reduce:并发(≤3)对每批 diff 生成要点,再一次 reduce 合成 commit。
+/// 任一批 map 或 reduce 失败 → 向上传播 Err(由调用方决定是否回退)。
+#[allow(dead_code)] // Task 7 lib.rs ai_generate_commit_message 将接入
+pub async fn generate_map_reduce(
+    cfg: &AiConfig,
+    chunks: &[String],
+    request: RequestFn,
+) -> Result<String, String> {
+    if chunks.is_empty() {
+        return Err("diff 为空,无法分批生成".into());
+    }
+    // map:system 对所有批相同(不依赖 chunk),只算一次。
+    let map_sys = Arc::new(build_map_prompt("", cfg.language).0);
+    let request_map = Arc::clone(&request);
+    let language = cfg.language;
+    let notes: Vec<String> = stream::iter(chunks.to_vec())
+        .map(|chunk| {
+            let request = Arc::clone(&request_map);
+            let sys = Arc::clone(&map_sys);
+            async move {
+                let user = build_map_prompt(&chunk, language).1;
+                let raw = request((*sys).clone(), user).await?;
+                Ok::<String, String>(sanitize_notes(&raw))
+            }
+        })
+        .buffer_unordered(3)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    // reduce:要点 → 一条 commit。
+    let (red_sys, red_user) = build_reduce_prompt(&notes, cfg.language, cfg.generate_body);
+    let raw = request(red_sys, red_user).await?;
+    let msg = sanitize_message(&raw, cfg.generate_body);
+    if msg.trim().is_empty() {
+        return Err("AI 返回为空或格式不符".into());
+    }
+    Ok(msg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::split_diff;
@@ -325,7 +374,13 @@ mod tests {
     use super::parse_chat_completion;
     use super::{build_map_prompt, build_reduce_prompt, sanitize_notes};
     use super::{build_prompt, AiConfig, Language, MIN_MAX_DIFF_CHARS};
+    use super::{generate_map_reduce, RequestFn};
+    use futures_util::future::BoxFuture;
     use serde_json::json;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     #[test]
     fn parses_content_from_response() {
@@ -566,5 +621,64 @@ mod tests {
         let (sys_without, _) = build_reduce_prompt(&notes, Language::Zh, false);
         assert!(sys_with.contains("正文"));
         assert!(!sys_without.contains("正文"));
+    }
+
+    fn test_cfg() -> AiConfig {
+        AiConfig {
+            base_url: String::new(),
+            api_key: String::new(),
+            model: String::new(),
+            language: Language::Zh,
+            max_diff_chars: 1000,
+            generate_body: false,
+        }
+    }
+
+    /// 按调用顺序返回预设 raw content 的 mock request;某次返回 Err 模拟失败。
+    fn mock_request(responses: Vec<Result<&str, &str>>) -> RequestFn {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let responses: Arc<Vec<Result<String, String>>> = Arc::new(
+            responses
+                .into_iter()
+                .map(|r| match r {
+                    Ok(s) => Ok(s.to_string()),
+                    Err(s) => Err(s.to_string()),
+                })
+                .collect(),
+        );
+        Arc::new(move |_sys: String, _user: String| {
+            let i = counter.fetch_add(1, Ordering::SeqCst);
+            let resp = responses.get(i).cloned().unwrap_or(Ok(String::new()));
+            Box::pin(async move { resp }) as BoxFuture<'static, Result<String, String>>
+        })
+    }
+
+    #[test]
+    fn map_reduce_success_combines_notes_into_commit() {
+        let cfg = test_cfg();
+        let chunks = vec!["chunk-a".to_string(), "chunk-b".to_string()];
+        // 调用顺序:map 批×2(并发,顺序不定,均返回要点)→ reduce(第 3 次)。
+        let request = mock_request(vec![Ok("要点一"), Ok("要点二"), Ok("feat(gui): 合成提交")]);
+        let msg =
+            tauri::async_runtime::block_on(generate_map_reduce(&cfg, &chunks, request)).unwrap();
+        assert_eq!(msg, "feat(gui): 合成提交");
+    }
+
+    #[test]
+    fn map_reduce_map_failure_propagates_err() {
+        let cfg = test_cfg();
+        let chunks = vec!["chunk-a".to_string(), "chunk-b".to_string()];
+        // 某批 map 失败 → 整体 Err(reduce 不应被调用)。
+        let request = mock_request(vec![Ok("要点一"), Err("网络错误")]);
+        let result = tauri::async_runtime::block_on(generate_map_reduce(&cfg, &chunks, request));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn map_reduce_empty_chunks_is_err() {
+        let cfg = test_cfg();
+        let request = mock_request(vec![]);
+        let result = tauri::async_runtime::block_on(generate_map_reduce(&cfg, &[], request));
+        assert!(result.is_err());
     }
 }
