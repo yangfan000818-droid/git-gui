@@ -243,6 +243,7 @@
   let aiConfigured = $state(false); // 启用且填了 Key
   let generating = $state(false); // 批量生成进行中
   let generatingRepo = $state<string | null>(null); // 当前正在生成的仓库(单/批量)
+  let generatingIndex = $state(0); // 批量生成进度(1-based,用于"生成中 i/N"提示)
   let aiError = $state<Record<string, string>>({}); // per-repo 生成错误
   let amendMode = $state(false); // amend 模式:仅修改主仓库上次提交
   let commitResult = $state("");
@@ -836,7 +837,9 @@
     if (!(await ensureAiConfigured())) return;
     generating = true;
     try {
-      for (const r of stagedRepos) {
+      for (let i = 0; i < stagedRepos.length; i++) {
+        const r = stagedRepos[i];
+        generatingIndex = i + 1;
         generatingRepo = r.path;
         try {
           const msg = await invoke<string>("ai_generate_commit_message", {
@@ -849,6 +852,7 @@
         }
       }
       generatingRepo = null;
+      generatingIndex = 0;
     } finally {
       generating = false;
     }
@@ -1965,7 +1969,7 @@
                   disabled={generating || operating}
                   onclick={generateAll}
                   >{generating
-                    ? `生成中…${generatingRepo ? `(${generatingRepo})` : ""}`
+                    ? `生成中… ${generatingIndex}/${stagedRepos.length}`
                     : "✨ 全部生成"}</button
                 >
                 {#each stagedRepos as r (r.path)}
