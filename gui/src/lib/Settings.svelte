@@ -9,6 +9,7 @@
     update_strategy: "Merge" | "Rebase";
     ignore_whitespace: boolean;
     skip_hooks: boolean;
+    silent_update: boolean;
     theme: string;
     density: string;
     font_size: string;
@@ -29,6 +30,7 @@
   let strategy = $state<"Merge" | "Rebase">("Merge");
   let ignoreWhitespace = $state(true);
   let skipHooks = $state(false);
+  let silentUpdate = $state(true);
 
   // ── 外观设置 ──
   let theme = $state("neon-dark");
@@ -118,6 +120,7 @@
       strategy = s.update_strategy;
       ignoreWhitespace = s.ignore_whitespace;
       skipHooks = s.skip_hooks;
+      silentUpdate = s.silent_update ?? false;
       theme = s.theme || "neon-dark";
       density = s.density || "comfortable";
       font_size = s.font_size || "medium";
@@ -139,6 +142,7 @@
         update_strategy: strategy,
         ignore_whitespace: ignoreWhitespace,
         skip_hooks: skipHooks,
+        silent_update: silentUpdate,
         theme,
         density,
         font_size,
@@ -391,6 +395,16 @@
               >勾选则提交用 --no-verify，不运行 pre-commit / commit-msg
               钩子。默认不跳过。</small
             >
+          </span>
+        </label>
+
+        <label class="st-check">
+          <input type="checkbox" bind:checked={silentUpdate} />
+          <span>
+            <b>静默更新</b>
+            <small>
+              点「更新」/「全部更新」时不弹进度窗口，后台执行；成功显示通知，冲突仍弹出解决窗口。
+            </small>
           </span>
         </label>
 

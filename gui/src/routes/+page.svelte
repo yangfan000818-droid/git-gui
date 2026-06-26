@@ -29,6 +29,7 @@
   import UpdateBanner from "$lib/UpdateBanner.svelte";
   import StashView from "$lib/StashView.svelte";
   import TagView from "$lib/TagView.svelte";
+  import Toast from "$lib/Toast.svelte";
   import "../lib/themes.css";
 
   // ── 外观设置接口（与 Rust AppSettings 外观字段对应） ──
@@ -161,6 +162,22 @@
   // 「全部推送」队列:被拒的仓逐个「更新后推送」,队首为当前正在处理的仓。
   let pushQueue = $state<RepoView[]>([]);
   let pushDialogRepo = $state<RepoView | null>(null); // Push 对话框目标仓(null=关闭)
+
+  // ── Toast 通知(静默更新结果用) ──
+  type ToastKind = "success" | "error" | "info";
+  let toast = $state<{
+    message: string;
+    kind: ToastKind;
+    duration: number;
+  } | null>(null);
+
+  function showToast(message: string, kind: ToastKind, duration = 3500) {
+    toast = { message, kind, duration };
+  }
+
+  function closeToast() {
+    toast = null;
+  }
   // 文件查看器目标(null=关闭):整文件 + 相对 HEAD 的行内变更标记。
   let fileViewer = $state<{ repoPath: string; filePath: string } | null>(null);
   function openFileViewer(repoPath: string, filePath: string) {
@@ -826,39 +843,39 @@
 
   // ── 远程操作 ──
   // 全部更新:主仓库整合 + 各子仓库在各自当前分支更新。
-  function openUpdateAll() {
+  async function openUpdateAll() {
     if (!status) return;
     updateSubmodules = status.submodules;
     updateTitle = "全部更新";
     updateSubsOnly = false;
     error = "";
     opMessage = "";
-    showUpdate = true;
+    await triggerUpdate(path);
   }
 
   // 仅更新主仓库(弹层不带子仓库)。
-  function openUpdateMain() {
+  async function openUpdateMain() {
     updateSubmodules = [];
     updateTitle = "更新主仓库";
     updateSubsOnly = false;
     error = "";
     opMessage = "";
-    showUpdate = true;
+    await triggerUpdate(path);
   }
 
   // 顶部「更新子仓库」:对所有子仓库按状态自动分流(未初始化→init,已初始化→on-branch 更新),不动主仓。
-  function openUpdateSubs() {
+  async function openUpdateSubs() {
     if (!status) return;
     updateSubmodules = status.submodules;
     updateTitle = "更新子仓库";
     updateSubsOnly = true;
     error = "";
     opMessage = "";
-    showUpdate = true;
+    await triggerUpdate(path);
   }
 
   // 行内「更新」:单个子仓在当前分支更新,复用 UpdateView 冲突流程。
-  function openUpdateSub(repo: RepoView) {
+  async function openUpdateSub(repo: RepoView) {
     if (!status || !repo.subRelPath) return;
     const sub = status.submodules.find((s) => s.path === repo.subRelPath);
     if (!sub) return;
@@ -867,7 +884,202 @@
     updateSubsOnly = true;
     error = "";
     opMessage = "";
+    await triggerUpdate(path);
+  }
+
+  // 统一更新入口:读 silent_update 设置,开启则后台静默执行,否则弹 UpdateView。
+  // updateSubmodules / updateTitle / updateSubsOnly 已由调用方设置好。
+  async function triggerUpdate(targetPath: string) {
+    try {
+      const s = await invoke<{ silent_update: boolean }>("get_settings");
+      if (s.silent_update) {
+        void silentUpdateRun({
+          path: targetPath,
+          submodules: updateSubmodules,
+          subsOnly: updateSubsOnly,
+          title: updateTitle,
+        });
+        return;
+      }
+    } catch {
+      // 读设置失败:退回到弹窗模式
+    }
     showUpdate = true;
+  }
+
+  // 静默更新:后台执行,不弹 UpdateView。成功 toast 提示;失败 toast 报错;
+  // 冲突仍弹 UpdateView(其 onMount 会通过 resume_conflicts 进冲突解决)。
+  async function silentUpdateRun(opts: {
+    path: string;
+    submodules: { name: string; path: string; status: string }[];
+    subsOnly: boolean;
+    title: string;
+  }) {
+    operating = true;
+    showToast(opts.title + "…", "info", 0);
+    let strategy: "Merge" | "Rebase" = "Merge";
+    let ignoreWhitespace = true;
+    try {
+      const s = await invoke<{
+        update_strategy: "Merge" | "Rebase";
+        ignore_whitespace: boolean;
+      }>("get_settings");
+      strategy = s.update_strategy;
+      ignoreWhitespace = s.ignore_whitespace;
+    } catch {
+      // 读设置失败用默认值
+    }
+    const options = {
+      strategy,
+      ignore_whitespace: ignoreWhitespace,
+      recurse_submodules: false,
+    };
+
+    const lines: string[] = [];
+    let hasWarn = false;
+
+    try {
+      // 主仓更新(仅子仓模式跳过)。
+      if (!opts.subsOnly) {
+        const outcome = await invoke<
+          | "AlreadyUpToDate"
+          | "Resolved"
+          | { FastForwarded: { commits: number } }
+          | { Integrated: { commits: number; strategy: string } }
+          | { Conflicted: { files: string[]; autostash: unknown } }
+          | { StashRestoreConflict: { files: string[] } }
+          | { SubmoduleSyncFailed: { error: string } }
+        >("execute_update", {
+          path: opts.path,
+          opId: crypto.randomUUID(),
+          options,
+        });
+        if (typeof outcome === "object" && "Conflicted" in outcome) {
+          // 主仓冲突:弹 UpdateView 走冲突解决。
+          closeToast();
+          showUpdate = true;
+          return;
+        }
+        const m = describeMainOutcome(outcome);
+        if (m) {
+          lines.push(m);
+          if (m.startsWith("警告") || m.startsWith("冲突")) hasWarn = true;
+        }
+      }
+
+      // 逐个更新子仓(同 UpdateView.processSubmodulesFrom 逻辑)。
+      for (const sub of opts.submodules) {
+        if (sub.status === "Uninitialized") {
+          try {
+            await invoke("repo_submodule_update", {
+              path: opts.path,
+              subPath: sub.path,
+            });
+            lines.push(`${sub.path}:已初始化`);
+          } catch (e) {
+            lines.push(`${sub.path}:初始化失败 ${String(e)}`);
+            hasWarn = true;
+          }
+          continue;
+        }
+        const r = await invoke<
+          | "UpToDate"
+          | "SyncedToRecorded"
+          | "SkippedNoUpstream"
+          | "StashConflict"
+          | { Updated: { commits: number } }
+          | { Conflicted: { repo_path: string; files: string[]; autostash: unknown } }
+        >("repo_update_submodule_on_branch", {
+          path: opts.path,
+          subPath: sub.path,
+          options,
+        });
+        if (typeof r === "object" && "Conflicted" in r) {
+          // 子仓冲突:弹 UpdateView(其会重跑,主仓 AlreadyUpToDate,冲突子仓进 ConflictView)。
+          closeToast();
+          showUpdate = true;
+          return;
+        }
+        const d = describeSubResult(r);
+        lines.push(`${sub.path}:${d}`);
+        if (d.includes("跳过") || d.includes("冲突")) hasWarn = true;
+      }
+
+      showToast(
+        (hasWarn ? "更新完成(有警告):\n" : "更新完成:\n") + lines.join("\n"),
+        "success",
+        hasWarn ? 6000 : 3500,
+      );
+    } catch (e) {
+      showToast(`${opts.title}失败:${String(e)}`, "error", 6000);
+    } finally {
+      operating = false;
+      await refresh();
+    }
+  }
+
+  // 把主仓 UpdateOutcome 映射为一行中文描述;null 表示无需展示(如已是最新可省略)。
+  function describeMainOutcome(
+    o:
+      | string
+      | { FastForwarded: { commits: number } }
+      | { Integrated: { commits: number; strategy: string } }
+      | { StashRestoreConflict: { files: string[] } }
+      | { SubmoduleSyncFailed: { error: string } }
+      | Record<string, unknown>,
+  ): string | null {
+    if (typeof o === "string") {
+      if (o === "AlreadyUpToDate") return "主仓库已是最新";
+      if (o === "Resolved") return "主仓库冲突已解决";
+      return o;
+    }
+    if ("FastForwarded" in o) {
+      const d = (o as { FastForwarded: { commits: number } }).FastForwarded;
+      return `主仓库快进 ${d.commits} 个提交`;
+    }
+    if ("Integrated" in o) {
+      const d = (o as { Integrated: { commits: number; strategy: string } })
+        .Integrated;
+      return `主仓库整合 ${d.commits} 个提交(${
+        d.strategy === "Rebase" ? "变基" : "合并"
+      })`;
+    }
+    if ("StashRestoreConflict" in o) {
+      const d = (o as { StashRestoreConflict: { files: string[] } })
+        .StashRestoreConflict;
+      return `警告:stash 还原冲突,${d.files.length} 个文件需手动处理`;
+    }
+    if ("SubmoduleSyncFailed" in o) {
+      const d = (o as { SubmoduleSyncFailed: { error: string } })
+        .SubmoduleSyncFailed;
+      return `警告:子仓库同步失败 - ${d.error}`;
+    }
+    return null;
+  }
+
+  // 把子仓 SubmoduleUpdate 映射为一行简短中文描述。
+  function describeSubResult(
+    r: string | { Updated: { commits: number } } | Record<string, unknown>,
+  ): string {
+    if (typeof r === "string") {
+      switch (r) {
+        case "UpToDate":
+          return "已是最新";
+        case "SyncedToRecorded":
+          return "已同步到记录提交";
+        case "SkippedNoUpstream":
+          return "跳过:无上游分支";
+        case "StashConflict":
+          return "stash 还原冲突,需手动处理";
+        default:
+          return r;
+      }
+    }
+    if ("Updated" in r) {
+      const d = (r as { Updated: { commits: number } }).Updated;
+      return `已更新 ${d.commits} 个提交`;
+    }
+    return "未知结果";
   }
 
   // repo_push 的返回(PushOutcome,外部 tagged 单元枚举 → 字符串)。
@@ -1650,6 +1862,16 @@
         pushDialogRepo = null;
         if (pushed) void refresh();
       }}
+    />
+  {/if}
+
+  <!-- ── Toast 通知(静默更新结果) ── -->
+  {#if toast}
+    <Toast
+      message={toast.message}
+      kind={toast.kind}
+      duration={toast.duration}
+      onClose={closeToast}
     />
   {/if}
 

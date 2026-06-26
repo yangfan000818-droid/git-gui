@@ -638,6 +638,7 @@
       <div class="progress-bar-wrap">
         <div
           class="progress-bar-fill"
+          class:indeterminate={progress?.percent == null}
           style="width: {progress?.percent ?? 0}%"
           role="progressbar"
           aria-valuenow={progress?.percent ?? 0}
@@ -954,6 +955,30 @@
     transition: width 0.3s ease;
     border-radius: 5px 0 0 5px;
     min-width: 0;
+  }
+  /* indeterminate 模式:无百分比阶段(fetch 后的整合/stash/同步等),
+     用条纹滚动动画表明仍在工作,不再卡在 100%。 */
+  .progress-bar-fill.indeterminate {
+    width: 100% !important;
+    background-image: linear-gradient(
+      -45deg,
+      var(--accent-cyan) 0%,
+      var(--accent-cyan) 40%,
+      rgba(255, 255, 255, 0.25) 50%,
+      var(--accent-cyan) 60%,
+      var(--accent-cyan) 100%
+    );
+    background-size: 40px 40px;
+    animation: progress-stripes 0.9s linear infinite;
+    border-radius: 5px;
+  }
+  @keyframes progress-stripes {
+    from {
+      background-position: 0 0;
+    }
+    to {
+      background-position: 40px 0;
+    }
   }
   .progress-text {
     position: absolute;

@@ -98,6 +98,10 @@ struct AppSettings {
     /// 提交时跳过 git 钩子(--no-verify)。默认 false = 不跳过。
     #[serde(default)]
     skip_hooks: bool,
+    /// 静默更新:点更新/全部更新时不弹进度窗口,后台执行;
+    /// 成功 toast 提示,冲突仍弹出 UpdateView 解决。默认开启。
+    #[serde(default = "default_true")]
+    silent_update: bool,
 
     // ── 外观设置 ──
     /// 主题预设: "neon-dark" | "light" | "dracula" | "nord" | "solarized-dark" |
@@ -143,6 +147,7 @@ impl Default for AppSettings {
             update_strategy: "Merge".into(),
             ignore_whitespace: true,
             skip_hooks: false,
+            silent_update: true,
             theme: default_theme(),
             density: default_density(),
             font_size: default_font_size(),

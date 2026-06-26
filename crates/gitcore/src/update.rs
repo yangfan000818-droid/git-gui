@@ -80,6 +80,16 @@ pub enum SubmoduleUpdate {
     StashConflict,
 }
 
+// 发送一个无百分比的阶段进度事件,让前端进度条切到 indeterminate 模式,
+// 避免在 fetch 到 100% 后进度条卡住等整合完成。
+fn phase(on_progress: &mut dyn FnMut(Progress), name: &str) {
+    on_progress(Progress {
+        phase: name.to_string(),
+        percent: None,
+        raw: String::new(),
+    });
+}
+
 /// 执行完整 Update 流程。
 pub(crate) fn execute_update(
     repo: &Repo,
@@ -101,6 +111,7 @@ pub(crate) fn execute_update_streaming(
     require_upstream(repo)?;
     fetch(repo, on_progress, cancel, opts.recurse_submodules)?;
 
+    phase(on_progress, "正在分析提交");
     let (behind, ahead) = ahead_behind(repo)?;
     if behind == 0 {
         return Ok(UpdateOutcome::AlreadyUpToDate);
@@ -108,9 +119,11 @@ pub(crate) fn execute_update_streaming(
 
     // ① 脏工作区保护:先 stash。
     let label = stash::autostash_label();
+    phase(on_progress, "正在暂存工作区改动");
     let autostash = stash::autostash_push(repo, &label)?;
 
     // ② 整合:本地无领先提交则快进,否则按策略合并/变基。
+    phase(on_progress, "正在整合");
     let integration = if ahead == 0 {
         fast_forward(repo)
     } else {
@@ -145,6 +158,7 @@ pub(crate) fn execute_update_streaming(
     // ③ 同步子仓库:主仓库整合成功后,把子仓库 checkout 到记录 commit。
     // 失败不阻断:主仓库改动已提交,先还原 autostash,再作为警告返回。
     let submodule_err = if opts.recurse_submodules {
+        phase(on_progress, "同步子仓库");
         update_submodules(repo).err()
     } else {
         None
@@ -152,6 +166,7 @@ pub(crate) fn execute_update_streaming(
 
     // ① 还原脏工作区。
     if let Some(stash) = autostash {
+        phase(on_progress, "还原工作区改动");
         if let PopResult::Conflict(files) = stash::autostash_pop(repo, &stash)? {
             return Ok(UpdateOutcome::StashRestoreConflict { files });
         }
