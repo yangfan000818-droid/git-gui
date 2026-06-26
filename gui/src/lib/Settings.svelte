@@ -16,6 +16,12 @@
     animations_enabled: boolean;
     scanline_enabled: boolean;
     glow_intensity: string;
+    ai_enabled: boolean;
+    ai_base_url: string;
+    ai_api_key: string;
+    ai_model: string;
+    ai_language: string;
+    ai_max_diff_chars: number;
   }
 
   let {
@@ -39,6 +45,14 @@
   let animationsEnabled = $state(true);
   let scanlineEnabled = $state(true);
   let glowIntensity = $state("medium");
+
+  // ── AI 提交助手 ──
+  let aiEnabled = $state(false);
+  let aiBaseUrl = $state("https://api.openai.com/v1");
+  let aiApiKey = $state("");
+  let aiModel = $state("gpt-4o-mini");
+  let aiLanguage = $state("zh");
+  let aiMaxDiffChars = $state(30000);
 
   let loading = $state(true);
   let saving = $state(false);
@@ -127,6 +141,12 @@
       animationsEnabled = s.animations_enabled ?? true;
       scanlineEnabled = s.scanline_enabled ?? true;
       glowIntensity = s.glow_intensity || "medium";
+      aiEnabled = s.ai_enabled ?? false;
+      aiBaseUrl = s.ai_base_url || "https://api.openai.com/v1";
+      aiApiKey = s.ai_api_key || "";
+      aiModel = s.ai_model || "gpt-4o-mini";
+      aiLanguage = s.ai_language || "zh";
+      aiMaxDiffChars = s.ai_max_diff_chars ?? 30000;
     } catch (e) {
       error = String(e);
     } finally {
@@ -149,6 +169,12 @@
         animations_enabled: animationsEnabled,
         scanline_enabled: scanlineEnabled,
         glow_intensity: glowIntensity,
+        ai_enabled: aiEnabled,
+        ai_base_url: aiBaseUrl,
+        ai_api_key: aiApiKey,
+        ai_model: aiModel,
+        ai_language: aiLanguage,
+        ai_max_diff_chars: aiMaxDiffChars,
       };
       await invoke("save_settings", { settings });
       onAppearanceChanged?.(settings);
@@ -407,6 +433,91 @@
             </small>
           </span>
         </label>
+
+        <!-- ─── AI 提交助手 ─── -->
+        <fieldset class="st-group">
+          <legend>🤖 AI 提交助手</legend>
+          <p class="st-hint">
+            根据「暂存的改动」自动生成 Conventional Commits
+            风格的提交信息草稿;生成后可再编辑。仅支持 OpenAI 兼容协议(智谱 /
+            DeepSeek / Kimi / 通义 / OpenAI 等均可填)。Key 明文保存在本地
+            settings.json。
+          </p>
+
+          <label class="st-check">
+            <input type="checkbox" bind:checked={aiEnabled} />
+            <span>
+              <b>启用 AI 生成提交信息</b>
+              <small
+                >开启后,提交区会为每个有暂存改动的仓库显示独立输入框 + 生成按钮</small
+              >
+            </span>
+          </label>
+
+          <label class="st-radio" style="display:block;padding:6px 0">
+            <span>
+              <b>API Base URL</b>
+              <input
+                class="ai-input"
+                type="text"
+                bind:value={aiBaseUrl}
+                placeholder="https://api.openai.com/v1"
+              />
+            </span>
+          </label>
+
+          <label class="st-radio" style="display:block;padding:6px 0">
+            <span>
+              <b>API Key</b>
+              <input
+                class="ai-input"
+                type="password"
+                bind:value={aiApiKey}
+                placeholder="sk-..."
+              />
+            </span>
+          </label>
+
+          <label class="st-radio" style="display:block;padding:6px 0">
+            <span>
+              <b>模型</b>
+              <input
+                class="ai-input"
+                type="text"
+                bind:value={aiModel}
+                placeholder="gpt-4o-mini"
+              />
+            </span>
+          </label>
+
+          <div class="glow-row">
+            <span class="glow-label">提交信息语言</span>
+            <div class="segmented">
+              <button
+                class="seg-btn seg-sm"
+                class:seg-active={aiLanguage === "zh"}
+                onclick={() => (aiLanguage = "zh")}>中文</button
+              >
+              <button
+                class="seg-btn seg-sm"
+                class:seg-active={aiLanguage === "en"}
+                onclick={() => (aiLanguage = "en")}>English</button
+              >
+            </div>
+          </div>
+
+          <label class="st-radio" style="display:block;padding:6px 0">
+            <span>
+              <b>diff 截断字符数</b>
+              <input
+                class="ai-input"
+                type="number"
+                min="1000"
+                bind:value={aiMaxDiffChars}
+              />
+            </span>
+          </label>
+        </fieldset>
 
         <!-- ─── 软件更新 ─── -->
         <fieldset class="st-group">
@@ -767,5 +878,20 @@
     font-weight: 600;
     color: var(--text-primary);
     flex-shrink: 0;
+  }
+  .ai-input {
+    width: 100%;
+    margin-top: 4px;
+    padding: 6px 8px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: var(--fs-sm, 12px);
+    font-family: inherit;
+  }
+  .ai-input:focus {
+    outline: none;
+    border-color: var(--accent-cyan, #58a6ff);
   }
 </style>
