@@ -437,6 +437,16 @@
     }
   }
 
+  // 复制分支名到剪贴板(参考 HistoryView copySha;远程分支复制完整名)。
+  async function copyBranch(name: string) {
+    openMenu = null;
+    try {
+      await navigator.clipboard.writeText(name);
+    } catch {
+      // 剪贴板失败静默(webview 权限/焦点问题)。
+    }
+  }
+
   function startRename(name: string) {
     renamingBranch = name;
     renameValue = name;
@@ -632,6 +642,10 @@
                       class="bp-menu-item"
                       onclick={() => startRename(b.name)}>重命名…</button
                     >
+                    <button
+                      class="bp-menu-item"
+                      onclick={() => copyBranch(b.name)}>复制分支名</button
+                    >
                     {#if !b.is_current}
                       <button
                         class="bp-menu-item"
@@ -704,6 +718,10 @@
               </div>
               {#if openMenu === b.name}
                 <div class="bp-menu">
+                  <button
+                    class="bp-menu-item"
+                    onclick={() => copyBranch(b.name)}>复制分支名</button
+                  >
                   <button
                     class="bp-menu-item"
                     onclick={() => {
