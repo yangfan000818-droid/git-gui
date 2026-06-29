@@ -30,6 +30,38 @@
     repo_label: string; // "" = 主仓,否则子仓相对路径
     repo_path: string; // 该提交所属仓库的绝对路径(操作定位用)
   }
+  // 多 root 合并拓扑图的一条提交(lane/edges 已全局偏移)。
+  interface MergedGraphCommit {
+    entry: LogEntry;
+    lane: number;
+    edges: GraphEdge[];
+    edge_roots: number[]; // 与 edges 平行:每条 edge 所在车道的 root(repo_index)
+    repo_index: number; // 0=主仓,1..N=子仓
+    repo_label: string;
+    repo_path: string;
+  }
+  // 一个 root 的元信息(后端权威 repo_index + 标签/路径)。
+  interface RootMeta {
+    index: number;
+    label: string;
+    path: string;
+  }
+  interface MergedGraphLog {
+    roots: RootMeta[];
+    commits: MergedGraphCommit[];
+  }
+  // 统一绘制视图模型:单仓 GraphCommit 与多仓 MergedGraphCommit 各自 map 成此扁平结构,
+  // 虚拟滚动 / SVG 绘制全基于它(不强行 union,避免模板 TS 据 hasSub 收窄失败)。
+  interface Drawable {
+    entry: LogEntry;
+    lane: number;
+    edges: GraphEdge[];
+    nodeColor: string;
+    edgeColors: string[]; // 与 edges 平行,逐边颜色
+    repoPath: string;
+    focused: boolean; // 节点/行聚焦:false = 灰显(仍在位、可选中),单仓恒 true
+    edgeFocused: boolean[]; // 与 edges 平行:每条边按其所在车道 root 的焦点(pass-through 边可能属别的仓)
+  }
   type LineKind = "Context" | "Added" | "Removed";
   interface DiffLine {
     kind: LineKind;
@@ -105,6 +137,14 @@
   // ── 状态 ──
   let commits = $state<GraphCommit[]>([]);
   let mergedRows = $state<MergedLogEntry[]>([]);
+  // 多仓图态:合并拓扑提交 + 首载缓存的全部 roots(渲染 chip,权威 repo_index)。
+  let mergedGraph = $state<MergedGraphCommit[]>([]);
+  let allRoots = $state<RootMeta[]>([]);
+  // 聚焦集:null=全部聚焦(全亮);非空=仅这些 repo_index 聚焦,其余灰显(仍在位、可选中)。
+  let focusedRoots = $state<number[] | null>(null);
+  function isFocused(repoIndex: number): boolean {
+    return focusedRoots === null || focusedRoots.includes(repoIndex);
+  }
   // 当前选中提交所属仓库的绝对路径(主仓或某子仓),详情与操作据此定位仓库。
   let selectedRepoPath = $state("");
   let loading = $state(false);
@@ -176,7 +216,18 @@
     loading = true;
     error = "";
     try {
-      if (hasSub) {
+      if (graphMode) {
+        const res = await invoke<MergedGraphLog>("repo_log_merged_topology", {
+          path,
+          maxCount,
+          branch: selectedBranch || null,
+          author: authorFilter || null,
+          grep: grepFilter || null,
+        });
+        mergedGraph = res.commits;
+        // 始终拉取全部仓,首载捕获完整 root 列表(权威 repo_index)供 chip 渲染。
+        allRoots = res.roots;
+      } else if (hasSub) {
         mergedRows = await invoke<MergedLogEntry[]>("repo_log_merged", {
           path,
           maxCount,
@@ -219,7 +270,13 @@
   }
 
   // 列表总条数(供标题与空态判断,合并/单仓两种来源统一)。
-  let rowCount = $derived(hasSub ? mergedRows.length : commits.length);
+  let rowCount = $derived(
+    hasSub
+      ? authorFilter === "" && grepFilter === ""
+        ? mergedGraph.length
+        : mergedRows.length
+      : commits.length,
+  );
   // 选中提交所属子仓的相对路径(主仓提交为空串),供详情头部标注操作目标仓库。
   let selectedRepoLabel = $derived(
     selectedRepoPath && selectedRepoPath !== path
@@ -505,6 +562,7 @@
   const ROW_H = 44; // 单仓/合并统一行高(两行布局)
   const LANE_W = 16;
   const NODE_R = 5;
+  const STRIPE_PAD = 9; // 多仓图态最左留白,给 root stripe 与车道拉开间距
 
   const LANE_COLORS = [
     "#56D364", // soft green
@@ -523,22 +581,57 @@
     return LANE_COLORS[lane % LANE_COLORS.length];
   }
 
+  // 多仓图态整体右移 STRIPE_PAD,给最左 root stripe 留白(单仓 graphMode=false 不偏移)。
   function laneX(lane: number): number {
-    return lane * LANE_W + LANE_W / 2;
+    return (graphMode ? STRIPE_PAD : 0) + lane * LANE_W + LANE_W / 2;
   }
+
+  // ── 上色:单仓按 lane、多仓按 root ──
+  function rootColor(i: number): string {
+    return LANE_COLORS[i % LANE_COLORS.length];
+  }
+  // 多仓图态:有子仓且非筛选(筛选退化为线性 chip 列表);等价 hasSub && !filtering。
+  let graphMode = $derived(hasSub && authorFilter === "" && grepFilter === "");
+
+  // 统一绘制视图模型:单仓 / 多仓各自 map 成 Drawable,虚拟滚动与 SVG 全基于它。
+  let drawables = $derived<Drawable[]>(
+    graphMode
+      ? mergedGraph.map((c) => ({
+          entry: c.entry,
+          lane: c.lane,
+          edges: c.edges,
+          nodeColor: rootColor(c.repo_index),
+          edgeColors: c.edge_roots.map((ri) => rootColor(ri)),
+          repoPath: c.repo_path,
+          focused: isFocused(c.repo_index),
+          edgeFocused: c.edge_roots.map((ri) => isFocused(ri)),
+        }))
+      : commits.map((c) => ({
+          entry: c.entry,
+          lane: c.lane,
+          edges: c.edges,
+          nodeColor: laneColor(c.lane),
+          edgeColors: c.edges.map((e) => laneColor(e.from_lane)),
+          repoPath: path,
+          focused: true,
+          edgeFocused: c.edges.map(() => true),
+        })),
+  );
 
   // ── 派生:最大 lane 号 + SVG 尺寸 ──
   let maxLane = $derived(
-    commits.reduce((m, c) => {
-      m = Math.max(m, c.lane);
-      for (const e of c.edges) {
+    drawables.reduce((m, d) => {
+      m = Math.max(m, d.lane);
+      for (const e of d.edges) {
         m = Math.max(m, e.from_lane, e.to_lane);
       }
       return m;
     }, 0),
   );
-  let svgWidth = $derived((maxLane + 1) * LANE_W);
-  let svgHeight = $derived(commits.length * ROW_H);
+  let svgWidth = $derived(
+    (graphMode ? STRIPE_PAD : 0) + (maxLane + 1) * LANE_W,
+  );
+  let svgHeight = $derived(drawables.length * ROW_H);
 
   // ── 虚拟滚动:固定行高,只渲染可视区 ± 缓冲行,避免大历史下 DOM 爆炸 ──
   let scrollEl = $state<HTMLElement | null>(null);
@@ -546,21 +639,19 @@
   let _viewportH = $state(600);
   const VBUFFER = 8;
   // viewportH 不能低于一个屏幕高度,防止 bind:clientHeight 尚未更新(如切换仓库重建 DOM
-  // 时 clientHeight 短暂为 0)导致 visibleCommits 为空。
+  // 时 clientHeight 短暂为 0)导致 visibleRows 为空。
   let viewportH = $derived(Math.max(_viewportH, 200));
 
-  // 单仓(SVG 图)视图可视窗口:gi 为全局行索引,SVG 与行均按 gi*ROW_H 定位以保持对齐。
+  // 图态可视窗口:gi 为全局行索引,SVG 与行均按 gi*ROW_H 定位以保持对齐。
   let visStart = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - VBUFFER));
   let visEnd = $derived(
     Math.min(
-      commits.length,
+      drawables.length,
       Math.ceil((scrollTop + viewportH) / ROW_H) + VBUFFER,
     ),
   );
-  let visibleCommits = $derived(
-    commits
-      .slice(visStart, visEnd)
-      .map((c, k) => ({ commit: c, gi: visStart + k })),
+  let visibleRows = $derived(
+    drawables.slice(visStart, visEnd).map((d, k) => ({ d, gi: visStart + k })),
   );
 
   // 合并视图可视窗口。
@@ -613,6 +704,15 @@
     }, 300) as unknown as number;
   }
 
+  // 仓库 toggle:纯前端聚焦开关 —— 关掉某仓 → 它灰显(仍在位、可选中),不重载、不清选中。
+  function toggleRoot(idx: number) {
+    const all = allRoots.map((r) => r.index);
+    let set = focusedRoots === null ? all.slice() : focusedRoots.slice();
+    set = set.includes(idx) ? set.filter((i) => i !== idx) : [...set, idx];
+    // 全部都在焦点 → 归一为 null(全亮);否则保留集合(含空集 = 全灰)。
+    focusedRoots = set.length === all.length ? null : set;
+  }
+
   // 初始化 / path 或 submodules 变化时重置并重载。
   // 同时跟踪 submodules.length:openProject 会先设 status=null(path 同步更新)再异步 reload,
   // 导致 HistoryView 先用 hasSub=false 调了单仓命令,父组件 reload 完成后 submodules 更新为
@@ -639,6 +739,9 @@
       }
       commits = [];
       mergedRows = [];
+      mergedGraph = [];
+      allRoots = [];
+      focusedRoots = null; // 切仓库 / 子仓集变化 → 焦点重置为全亮
       load();
     }
   });
@@ -694,10 +797,27 @@
         />
       </div>
 
+      <!-- 仓库 toggle:多仓且 >1 root 时显示,点击聚焦/灰显某 root(不隐藏) -->
+      {#if hasSub && allRoots.length > 1}
+        <div class="repo-toggle-row">
+          {#each allRoots as r (r.index)}
+            <button
+              class="repo-toggle"
+              class:off={!isFocused(r.index)}
+              onclick={() => toggleRoot(r.index)}
+              title={r.path}
+            >
+              <span class="dot" style="background:{rootColor(r.index)}"></span>
+              {r.label || "主仓"}
+            </button>
+          {/each}
+        </div>
+      {/if}
+
       {#if rowCount === 0 && !loading}
         <p class="muted">无提交记录</p>
-      {:else if hasSub}
-        <!-- 合并视图:主仓 + 各子仓提交按时间排序,带仓库标识(无拓扑图) -->
+      {:else if hasSub && filtering}
+        <!-- 多仓筛选态:退化为按时间排序的线性 chip 列表(无拓扑图) -->
         <div
           class="log-scroll merged"
           bind:this={scrollEl}
@@ -743,8 +863,10 @@
           </div>
         </div>
       {:else}
+        <!-- 统一图块:单仓 / 多仓图态共用,由 drawables 驱动(节点 nodeColor、edge edgeColors) -->
         <div
           class="log-scroll"
+          class:multi={graphMode}
           bind:this={scrollEl}
           bind:clientHeight={_viewportH}
           onscroll={onCommitScroll}
@@ -758,31 +880,46 @@
               viewBox="0 0 {svgWidth} {svgHeight}"
               aria-hidden="true"
             >
+              <!-- 多仓:左侧 root 彩色 stripe(进 SVG,与图同滚动同对齐) -->
+              {#if graphMode}
+                {#each visibleRows as { d, gi } (d.repoPath + d.entry.full_sha)}
+                  <rect
+                    x="0"
+                    y={gi * ROW_H}
+                    width="2"
+                    height={ROW_H}
+                    fill={d.nodeColor}
+                    opacity={d.focused ? 0.5 : 0.12}
+                  >
+                    <title>{d.repoPath}</title>
+                  </rect>
+                {/each}
+              {/if}
               <!-- edges:先画连线,再画 node 覆盖 -->
-              {#each visibleCommits as { commit, gi } (commit.entry.full_sha)}
-                {#each commit.edges as edge}
-                  {@const fromColor = laneColor(edge.from_lane)}
+              {#each visibleRows as { d, gi } (d.repoPath + d.entry.full_sha)}
+                {#each d.edges as edge, ei}
                   <path
                     d={edgePath(edge, gi)}
-                    stroke={fromColor}
+                    stroke={d.edgeColors[ei]}
                     stroke-width="1.5"
                     fill="none"
                     stroke-linecap="round"
+                    opacity={d.edgeFocused[ei] ? 1 : 0.18}
                   />
                 {/each}
               {/each}
               <!-- nodes -->
-              {#each visibleCommits as { commit, gi } (commit.entry.full_sha)}
-                {@const cx = laneX(commit.lane)}
+              {#each visibleRows as { d, gi } (d.repoPath + d.entry.full_sha)}
+                {@const cx = laneX(d.lane)}
                 {@const cy = gi * ROW_H + ROW_H / 2}
-                {@const color = laneColor(commit.lane)}
                 <circle
                   {cx}
                   {cy}
                   r={NODE_R}
-                  fill={color}
-                  stroke={color}
+                  fill={d.nodeColor}
+                  stroke={d.nodeColor}
                   stroke-width="1"
+                  opacity={d.focused ? 1 : 0.22}
                 />
               {/each}
             </svg>
@@ -790,18 +927,20 @@
 
           <!-- 提交信息列(与 SVG 行对齐) -->
           <div class="info-rows" style="position:relative;height:{svgHeight}px">
-            {#each visibleCommits as { commit, gi } (commit.entry.full_sha)}
-              {@const entry = commit.entry}
+            {#each visibleRows as { d, gi } (d.repoPath + d.entry.full_sha)}
+              {@const entry = d.entry}
               <div
                 class="log-row"
-                class:selected={selectedCommit?.full_sha === entry.full_sha}
+                class:selected={selectedCommit?.full_sha === entry.full_sha &&
+                  selectedRepoPath === d.repoPath}
+                class:dimmed={!d.focused}
                 role="button"
                 tabindex="0"
                 style="position:absolute;top:{gi *
                   ROW_H}px;left:0;right:0;height:{ROW_H}px"
-                onclick={() => selectCommit(entry, path)}
+                onclick={() => selectCommit(entry, d.repoPath)}
                 onkeydown={(e) =>
-                  onActivate(e, () => selectCommit(entry, path))}
+                  onActivate(e, () => selectCommit(entry, d.repoPath))}
               >
                 <div class="log-top">
                   <span class="log-sha">{entry.sha}</span>
@@ -1229,6 +1368,14 @@
     min-width: 0;
   }
 
+  /* 多仓图态:图可能很宽 → 横向滚动;给信息列 min-width 防被压成 0(否则不出横滚条)。 */
+  .log-scroll.multi {
+    overflow-x: auto;
+  }
+  .log-scroll.multi .info-rows {
+    min-width: 220px;
+  }
+
   .log-row {
     display: flex;
     flex-direction: column;
@@ -1250,6 +1397,14 @@
   }
   .log-row.selected {
     background: rgba(88, 166, 255, 0.15);
+  }
+  /* 多仓聚焦:未聚焦仓的提交行灰显(仍在位、可点选);选中/hover 时恢复清晰。 */
+  .log-row.dimmed {
+    opacity: 0.4;
+  }
+  .log-row.dimmed:hover,
+  .log-row.dimmed.selected {
+    opacity: 1;
   }
   .log-top {
     display: flex;
@@ -1307,6 +1462,36 @@
   .repo-chip.repo-main {
     background: rgba(88, 166, 255, 0.14);
     color: var(--accent-cyan);
+  }
+
+  /* ── 仓库 toggle chip 组(多仓图态切换 root 显示) ── */
+  .repo-toggle-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 0 8px 6px;
+  }
+  .repo-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .repo-toggle.off {
+    opacity: 0.4;
+  }
+  .repo-toggle .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
   }
 
   /* ── 合并视图:两行布局(主行 chip+sha+msg / 副行 作者·日期) ── */

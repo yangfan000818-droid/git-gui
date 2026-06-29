@@ -1424,6 +1424,31 @@ async fn repo_log_merged(
     .map_err(|e| e.to_string())?
 }
 
+/// 多 root 合并拓扑图(主仓 + 各已初始化子仓,按 root 分段画 lane),用于含子模块的仓库画提交图。
+#[tauri::command]
+async fn repo_log_merged_topology(
+    path: String,
+    max_count: usize,
+    branch: Option<String>,
+    author: Option<String>,
+    grep: Option<String>,
+) -> Result<gitcore::MergedGraphLog, String> {
+    // 主仓 + 各子仓并行 fork git;同步 command 跑主线程会冻结 UI,故 spawn_blocking。
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        let opts = gitcore::LogOptions {
+            max_count,
+            branch,
+            author,
+            grep,
+        };
+        repo.log_multi_root_topology(&opts)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn repo_commit_files(path: String, sha: String) -> Result<Vec<FileDiff>, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1576,6 +1601,7 @@ pub fn run() {
             repo_blame,
             repo_log_topology,
             repo_log_merged,
+            repo_log_merged_topology,
             start_watch,
             check_git,
             repo_commit_files,

@@ -52,7 +52,7 @@ pub use stash::{PopResult, StashEntry, StashRef};
 pub use status::{FileState, FileStatus, RepoStatus};
 pub use submodule::{Submodule, SubmoduleStatus};
 pub use tags::TagInfo;
-pub use topology::{GraphCommit, GraphEdge};
+pub use topology::{GraphCommit, GraphEdge, MergedGraphCommit, MergedGraphLog, RootMeta};
 pub use update::{
     IntegrationStrategy, PendingConflicts, SubmoduleUpdate, UpdateOptions, UpdateOutcome,
 };
@@ -337,6 +337,12 @@ impl Repo {
     /// 获取结构化拓扑图:每个 commit 的 lane 分配 + lane 间连线,供前端 SVG 绘图。
     pub fn log_topology(&self, opts: &LogOptions) -> Result<Vec<GraphCommit>, Error> {
         topology::log_topology(self, opts)
+    }
+
+    /// 获取多 root 合并拓扑图(主仓 + 各已初始化子仓,按 root 分段画 lane)。
+    /// 始终拉取全部已初始化仓;焦点(灰显)由前端处理。
+    pub fn log_multi_root_topology(&self, opts: &LogOptions) -> Result<MergedGraphLog, Error> {
+        log::log_multi_root_topology(self, opts)
     }
 
     /// 获取 diff 输出。
