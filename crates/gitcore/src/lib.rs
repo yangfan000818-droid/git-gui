@@ -646,6 +646,11 @@ impl Repo {
         branch::delete_branch(self, name)
     }
 
+    /// 删除远程分支(git push --delete,网络操作、不可逆)。
+    pub fn delete_remote_branch(&self, remote: &str, branch: &str) -> Result<(), Error> {
+        branch::delete_remote_branch(self, remote, branch)
+    }
+
     /// 重命名分支(目标名已存在时报错)。
     pub fn rename_branch(&self, old: &str, new: &str) -> Result<(), Error> {
         branch::rename_branch(self, old, new)

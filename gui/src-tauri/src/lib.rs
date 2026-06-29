@@ -1202,6 +1202,23 @@ async fn repo_delete_branch(path: String, name: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// 删除远程分支(git push --delete,网络操作、不可逆)。前端从远程分支名按第一个 `/`
+/// 拆出 remote / branch(如 origin/feature/x → origin + feature/x)。
+#[tauri::command]
+async fn repo_delete_remote_branch(
+    path: String,
+    remote: String,
+    branch: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.delete_remote_branch(&remote, &branch)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 重命名分支(目标名已存在时返回错误)。
 #[tauri::command]
 async fn repo_rename_branch(
@@ -1601,6 +1618,7 @@ pub fn run() {
             repo_switch_branch_autostash,
             repo_create_branch,
             repo_delete_branch,
+            repo_delete_remote_branch,
             repo_rename_branch,
             repo_remote_branches,
             repo_checkout_remote,

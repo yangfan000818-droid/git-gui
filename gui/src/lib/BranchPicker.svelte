@@ -388,6 +388,39 @@
     }
   }
 
+  // 删除远程分支:从远程分支名按第一个 `/` 拆出 remote / branch(如
+  // origin/feature/x → origin + feature/x),二次确认后 git push --delete。
+  async function deleteRemoteBranch(remoteBranch: string) {
+    const idx = remoteBranch.indexOf("/");
+    if (idx < 0) return;
+    const remote = remoteBranch.slice(0, idx);
+    const branch = remoteBranch.slice(idx + 1);
+    if (
+      !(await ask(
+        `确定删除远程分支 "${remoteBranch}"?\n这将在远程执行 git push ${remote} --delete ${branch},不可恢复。`,
+        {
+          title: "删除远程分支",
+          kind: "warning",
+        },
+      ))
+    )
+      return;
+    switching = true;
+    error = "";
+    try {
+      await invoke("repo_delete_remote_branch", {
+        path: repoPath,
+        remote,
+        branch,
+      });
+      await load();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      switching = false;
+    }
+  }
+
   function startRename(name: string) {
     renamingBranch = name;
     renameValue = name;
@@ -659,6 +692,13 @@
                       openMenu = null;
                       compareWith(b.name);
                     }}>与当前分支比较</button
+                  >
+                  <button
+                    class="bp-menu-item bp-menu-danger"
+                    onclick={() => {
+                      openMenu = null;
+                      deleteRemoteBranch(b.name);
+                    }}>删除远程分支</button
                   >
                 </div>
               {/if}

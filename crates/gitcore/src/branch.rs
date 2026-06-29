@@ -263,6 +263,14 @@ pub(crate) fn delete_branch(repo: &Repo, name: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// 删除远程分支:`git push <remote> --delete <branch>`。**网络操作、不可逆**;
+/// 远程拒绝 / 无权限 / 无网络时 git 非零退出 → `Error::Git`(交前端提示)。
+/// `remote` / `branch` 由调用方从远程分支名(如 `origin/feature/x`)按第一个 `/` 拆出。
+pub(crate) fn delete_remote_branch(repo: &Repo, remote: &str, branch: &str) -> Result<(), Error> {
+    repo.git(&["push", remote, "--delete", branch])?;
+    Ok(())
+}
+
 /// 重命名分支(git branch -m;目标名已存在时 git 报错)。
 pub(crate) fn rename_branch(repo: &Repo, old: &str, new: &str) -> Result<(), Error> {
     repo.git(&["branch", "-m", old, new])?;

@@ -1938,3 +1938,47 @@ fn precommit_check_detects_all_kinds() {
 
     cleanup(&[&dir]);
 }
+
+#[test]
+fn delete_remote_branch_removes_remote_ref() {
+    let a = init_repo("delrmt-a");
+    write(&a, "f.txt", "1");
+    commit_all(&a, "c1");
+    // 额外分支 topic,推到 bare remote。
+    git(&a, &["branch", "topic"]);
+    let remote = bare_remote("delrmt-remote");
+    git(&a, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    git(&a, &["push", "-q", "origin", "main", "topic"]);
+
+    // 删除前:远程应有 topic。
+    let before = String::from_utf8(
+        Command::new("git")
+            .args(["ls-remote", "--heads", "origin", "refs/heads/topic"])
+            .current_dir(&a)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert!(!before.trim().is_empty(), "推送后远程应有 topic");
+
+    // 删除远程 topic。
+    Repo::open(&a)
+        .unwrap()
+        .delete_remote_branch("origin", "topic")
+        .unwrap();
+
+    // 删除后:远程应无 topic。
+    let after = String::from_utf8(
+        Command::new("git")
+            .args(["ls-remote", "--heads", "origin", "refs/heads/topic"])
+            .current_dir(&a)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert!(after.trim().is_empty(), "删除后远程应无 topic: {after}");
+
+    cleanup(&[&a, &remote]);
+}
