@@ -6,6 +6,7 @@
   import UpdateView from "$lib/UpdateView.svelte";
   import HistoryView from "$lib/HistoryView.svelte";
   import PushDialog from "$lib/PushDialog.svelte";
+  import PrecommitCheckDialog from "$lib/PrecommitCheckDialog.svelte";
   import DiffView from "$lib/DiffView.svelte";
   import FileTree from "$lib/FileTree.svelte";
   import FileViewer from "$lib/FileViewer.svelte";
@@ -174,6 +175,27 @@
   // 「全部推送」队列:被拒的仓逐个「更新后推送」,队首为当前正在处理的仓。
   let pushQueue = $state<RepoView[]>([]);
   let pushDialogRepo = $state<RepoView | null>(null); // Push 对话框目标仓(null=关闭)
+
+  // ── 提交前检查(对标 WebStorm commit checks) ──
+  interface PrecommitWarning {
+    kind:
+      | "SensitiveInfo"
+      | "ConflictMarker"
+      | "LargeFile"
+      | "DebugResidue"
+      | "Todo";
+    file: string;
+    line: number | null;
+    detail: string;
+  }
+  interface PrecommitReport {
+    warnings: PrecommitWarning[];
+  }
+  // 检查有警告时挂起 doCommit/doAmend,等用户在对话框里决策(resolve)。
+  let precommitState = $state<{
+    warnings: PrecommitWarning[];
+    resolve: (proceed: boolean) => void;
+  } | null>(null);
 
   // ── Toast 通知(静默更新结果用) ──
   type ToastKind = "success" | "error" | "info";
@@ -809,6 +831,8 @@
 
   async function doAmend() {
     if (!commitMessage.trim()) return;
+    // 提交前检查(amend 仅主仓)。
+    if (!(await runPrecommitCheck([path]))) return;
     operating = true;
     error = "";
     commitResult = "";
@@ -884,6 +908,26 @@
     }
   }
 
+  // 提交前检查(对标 WebStorm commit checks):汇总各仓警告,有则弹框等用户决策。
+  // 单仓检查失败不阻塞提交(降级:照常提交);返回 true=继续,false=取消。
+  async function runPrecommitCheck(paths: string[]): Promise<boolean> {
+    const all: PrecommitWarning[] = [];
+    for (const p of paths) {
+      try {
+        const rep = await invoke<PrecommitReport>("repo_precommit_check", {
+          path: p,
+        });
+        all.push(...rep.warnings);
+      } catch {
+        // 检查失败不阻塞提交(降级:照常提交)。
+      }
+    }
+    if (all.length === 0) return true;
+    return new Promise<boolean>((resolve) => {
+      precommitState = { warnings: all, resolve };
+    });
+  }
+
   // 提交所有有暂存改动的仓库。
   // - 启用 AI 且非 amend:每仓库用各自 commitMessages[path](空则跳过)
   // - 否则(未启用 / amend):所有仓库共用 commitMessage(原逻辑,零改动)
@@ -891,6 +935,9 @@
     const targets = [...stagedRepos].sort(
       (a, b) => Number(a.isMain) - Number(b.isMain),
     );
+
+    // 提交前检查:有警告弹框,取消则中止(对标 WebStorm)。
+    if (!(await runPrecommitCheck(targets.map((r) => r.path)))) return;
 
     if (aiEnabled && !amendMode) {
       if (totalStaged === 0) return;
@@ -2188,6 +2235,18 @@
       onClose={(pushed) => {
         pushDialogRepo = null;
         if (pushed) void refresh();
+      }}
+    />
+  {/if}
+
+  <!-- ── 提交前检查对话框(有警告时弹,决策后释放 doCommit/doAmend) ── -->
+  {#if precommitState}
+    <PrecommitCheckDialog
+      warnings={precommitState.warnings}
+      onDecide={(proceed) => {
+        const s = precommitState;
+        precommitState = null;
+        s?.resolve(proceed);
       }}
     />
   {/if}

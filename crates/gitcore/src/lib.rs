@@ -15,6 +15,7 @@ mod error;
 mod git;
 mod hunk;
 mod log;
+mod precommit;
 mod push;
 mod rebase;
 mod reflog;
@@ -41,6 +42,7 @@ pub use error::Error;
 pub use git::{CancelToken, Progress};
 pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
 pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions, MergedLogEntry};
+pub use precommit::{PrecommitReport, PrecommitWarning, WarningKind};
 pub use push::{PushOutcome, PushPreview};
 pub use rebase::{RebaseAction, RebaseItem};
 pub use reflog::ReflogEntry;
@@ -386,6 +388,12 @@ impl Repo {
     /// 已暂存改动(暂存区 vs HEAD)的原始 diff 文本,供 AI 生成提交信息等用途。
     pub fn staged_diff_text(&self) -> Result<String, Error> {
         self.cached_diff_text()
+    }
+
+    /// 提交前检查:扫描暂存内容,返回潜在问题(敏感信息 / 冲突标记 / 大文件 /
+    /// 调试残留 / TODO),供前端在提交前提示。复用 `staged_diff` 的结构化解析。
+    pub fn precommit_check(&self) -> Result<PrecommitReport, Error> {
+        crate::precommit::check(self)
     }
 
     /// `git diff --cached` 原始文本(staged_diff 与 staged_diff_text 共用)。

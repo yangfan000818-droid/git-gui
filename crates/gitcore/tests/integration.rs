@@ -1872,3 +1872,69 @@ fn commit_paths_commits_only_listed_files() {
 
     cleanup(&[&dir]);
 }
+
+#[test]
+fn precommit_check_detects_all_kinds() {
+    use gitcore::WarningKind;
+    let dir = init_repo("precommit");
+    // 基线提交,使后续 add 成为 vs HEAD 的暂存改动。
+    write(&dir, "base.txt", "base\n");
+    commit_all(&dir, "init");
+
+    // 含密钥 / 调试残留 / TODO / 冲突标记的文件,暂存(不 commit)。
+    write(
+        &dir,
+        "bad.rs",
+        "const token = \"ghp_x\";\nconsole.log('x');\n// TODO: fix\n<<<<<<< HEAD\na\n=======\nb\n>>>>>>> br\n",
+    );
+    git(&dir, &["add", "bad.rs"]);
+
+    // .env 文件(整文件告警)。
+    write(&dir, ".env.local", "SECRET=x\n");
+    git(&dir, &["add", ".env.local"]);
+
+    // binary 大文件(>1MB):首位 NUL 让 git 视为 binary,diff 不展开 hunk。
+    let mut big = vec![b'x'; 2 * 1024 * 1024];
+    big[0] = 0;
+    std::fs::write(dir.join("big.bin"), &big).unwrap();
+    git(&dir, &["add", "big.bin"]);
+
+    let repo = Repo::open(&dir).unwrap();
+    let report = repo.precommit_check().unwrap();
+    let kinds: Vec<_> = report.warnings.iter().map(|w| w.kind).collect();
+
+    assert!(
+        kinds.contains(&WarningKind::SensitiveInfo),
+        "应检出敏感信息"
+    );
+    assert!(kinds.contains(&WarningKind::DebugResidue), "应检出调试残留");
+    assert!(kinds.contains(&WarningKind::Todo), "应检出 TODO");
+    assert!(
+        kinds.contains(&WarningKind::ConflictMarker),
+        "应检出冲突标记"
+    );
+    assert!(kinds.contains(&WarningKind::LargeFile), "应检出大文件");
+
+    // 行级警告带行号:console.log 在 bad.rs 第 2 行。
+    let debug_hit = report
+        .warnings
+        .iter()
+        .find(|w| w.kind == WarningKind::DebugResidue)
+        .unwrap();
+    assert_eq!(debug_hit.line, Some(2));
+    assert!(debug_hit.detail.contains("console.log"));
+
+    // .env 文件的整文件告警无行号。
+    let env_hit = report
+        .warnings
+        .iter()
+        .find(|w| {
+            w.kind == WarningKind::SensitiveInfo
+                && w.file.ends_with(".env.local")
+                && w.line.is_none()
+        })
+        .unwrap();
+    assert!(env_hit.detail.contains("环境变量"));
+
+    cleanup(&[&dir]);
+}

@@ -10,8 +10,9 @@ use std::time::{Duration, Instant};
 
 use gitcore::{
     BranchComparison, BranchInfo, CancelToken, CommitOptions, FileDiff, Hunk, PendingConflicts,
-    PopResult, Progress, RebaseItem, ReflogEntry, Repo, RepoStatus, ResetMode, Segment, StashEntry,
-    StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions, UpdateOutcome,
+    PopResult, PrecommitReport, Progress, RebaseItem, ReflogEntry, Repo, RepoStatus, ResetMode,
+    Segment, StashEntry, StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions,
+    UpdateOutcome,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -586,6 +587,18 @@ async fn repo_commit(
             ..Default::default()
         };
         repo.commit(&opts).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 提交前检查:扫描暂存内容,返回潜在问题(敏感信息 / 冲突标记 / 大文件 / 调试残留 / TODO),
+/// 供前端在提交前提示。可能 fork git 读 staged diff,故 async。
+#[tauri::command]
+async fn repo_precommit_check(path: String) -> Result<PrecommitReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.precommit_check().map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1546,6 +1559,7 @@ pub fn run() {
             repo_stage_lines,
             repo_unstage_lines,
             repo_commit,
+            repo_precommit_check,
             repo_commit_paths,
             ai_generate_commit_message,
             repo_stashes,
