@@ -105,6 +105,22 @@
 
   // ⋯ 更多操作菜单:当前展开的分支名(null = 全部收起)
   let openMenu = $state<string | null>(null);
+
+  // 分支搜索(纯前端过滤,本地/远程分别 filter;空搜索显示全部)。
+  let search = $state("");
+  let filteredLocal = $derived.by(() => {
+    const q = search.trim().toLowerCase();
+    return q === ""
+      ? branches
+      : branches.filter((b) => b.name.toLowerCase().includes(q));
+  });
+  let filteredRemote = $derived.by(() => {
+    const q = search.trim().toLowerCase();
+    return q === ""
+      ? remoteBranches
+      : remoteBranches.filter((b) => b.name.toLowerCase().includes(q));
+  });
+
   function toggleMenu(name: string) {
     openMenu = openMenu === name ? null : name;
   }
@@ -537,12 +553,21 @@
     {#if loading}
       <p class="bp-muted">加载中…</p>
     {:else}
+      <input
+        class="bp-search"
+        type="text"
+        bind:value={search}
+        placeholder="搜索分支..."
+        disabled={switching}
+      />
       <p class="bp-group-label">本地分支</p>
       {#if branches.length === 0}
         <p class="bp-muted">没有本地分支</p>
+      {:else if filteredLocal.length === 0}
+        <p class="bp-muted">无匹配的本地分支</p>
       {:else}
         <ul class="bp-list">
-          {#each branches as b}
+          {#each filteredLocal as b}
             <li class="bp-item" class:bp-current={b.is_current}>
               {#if renamingBranch === b.name}
                 <div class="bp-row">
@@ -652,10 +677,10 @@
         </ul>
       {/if}
 
-      {#if remoteBranches.length > 0}
+      {#if filteredRemote.length > 0}
         <p class="bp-group-label">远程分支</p>
         <ul class="bp-list">
-          {#each remoteBranches as b}
+          {#each filteredRemote as b}
             <li class="bp-item">
               <div class="bp-row">
                 <button
@@ -763,6 +788,24 @@
   .bp-fetch:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  .bp-search {
+    margin: 8px 14px 4px;
+    padding: 6px 10px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    width: calc(100% - 28px);
+    box-sizing: border-box;
+  }
+  .bp-search:focus {
+    outline: none;
+    border-color: var(--accent-neon);
+  }
+  .bp-search::placeholder {
+    color: var(--text-muted);
   }
   .bp-close {
     background: transparent;
