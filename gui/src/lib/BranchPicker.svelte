@@ -121,6 +121,70 @@
       : remoteBranches.filter((b) => b.name.toLowerCase().includes(q));
   });
 
+  // ── 最近分支 + 收藏(纯前端 localStorage,per repoPath;对标 WebStorm) ──
+  const RECENT_KEY = "git-gui:recent-branches";
+  const FAVORITE_KEY = "git-gui:favorite-branches";
+  function loadMap(key: string): Record<string, string[]> {
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? "{}");
+    } catch {
+      return {};
+    }
+  }
+  function saveMap(key: string, map: Record<string, string[]>) {
+    try {
+      localStorage.setItem(key, JSON.stringify(map));
+    } catch {
+      // localStorage 不可用时静默。
+    }
+  }
+  let recentBranches = $state<string[]>([]);
+  let favoriteBranches = $state<string[]>([]);
+  // 切换成功后记录到最近(新的在前,去重,最多 5)。
+  function recordSwitch(name: string) {
+    const m = loadMap(RECENT_KEY);
+    const cur = m[repoPath] ?? [];
+    m[repoPath] = [name, ...cur.filter((n) => n !== name)].slice(0, 5);
+    saveMap(RECENT_KEY, m);
+    recentBranches = m[repoPath];
+  }
+  function toggleFavorite(name: string) {
+    const m = loadMap(FAVORITE_KEY);
+    const cur = m[repoPath] ?? [];
+    m[repoPath] = cur.includes(name)
+      ? cur.filter((n) => n !== name)
+      : [...cur, name];
+    saveMap(FAVORITE_KEY, m);
+    favoriteBranches = m[repoPath];
+  }
+  // 最近/收藏区:仅显示仍存在的分支,并随搜索过滤。
+  let recentItems = $derived.by(() => {
+    const q = search.trim().toLowerCase();
+    const all = [...branches, ...remoteBranches];
+    return recentBranches.filter(
+      (n) =>
+        all.some((b) => b.name === n) &&
+        (q === "" || n.toLowerCase().includes(q)),
+    );
+  });
+  let favoriteItems = $derived.by(() => {
+    const q = search.trim().toLowerCase();
+    const all = [...branches, ...remoteBranches];
+    return favoriteBranches.filter(
+      (n) =>
+        all.some((b) => b.name === n) &&
+        (q === "" || n.toLowerCase().includes(q)),
+    );
+  });
+  // 最近/收藏区点击:本地分支 switchTo,远程分支 checkoutRemote。
+  function quickSwitch(name: string) {
+    const isRemote =
+      remoteBranches.some((b) => b.name === name) &&
+      !branches.some((b) => b.name === name);
+    if (isRemote) void checkoutRemote(name);
+    else void switchTo(name);
+  }
+
   function toggleMenu(name: string) {
     openMenu = openMenu === name ? null : name;
   }
@@ -135,6 +199,19 @@
       remoteBranches = await invoke<BranchInfo[]>("repo_remote_branches", {
         path: repoPath,
       });
+      // 载入最近/收藏;main/master 自动收藏(对标 WebStorm)。
+      recentBranches = loadMap(RECENT_KEY)[repoPath] ?? [];
+      const favRaw = loadMap(FAVORITE_KEY)[repoPath] ?? [];
+      const auto = branches
+        .filter((b) => b.name === "main" || b.name === "master")
+        .map((b) => b.name);
+      const fav = [...new Set([...auto, ...favRaw])];
+      if (fav.length !== favRaw.length) {
+        const m = loadMap(FAVORITE_KEY);
+        m[repoPath] = fav;
+        saveMap(FAVORITE_KEY, m);
+      }
+      favoriteBranches = fav;
     } catch (e) {
       error = String(e);
     } finally {
@@ -163,6 +240,7 @@
         path: repoPath,
         remoteBranch,
       });
+      recordSwitch(remoteBranch);
       onSwitched();
       onClose();
     } catch (e) {
@@ -314,6 +392,7 @@
     error = "";
     try {
       await invoke("repo_switch_branch", { path: repoPath, name });
+      recordSwitch(name);
       onSwitched();
       onClose();
     } catch (e) {
@@ -570,6 +649,38 @@
         placeholder="搜索分支..."
         disabled={switching}
       />
+      {#if recentItems.length > 0}
+        <p class="bp-group-label">最近</p>
+        <ul class="bp-list bp-quick-list">
+          {#each recentItems as name (name)}
+            <li class="bp-item">
+              <button
+                class="bp-btn bp-quick"
+                disabled={switching}
+                onclick={() => quickSwitch(name)}
+              >
+                <span class="bp-name">{name}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#if favoriteItems.length > 0}
+        <p class="bp-group-label">收藏</p>
+        <ul class="bp-list bp-quick-list">
+          {#each favoriteItems as name (name)}
+            <li class="bp-item">
+              <button
+                class="bp-btn bp-quick"
+                disabled={switching}
+                onclick={() => quickSwitch(name)}
+              >
+                <span class="bp-name">{name}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
       <p class="bp-group-label">本地分支</p>
       {#if branches.length === 0}
         <p class="bp-muted">没有本地分支</p>
@@ -634,6 +745,19 @@
                     aria-expanded={openMenu === b.name}
                     aria-label="更多操作 {b.name}"
                     title="更多操作">⋯</button
+                  >
+                  <button
+                    class="bp-fav"
+                    class:bp-fav-on={favoriteBranches.includes(b.name)}
+                    disabled={switching}
+                    onclick={() => toggleFavorite(b.name)}
+                    aria-label={favoriteBranches.includes(b.name)
+                      ? "取消收藏"
+                      : "收藏"}
+                    title={favoriteBranches.includes(b.name)
+                      ? "取消收藏"
+                      : "收藏"}
+                    >{favoriteBranches.includes(b.name) ? "★" : "☆"}</button
                   >
                 </div>
                 {#if openMenu === b.name}
@@ -714,6 +838,19 @@
                   aria-expanded={openMenu === b.name}
                   aria-label="更多操作 {b.name}"
                   title="更多操作">⋯</button
+                >
+                <button
+                  class="bp-fav"
+                  class:bp-fav-on={favoriteBranches.includes(b.name)}
+                  disabled={switching}
+                  onclick={() => toggleFavorite(b.name)}
+                  aria-label={favoriteBranches.includes(b.name)
+                    ? "取消收藏"
+                    : "收藏"}
+                  title={favoriteBranches.includes(b.name)
+                    ? "取消收藏"
+                    : "收藏"}
+                  >{favoriteBranches.includes(b.name) ? "★" : "☆"}</button
                 >
               </div>
               {#if openMenu === b.name}
@@ -824,6 +961,38 @@
   }
   .bp-search::placeholder {
     color: var(--text-muted);
+  }
+  .bp-fav {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 2px;
+    line-height: 1;
+  }
+  .bp-fav:hover:not(:disabled) {
+    color: var(--accent-gold);
+  }
+  .bp-fav-on {
+    color: var(--accent-gold);
+  }
+  .bp-fav:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .bp-quick {
+    width: 100%;
+    text-align: left;
+    justify-content: flex-start;
+  }
+  .bp-quick-list {
+    margin: 0 14px 4px;
+    padding: 0;
+    list-style: none;
+  }
+  .bp-quick-list .bp-item {
+    padding: 0;
   }
   .bp-close {
     background: transparent;
