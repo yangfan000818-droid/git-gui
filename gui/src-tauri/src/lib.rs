@@ -9,14 +9,14 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use gitcore::{
-    BranchComparison, BranchInfo, CancelToken, CommitOptions, FileDiff, Hunk, PendingConflicts,
-    PopResult, PrecommitReport, Progress, RebaseItem, ReflogEntry, Repo, RepoStatus, ResetMode,
-    Segment, StashEntry, StashRef, SubmoduleUpdate, SwitchOutcome, TagInfo, UpdateOptions,
-    UpdateOutcome,
+    BranchComparison, BranchInfo, CancelToken, CommitOptions, ConflictState, FileDiff, Hunk,
+    MergeRegion, PendingConflicts, PopResult, PrecommitReport, Progress, RebaseItem, ReflogEntry,
+    Repo, RepoStatus, ResetMode, Segment, Side, StashEntry, StashRef, SubmoduleUpdate,
+    SwitchOutcome, TagInfo, UpdateOptions, UpdateOutcome,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 // ── 项目历史管理 ──
 
@@ -240,6 +240,17 @@ fn get_settings(app: AppHandle) -> AppSettings {
 fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     settings.save(&app)
 }
+
+// ── 冲突解决窗口上下文:开窗时写入,窗口挂载时取出 ──
+
+#[derive(Debug, Clone, Serialize)]
+struct ConflictContext {
+    path: String,
+    initial_file: Option<String>,
+}
+
+#[derive(Default)]
+struct ConflictCtx(Mutex<Option<ConflictContext>>);
 
 // ── 取消注册表:op_id → CancelToken,供前端取消长操作 ──
 
@@ -968,6 +979,105 @@ async fn read_conflict_segments(path: String, file_path: String) -> Result<Vec<S
     .map_err(|e| e.to_string())?
 }
 
+/// 打开(或聚焦)独立的冲突解决窗口,可自由调整大小/全屏;上下文经托管状态传递。
+#[tauri::command]
+fn open_conflict_window(
+    app: AppHandle,
+    state: State<ConflictCtx>,
+    path: String,
+    initial_file: Option<String>,
+) -> Result<(), String> {
+    *state.0.lock().unwrap() = Some(ConflictContext { path, initial_file });
+    if let Some(w) = app.get_webview_window("conflict") {
+        let _ = w.emit("conflict-context-changed", ());
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    // dev:Vite 提供 /conflict 路由;prod:静态资源协议无 SPA 回退,加载预渲染的 conflict.html。
+    let route = if cfg!(debug_assertions) {
+        "conflict"
+    } else {
+        "conflict.html"
+    };
+    WebviewWindowBuilder::new(&app, "conflict", WebviewUrl::App(route.into()))
+        .title("解决冲突")
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(900.0, 560.0)
+        .resizable(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 冲突窗口取自身上下文(仓库路径 + 初始定位文件)。
+#[tauri::command]
+fn get_conflict_context(state: State<ConflictCtx>) -> Option<ConflictContext> {
+    state.0.lock().unwrap().clone()
+}
+
+/// 整文件对齐三路 diff,供 WebStorm 式三栏合并编辑器渲染。
+#[tauri::command]
+async fn merge_regions_cmd(path: String, file_path: String) -> Result<Vec<MergeRegion>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.merge_file_regions(Path::new(&file_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 报告仓库当前冲突态(进行中整合类型 + 分类后的冲突文件 + autostash),供主界面发现与重入。
+#[tauri::command]
+async fn repo_conflict_state(path: String) -> Result<ConflictState, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.conflict_state().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 保留工作区现有版本并标记已解决(modify/delete 保留改动、delete/modify 保留对方)。
+#[tauri::command]
+async fn resolve_conflict_keep(path: String, file_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.resolve_keep(Path::new(&file_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 接受删除:从工作区与索引移除该文件并标记已解决。
+#[tauri::command]
+async fn resolve_conflict_remove(path: String, file_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.resolve_remove(Path::new(&file_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 取某一侧整份内容(ours/theirs)并标记已解决(二进制 / add-add 选边)。
+#[tauri::command]
+async fn resolve_conflict_take_side(
+    path: String,
+    file_path: String,
+    side: Side,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.resolve_take_side(Path::new(&file_path), side)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 冲突解决后完成整合,并还原 autostash。
 #[tauri::command]
 async fn continue_update_cmd(
@@ -990,6 +1100,29 @@ async fn abort_update_cmd(path: String, autostash: Option<StashRef>) -> Result<(
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         repo.abort_update(autostash).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 完成 stash 还原冲突的解决:丢弃已贴回的 autostash,改动留在工作区。
+#[tauri::command]
+async fn finish_stash_restore_cmd(path: String, autostash: Option<StashRef>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.finish_stash_restore(autostash)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 放弃 stash 还原:reset --hard 回到整合后状态,保留 stash(原始改动可重试)。
+#[tauri::command]
+async fn abort_stash_restore_cmd(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.abort_stash_restore().map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1554,6 +1687,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(CancelRegistry::default())
         .manage(WatchState::default())
+        .manage(ConflictCtx::default())
         .invoke_handler(tauri::generate_handler![
             get_last_project,
             get_recent_projects,
@@ -1599,8 +1733,17 @@ pub fn run() {
             repo_file_diff_head,
             resolve_conflict_file,
             read_conflict_segments,
+            merge_regions_cmd,
+            open_conflict_window,
+            get_conflict_context,
+            repo_conflict_state,
+            resolve_conflict_keep,
+            resolve_conflict_remove,
+            resolve_conflict_take_side,
             continue_update_cmd,
             abort_update_cmd,
+            finish_stash_restore_cmd,
+            abort_stash_restore_cmd,
             resume_conflicts,
             repo_cherry_pick,
             repo_revert,

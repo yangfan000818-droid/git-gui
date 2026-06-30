@@ -1,8 +1,9 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { ask, message } from "@tauri-apps/plugin-dialog";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { onMount, onDestroy } from "svelte";
   import DiffView from "$lib/DiffView.svelte";
-  import ConflictView from "$lib/ConflictView.svelte";
   import RebaseTodoView from "$lib/RebaseTodoView.svelte";
   import ReflogView from "$lib/ReflogView.svelte";
 
@@ -207,9 +208,15 @@
   let rebasing = $state(false);
   // reflog:打开 HEAD 历史弹层(查看/恢复)
   let showReflog = $state(false);
-  let conflictFiles = $state<string[]>([]);
-  let autostash = $state<StashRef | null>(null);
-  let inConflictResolution = $state(false);
+
+  // 独立冲突窗口解决/放弃后刷新历史(cherry-pick/revert/交互式变基的冲突走窗口)。
+  let conflictDoneUnlisten: UnlistenFn | null = null;
+  onMount(async () => {
+    conflictDoneUnlisten = await listen("conflict-done", () => {
+      void load();
+    });
+  });
+  onDestroy(() => conflictDoneUnlisten?.());
 
   // ── 数据加载 ──
   async function load(resetScrollAfter = true) {
@@ -390,12 +397,8 @@
         sha: selectedCommit.full_sha,
       });
       if (outcomeVariant(outcome) === "Conflicted") {
-        const data = outcomeData<ConflictedData>(outcome);
-        if (data) {
-          conflictFiles = data.files;
-          autostash = data.autostash;
-          inConflictResolution = true;
-        }
+        // 交独立冲突窗口解决;解决/放弃后经 conflict-done 事件刷新历史。
+        await invoke("open_conflict_window", { path: selectedRepoPath });
       } else {
         await load();
       }
@@ -518,43 +521,6 @@
       operationError = String(e);
     } finally {
       operationInProgress = false;
-    }
-  }
-
-  async function handleContinue() {
-    try {
-      const outcome = await invoke<UpdateOutcome>("continue_update_cmd", {
-        path: selectedRepoPath,
-        autostash,
-        recurse_submodules: false,
-      });
-      const variant = outcomeVariant(outcome);
-      if (variant === "Conflicted") {
-        const data = outcomeData<ConflictedData>(outcome);
-        if (data) {
-          conflictFiles = data.files;
-          autostash = data.autostash;
-        }
-      } else {
-        inConflictResolution = false;
-        conflictFiles = [];
-        autostash = null;
-        await load();
-      }
-    } catch (e) {
-      operationError = String(e);
-    }
-  }
-
-  async function handleAbort() {
-    try {
-      await invoke("abort_update_cmd", { path: selectedRepoPath, autostash });
-      inConflictResolution = false;
-      conflictFiles = [];
-      autostash = null;
-      operationError = "";
-    } catch (e) {
-      operationError = String(e);
     }
   }
 
@@ -964,19 +930,7 @@
 
     <!-- ── 右侧:提交详情 ── -->
     <section class="detail-view">
-      {#if inConflictResolution}
-        <!-- 冲突解决视图 -->
-        {#if operationError}
-          <pre class="error">{operationError}</pre>
-        {/if}
-        <ConflictView
-          path={selectedRepoPath}
-          {conflictFiles}
-          {autostash}
-          onContinue={handleContinue}
-          onAbort={handleAbort}
-        />
-      {:else if selectedCommit}
+      {#if selectedCommit}
         <!-- 提交信息头部 -->
         <div class="commit-header">
           <div class="commit-title-row">
@@ -1227,17 +1181,15 @@
     </section>
   </div>
 
-  <!-- ── 交互式变基编辑器(冲突/完成都回到本组件已有的 ConflictView/刷新) ── -->
+  <!-- ── 交互式变基编辑器(冲突交独立窗口解决,完成则刷新) ── -->
   {#if rebasing && selectedCommit}
     <RebaseTodoView
       path={selectedRepoPath}
       fromSha={selectedCommit.full_sha}
       onClose={() => (rebasing = false)}
-      onConflict={(data) => {
+      onConflict={() => {
         rebasing = false;
-        conflictFiles = data.files;
-        autostash = data.autostash;
-        inConflictResolution = true;
+        void invoke("open_conflict_window", { path: selectedRepoPath });
       }}
       onDone={() => {
         rebasing = false;

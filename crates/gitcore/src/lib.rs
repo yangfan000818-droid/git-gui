@@ -36,8 +36,9 @@ pub use branch::{BranchInfo, SwitchOutcome};
 pub use clone::clone_streaming;
 pub use commit::CommitOptions;
 pub use config::{parse_repos_config, RepoConfig};
-pub use conflict::{conflicted_files, three_versions, ThreeVersions};
+pub use conflict::{conflicted_files, three_versions, ConflictFile, ConflictKind, ThreeVersions};
 pub use diff::DiffOptions;
+pub use diff3::{MergeRegion, RegionKind};
 pub use error::Error;
 pub use git::{CancelToken, Progress};
 pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
@@ -48,7 +49,7 @@ pub use rebase::{RebaseAction, RebaseItem};
 pub use reflog::ReflogEntry;
 pub use reset::ResetMode;
 pub use resolve::{
-    parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment,
+    parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment, Side,
 };
 pub use stash::{PopResult, StashEntry, StashRef};
 pub use status::{FileState, FileStatus, RepoStatus};
@@ -56,7 +57,8 @@ pub use submodule::{Submodule, SubmoduleStatus};
 pub use tags::TagInfo;
 pub use topology::{GraphCommit, GraphEdge, MergedGraphCommit, MergedGraphLog, RootMeta};
 pub use update::{
-    IntegrationStrategy, PendingConflicts, SubmoduleUpdate, UpdateOptions, UpdateOutcome,
+    ConflictState, IntegrationKind, IntegrationStrategy, PendingConflicts, SubmoduleUpdate,
+    UpdateOptions, UpdateOutcome,
 };
 
 /// 一个 git 工作区的句柄;所有操作相对它执行。
@@ -115,6 +117,37 @@ impl Repo {
         resolve::write_resolution(self, path, text)
     }
 
+    /// 报告当前冲突态(进行中整合类型 + 分类后的冲突文件 + autostash)。
+    /// 总是返回(无冲突则 files 空),供主界面在 refresh 时探测与重入。
+    pub fn conflict_state(&self) -> Result<ConflictState, Error> {
+        update::conflict_state(self)
+    }
+
+    /// 保留工作区现有版本并标记已解决(modify/delete 保留改动、delete/modify 保留对方)。
+    pub fn resolve_keep(&self, path: &Path) -> Result<(), Error> {
+        resolve::resolve_keep(self, path)
+    }
+
+    /// 接受删除:从工作区与索引移除该文件并标记已解决。
+    pub fn resolve_remove(&self, path: &Path) -> Result<(), Error> {
+        resolve::resolve_remove(self, path)
+    }
+
+    /// 取某一侧整份内容(checkout --ours/--theirs)并标记已解决(二进制 / add-add 选边)。
+    pub fn resolve_take_side(&self, path: &Path, side: Side) -> Result<(), Error> {
+        resolve::resolve_take_side(self, path, side)
+    }
+
+    /// 整文件对齐三路 diff(供 WebStorm 式三栏合并编辑器渲染)。
+    pub fn merge_file_regions(&self, path: &Path) -> Result<Vec<MergeRegion>, Error> {
+        let v = conflict::three_versions(self, path)?;
+        Ok(diff3::merge_regions(
+            v.ours.as_deref().unwrap_or(""),
+            v.base.as_deref().unwrap_or(""),
+            v.theirs.as_deref().unwrap_or(""),
+        ))
+    }
+
     /// 冲突解决后完成整合,并还原 autostash。
     pub fn continue_update(
         &self,
@@ -127,6 +160,16 @@ impl Repo {
     /// 放弃整合,回到 Update 之前的状态(含还原 autostash)。
     pub fn abort_update(&self, autostash: Option<StashRef>) -> Result<(), Error> {
         update::abort_update(self, autostash)
+    }
+
+    /// 完成 stash 还原冲突的解决:校验无残留冲突后丢弃已贴回的 autostash,改动留在工作区。
+    pub fn finish_stash_restore(&self, autostash: Option<StashRef>) -> Result<(), Error> {
+        update::finish_stash_restore(self, autostash)
+    }
+
+    /// 放弃 stash 还原:reset --hard 回到整合后状态,保留 stash(原始改动可重试)。
+    pub fn abort_stash_restore(&self) -> Result<(), Error> {
+        update::abort_stash_restore(self)
     }
 
     /// 检测未完成的整合(中断/崩溃后):返回待解决冲突文件 + 扫回的 autostash。

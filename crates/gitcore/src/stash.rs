@@ -56,6 +56,14 @@ pub(crate) fn autostash_pop(repo: &Repo, stash: &StashRef) -> Result<PopResult, 
     }
 }
 
+/// 丢弃一个 autostash(按 label 定位);找不到则忽略(可能已被清理)。
+pub(crate) fn drop_autostash(repo: &Repo, stash: &StashRef) -> Result<(), Error> {
+    if let Some(reff) = locate(repo, &stash.label)? {
+        repo.git(&["stash", "drop", &reff])?;
+    }
+    Ok(())
+}
+
 /// 扫描 stash 列表,找回 gitcore 创建的 autostash(崩溃/中断后恢复用)。
 pub(crate) fn find_autostash(repo: &Repo) -> Result<Option<StashRef>, Error> {
     let list = repo.git(&["stash", "list", "--format=%gs"])?;

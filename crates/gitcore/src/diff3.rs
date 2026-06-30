@@ -22,6 +22,32 @@ pub(crate) enum Merge {
     },
 }
 
+/// 对齐三路 diff 的一个区域类型(供 WebStorm 式三栏编辑器分类着色/操作)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum RegionKind {
+    /// 三方一致,未改动。
+    Unchanged,
+    /// 仅本地(ours)相对 base 改动(theirs 同 base)。
+    OursOnly,
+    /// 仅对方(theirs)相对 base 改动(ours 同 base)。
+    TheirsOnly,
+    /// 两边改成一样。
+    BothSame,
+    /// 两边都改且不一致,需人工。
+    Conflict,
+}
+
+/// 对齐三路 diff 的一个区域:三侧各自的原始行(含行尾换行,与 split_inclusive 一致)。
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct MergeRegion {
+    pub kind: RegionKind,
+    pub ours: Vec<String>,
+    pub base: Vec<String>,
+    pub theirs: Vec<String>,
+}
+
 /// 对三段文本做行级 diff3,返回合并块序列。
 pub(crate) fn merge3(ours: &str, base: &str, theirs: &str) -> Vec<Merge> {
     let o = lines(ours);
@@ -53,6 +79,110 @@ pub(crate) fn merge3(ours: &str, base: &str, theirs: &str) -> Vec<Merge> {
         ti = ta + 1;
     }
     acc.finish()
+}
+
+/// 整文件对齐三路 diff:产出按区域分类的对齐结果(冲突 + 单边更改都保留三侧原行)。
+/// 复用 merge3 的"base 为枢轴 + 三方锚点切段"骨架,只是按区域分类而非合并成文本。
+pub(crate) fn merge_regions(ours: &str, base: &str, theirs: &str) -> Vec<MergeRegion> {
+    let o = lines(ours);
+    let p = lines(base);
+    let t = lines(theirs);
+    let a = lcs_map(&o, &p);
+    let b = lcs_map(&t, &p);
+
+    let mut anchors: Vec<(usize, usize, usize)> = Vec::new();
+    for pj in 0..p.len() {
+        if let (Some(oi), Some(ti)) = (a[pj], b[pj]) {
+            anchors.push((oi, pj, ti));
+        }
+    }
+
+    let mut acc = RegionAcc::default();
+    let (mut oi, mut pj, mut ti) = (0usize, 0usize, 0usize);
+    let sentinel = (o.len(), p.len(), t.len());
+    for (oa, pa, ta) in anchors.into_iter().chain(std::iter::once(sentinel)) {
+        emit_region_segment(&o[oi..oa], &p[pj..pa], &t[ti..ta], &mut acc);
+        if pa < p.len() {
+            acc.push(RegionKind::Unchanged, p[pa], p[pa], p[pa]); // 锚点行三方一致
+        }
+        oi = oa + 1;
+        pj = pa + 1;
+        ti = ta + 1;
+    }
+    acc.finish()
+}
+
+/// 区域版的段处理:等长段逐行判定,不等长段整段按"哪侧 == base"分类。
+fn emit_region_segment(oc: &[&str], pc: &[&str], tc: &[&str], acc: &mut RegionAcc) {
+    if oc.len() == pc.len() && tc.len() == pc.len() {
+        for r in 0..pc.len() {
+            let (o, p, t) = (oc[r], pc[r], tc[r]);
+            let kind = if o == p && t == p {
+                RegionKind::Unchanged
+            } else if o == p {
+                RegionKind::TheirsOnly
+            } else if t == p {
+                RegionKind::OursOnly
+            } else if o == t {
+                RegionKind::BothSame
+            } else {
+                RegionKind::Conflict
+            };
+            acc.push(kind, o, p, t);
+        }
+    } else if oc == tc {
+        acc.push_seg(RegionKind::BothSame, oc, pc, tc);
+    } else if oc == pc {
+        acc.push_seg(RegionKind::TheirsOnly, oc, pc, tc);
+    } else if tc == pc {
+        acc.push_seg(RegionKind::OursOnly, oc, pc, tc);
+    } else {
+        acc.push_seg(RegionKind::Conflict, oc, pc, tc);
+    }
+}
+
+/// 区域累积器:相邻同类区域合并,保留三侧原行。
+#[derive(Default)]
+struct RegionAcc {
+    out: Vec<MergeRegion>,
+    cur: Option<MergeRegion>,
+}
+
+impl RegionAcc {
+    fn push(&mut self, kind: RegionKind, o: &str, p: &str, t: &str) {
+        self.push_seg(kind, &[o], &[p], &[t]);
+    }
+
+    fn push_seg(&mut self, kind: RegionKind, oc: &[&str], pc: &[&str], tc: &[&str]) {
+        if oc.is_empty() && pc.is_empty() && tc.is_empty() {
+            return;
+        }
+        match &mut self.cur {
+            Some(r) if r.kind == kind => {
+                r.ours.extend(oc.iter().map(|s| s.to_string()));
+                r.base.extend(pc.iter().map(|s| s.to_string()));
+                r.theirs.extend(tc.iter().map(|s| s.to_string()));
+            }
+            _ => {
+                if let Some(r) = self.cur.take() {
+                    self.out.push(r);
+                }
+                self.cur = Some(MergeRegion {
+                    kind,
+                    ours: oc.iter().map(|s| s.to_string()).collect(),
+                    base: pc.iter().map(|s| s.to_string()).collect(),
+                    theirs: tc.iter().map(|s| s.to_string()).collect(),
+                });
+            }
+        }
+    }
+
+    fn finish(mut self) -> Vec<MergeRegion> {
+        if let Some(r) = self.cur.take() {
+            self.out.push(r);
+        }
+        self.out
+    }
 }
 
 /// 处理两个三方锚点之间的一段(三段各自的版本)。
@@ -280,5 +410,59 @@ mod tests {
             merge3("X\nY\n", "2\n", "Z\n"),
             vec![cf("X\nY\n", "2\n", "Z\n")]
         );
+    }
+
+    // ── merge_regions(对齐三路 diff) ──
+
+    fn kinds(rs: &[MergeRegion]) -> Vec<RegionKind> {
+        rs.iter().map(|r| r.kind).collect()
+    }
+
+    #[test]
+    fn regions_classify_unchanged_ours_theirs_conflict() {
+        // l1 三方同;l2 仅 ours 改;l3 仅 theirs 改;l4 两边都改且不同。
+        let rs = merge_regions(
+            "l1\nOURS2\nl3\nA4\n",
+            "l1\nl2\nl3\nl4\n",
+            "l1\nl2\nTHEIRS3\nB4\n",
+        );
+        assert_eq!(
+            kinds(&rs),
+            vec![
+                RegionKind::Unchanged,
+                RegionKind::OursOnly,
+                RegionKind::TheirsOnly,
+                RegionKind::Conflict,
+            ]
+        );
+        // 区域保留三侧原行。
+        assert_eq!(rs[1].ours, vec!["OURS2\n"]);
+        assert_eq!(rs[1].theirs, vec!["l2\n"]);
+        assert_eq!(rs[3].ours, vec!["A4\n"]);
+        assert_eq!(rs[3].theirs, vec!["B4\n"]);
+    }
+
+    #[test]
+    fn regions_both_same_change() {
+        let rs = merge_regions("a\nX\nc\n", "a\nb\nc\n", "a\nX\nc\n");
+        assert_eq!(
+            kinds(&rs),
+            vec![
+                RegionKind::Unchanged,
+                RegionKind::BothSame,
+                RegionKind::Unchanged
+            ]
+        );
+    }
+
+    #[test]
+    fn regions_consecutive_same_kind_merged() {
+        // ours 连改两行:应合并成一个 OursOnly 区域(两行)。
+        let rs = merge_regions("A\nB\nc\n", "a\nb\nc\n", "a\nb\nc\n");
+        assert_eq!(
+            kinds(&rs),
+            vec![RegionKind::OursOnly, RegionKind::Unchanged]
+        );
+        assert_eq!(rs[0].ours, vec!["A\n", "B\n"]);
     }
 }

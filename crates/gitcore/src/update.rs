@@ -76,8 +76,12 @@ pub enum SubmoduleUpdate {
         files: Vec<PathBuf>,
         autostash: Option<StashRef>,
     },
-    /// 整合成功但 autostash 还原时冲突(工作树有冲突标记,非合并进行中),提示手动处理。
-    StashConflict,
+    /// 整合成功但 autostash 还原时冲突(工作树有冲突标记,非合并进行中);
+    /// 携带子仓绝对路径 + 冲突文件,交前端进 ConflictView 解决(stash 还原模式)。
+    StashConflict {
+        repo_path: PathBuf,
+        files: Vec<PathBuf>,
+    },
 }
 
 // 发送一个无百分比的阶段进度事件,让前端进度条切到 indeterminate 模式,
@@ -275,6 +279,30 @@ pub(crate) fn continue_update(
     Ok(UpdateOutcome::Resolved)
 }
 
+/// 完成 stash 还原冲突的解决:校验无残留冲突后丢弃已贴回的 autostash;
+/// 改动作为 WIP 留在工作区(不提交)。autostash 为 None 时按 label 扫描定位。
+pub(crate) fn finish_stash_restore(repo: &Repo, autostash: Option<StashRef>) -> Result<(), Error> {
+    let remaining = crate::conflict::conflicted_files(repo)?;
+    if !remaining.is_empty() {
+        return Err(Error::Precondition("仍有未解决的冲突文件".into()));
+    }
+    let stash = match autostash {
+        Some(s) => Some(s),
+        None => stash::find_autostash(repo)?,
+    };
+    if let Some(stash) = stash {
+        stash::drop_autostash(repo, &stash)?;
+    }
+    Ok(())
+}
+
+/// 放弃 stash 还原:`reset --hard` 回到整合后的状态,**保留 stash**
+/// (原始工作区改动不丢,用户可重试)。
+pub(crate) fn abort_stash_restore(repo: &Repo) -> Result<(), Error> {
+    repo.git(&["reset", "--hard", "HEAD"])?;
+    Ok(())
+}
+
 /// 放弃整合,回到 Update 之前的状态(含还原 autostash)。
 pub(crate) fn abort_update(repo: &Repo, autostash: Option<StashRef>) -> Result<(), Error> {
     match in_progress(repo)? {
@@ -305,6 +333,43 @@ pub(crate) fn abort_update(repo: &Repo, autostash: Option<StashRef>) -> Result<(
 pub struct PendingConflicts {
     pub files: Vec<PathBuf>,
     pub autostash: Option<StashRef>,
+}
+
+/// 进行中的整合类型(供 UI 显示状态条、决定 continue/abort 走法)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum IntegrationKind {
+    Merge,
+    Rebase,
+    CherryPick,
+    Revert,
+    /// 无进行中整合;若此时仍有冲突文件 = stash 还原冲突 / 纯工作区未合并态。
+    None,
+}
+
+/// 当前仓库的冲突态快照(供主界面发现与重入)。
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct ConflictState {
+    pub kind: IntegrationKind,
+    pub files: Vec<crate::conflict::ConflictFile>,
+    pub autostash: Option<StashRef>,
+}
+
+/// 报告当前冲突态(总是返回;无冲突则 files 空)。供主界面在 refresh 时探测。
+pub(crate) fn conflict_state(repo: &Repo) -> Result<ConflictState, Error> {
+    let kind = match in_progress(repo)? {
+        Some(Integration::Merge) => IntegrationKind::Merge,
+        Some(Integration::Rebase) => IntegrationKind::Rebase,
+        Some(Integration::CherryPick) => IntegrationKind::CherryPick,
+        Some(Integration::Revert) => IntegrationKind::Revert,
+        None => IntegrationKind::None,
+    };
+    Ok(ConflictState {
+        kind,
+        files: crate::conflict::classify_conflicts(repo)?,
+        autostash: stash::find_autostash(repo)?,
+    })
 }
 
 /// 检测未完成的整合(中断/崩溃后):有进行中的 merge/rebase + 冲突文件时,
@@ -450,18 +515,31 @@ pub(crate) fn update_submodule_on_branch(
             files,
             autostash,
         }),
-        UpdateOutcome::StashRestoreConflict { .. } => Ok(SubmoduleUpdate::StashConflict),
+        UpdateOutcome::StashRestoreConflict { files } => Ok(SubmoduleUpdate::StashConflict {
+            repo_path: abs,
+            files,
+        }),
         // 子仓的子仓同步失败:本层已 recurse_submodules=false,不会走到;兜底当作已更新。
         UpdateOutcome::SubmoduleSyncFailed { .. } => Ok(SubmoduleUpdate::Updated { commits: 0 }),
     }
 }
 
-// rerere 重放后:把已无冲突标记的文件自动 add(视为已解决)。
+// rerere 重放后:把 rerere 已写回解法(内容冲突且不再有冲突标记)的文件自动 add。
+//
+// 仅限内容冲突(both-modified / add-add):只有这两类才带 `<<<<<<<` 标记、才可能被
+// rerere 重放消解。modify/delete、delete/modify、二进制天生就没有冲突标记(git 把存活的
+// 一侧整份留在工作树),"无标记"并不代表已解决——它们需要用户决定保留/删除/取哪侧,
+// 绝不能在这里被当成 rerere 已解决而自动吞掉(否则会从冲突列表里凭空消失)。
 pub(crate) fn auto_resolve_rerere(repo: &Repo) -> Result<(), Error> {
-    for file in crate::conflict::conflicted_files(repo)? {
-        let content = std::fs::read_to_string(repo.workdir().join(&file))?;
+    use crate::conflict::ConflictKind;
+    for cf in crate::conflict::classify_conflicts(repo)? {
+        if !matches!(cf.kind, ConflictKind::BothModified | ConflictKind::AddAdd) {
+            continue;
+        }
+        let content = std::fs::read_to_string(repo.workdir().join(&cf.path))?;
         if !content.lines().any(|l| l.starts_with("<<<<<<<")) {
-            let p = file
+            let p = cf
+                .path
                 .to_str()
                 .ok_or_else(|| Error::Parse("路径含非法字符".into()))?;
             repo.git(&["add", "--", p])?;

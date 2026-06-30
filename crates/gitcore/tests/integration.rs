@@ -2,8 +2,8 @@
 //! 每个测试自建临时 repo、用完即删。
 
 use gitcore::{
-    CancelToken, IntegrationStrategy, PendingConflicts, RebaseAction, RebaseItem, Repo,
-    SwitchOutcome, UpdateOptions, UpdateOutcome,
+    CancelToken, ConflictKind, IntegrationKind, IntegrationStrategy, PendingConflicts,
+    RebaseAction, RebaseItem, RegionKind, Repo, Side, SwitchOutcome, UpdateOptions, UpdateOutcome,
 };
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -1981,4 +1981,260 @@ fn delete_remote_branch_removes_remote_ref() {
     assert!(after.trim().is_empty(), "删除后远程应无 topic: {after}");
 
     cleanup(&[&a, &remote]);
+}
+
+// ── 冲突类型分类 + 非内容型解决(Phase 1) ──
+
+// 不断言成功的 git(供制造冲突合并)。
+fn git_try(dir: &Path, args: &[&str]) -> bool {
+    Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .unwrap()
+        .success()
+}
+
+// 构造 5 类冲突所需的两个分支(both-modified / modify-delete / delete-modify /
+// add-add / binary),停在 main 分支、**尚未合并**。供"经公开整合入口"的测试复用。
+fn setup_conflict_branches(tag: &str) -> PathBuf {
+    let a = init_repo(tag);
+    write(&a, "both.txt", "1\n2\n3\n");
+    write(&a, "moddel.txt", "keep\n");
+    write(&a, "delmod.txt", "keep2\n");
+    std::fs::write(a.join("bin.dat"), [0u8, 1, 2, 0, 3]).unwrap();
+    git(&a, &["add", "."]);
+    git(&a, &["commit", "-qm", "base"]);
+
+    git(&a, &["checkout", "-q", "-b", "feature"]);
+    write(&a, "both.txt", "1\nTHEIRS\n3\n");
+    git(&a, &["rm", "-q", "moddel.txt"]); // theirs 删 → modify/delete
+    write(&a, "delmod.txt", "theirs2\n"); // theirs 改
+    write(&a, "addadd.txt", "theirs-new\n"); // theirs 新增
+    std::fs::write(a.join("bin.dat"), [0u8, 1, 2, 0, 9]).unwrap();
+    git(&a, &["add", "-A"]);
+    git(&a, &["commit", "-qm", "feature"]);
+
+    git(&a, &["checkout", "-q", "main"]);
+    write(&a, "both.txt", "1\nOURS\n3\n");
+    write(&a, "moddel.txt", "ours-mod\n"); // ours 改(对方删)
+    git(&a, &["rm", "-q", "delmod.txt"]); // ours 删(对方改 → delete/modify)
+    write(&a, "addadd.txt", "ours-new\n"); // ours 新增
+    std::fs::write(a.join("bin.dat"), [0u8, 1, 2, 0, 7]).unwrap();
+    git(&a, &["add", "-A"]);
+    git(&a, &["commit", "-qm", "ours"]);
+    a
+}
+
+// 一次本地 merge 同时制造五类冲突。返回处于冲突态的仓库目录。
+fn setup_conflict_kinds(tag: &str) -> PathBuf {
+    let a = setup_conflict_branches(tag);
+    assert!(!git_try(&a, &["merge", "feature"]), "merge 应当冲突");
+    a
+}
+
+// 回归:经公开整合入口(merge_branch,内部会跑 auto_resolve_rerere)产生冲突后,
+// modify/delete、delete/modify、二进制这些"无 <<<<<<< 标记"的冲突不得被自动吞掉。
+#[test]
+fn auto_resolve_does_not_swallow_non_content_conflicts() {
+    let a = setup_conflict_branches("arr");
+    let repo = Repo::open(&a).unwrap();
+    let outcome = repo
+        .merge_branch("feature", &UpdateOptions::default())
+        .unwrap();
+    assert!(
+        matches!(outcome, UpdateOutcome::Conflicted { .. }),
+        "应停在冲突态,实际 {outcome:?}"
+    );
+    let names: Vec<PathBuf> = repo
+        .conflict_state()
+        .unwrap()
+        .files
+        .iter()
+        .map(|f| f.path.clone())
+        .collect();
+    for f in [
+        "both.txt",
+        "addadd.txt",
+        "moddel.txt",
+        "delmod.txt",
+        "bin.dat",
+    ] {
+        assert!(
+            names.contains(&PathBuf::from(f)),
+            "冲突列表应包含 {f},实际 {names:?}"
+        );
+    }
+    cleanup(&[&a]);
+}
+
+#[test]
+fn classify_conflicts_detects_all_kinds() {
+    let a = setup_conflict_kinds("ck");
+    let repo = Repo::open(&a).unwrap();
+    let state = repo.conflict_state().unwrap();
+    assert_eq!(state.kind, IntegrationKind::Merge, "merge 进行中");
+
+    let kind_of = |name: &str| {
+        state
+            .files
+            .iter()
+            .find(|f| f.path == PathBuf::from(name))
+            .unwrap_or_else(|| panic!("缺少冲突文件 {name}"))
+            .kind
+    };
+    assert_eq!(kind_of("both.txt"), ConflictKind::BothModified);
+    assert_eq!(kind_of("moddel.txt"), ConflictKind::ModifyDelete);
+    assert_eq!(kind_of("delmod.txt"), ConflictKind::DeleteModify);
+    assert_eq!(kind_of("addadd.txt"), ConflictKind::AddAdd);
+    assert_eq!(kind_of("bin.dat"), ConflictKind::Binary);
+
+    cleanup(&[&a]);
+}
+
+#[test]
+fn resolve_keep_and_remove_resolve_modify_delete() {
+    let a = setup_conflict_kinds("rkr");
+    let repo = Repo::open(&a).unwrap();
+
+    // modify/delete:保留本地改动。
+    repo.resolve_keep(Path::new("moddel.txt")).unwrap();
+    assert!(a.join("moddel.txt").exists(), "保留后文件仍在");
+    // delete/modify:接受删除。
+    repo.resolve_remove(Path::new("delmod.txt")).unwrap();
+    assert!(!a.join("delmod.txt").exists(), "接受删除后文件应消失");
+
+    let conflicted = repo.status().unwrap().conflicted;
+    assert!(!conflicted.contains(&PathBuf::from("moddel.txt")));
+    assert!(!conflicted.contains(&PathBuf::from("delmod.txt")));
+
+    cleanup(&[&a]);
+}
+
+#[test]
+fn merge_file_regions_aligns_conflict() {
+    let a = setup_conflict_kinds("mfr");
+    let repo = Repo::open(&a).unwrap();
+    let rs = repo.merge_file_regions(Path::new("both.txt")).unwrap();
+    let kinds: Vec<_> = rs.iter().map(|r| r.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            RegionKind::Unchanged,
+            RegionKind::Conflict,
+            RegionKind::Unchanged
+        ]
+    );
+    assert_eq!(rs[1].ours, vec!["OURS\n"]);
+    assert_eq!(rs[1].base, vec!["2\n"]);
+    assert_eq!(rs[1].theirs, vec!["THEIRS\n"]);
+    cleanup(&[&a]);
+}
+
+#[test]
+fn resolve_take_side_picks_binary_version() {
+    let a = setup_conflict_kinds("rts");
+    let repo = Repo::open(&a).unwrap();
+
+    repo.resolve_take_side(Path::new("bin.dat"), Side::Theirs)
+        .unwrap();
+    assert_eq!(
+        std::fs::read(a.join("bin.dat")).unwrap(),
+        vec![0u8, 1, 2, 0, 9],
+        "应取 theirs 版本"
+    );
+    assert!(!repo
+        .status()
+        .unwrap()
+        .conflicted
+        .contains(&PathBuf::from("bin.dat")));
+
+    cleanup(&[&a]);
+}
+
+// ── stash 还原冲突(Phase 4) ──
+
+// 脏工作区改动与远端推进同一行 → autostash pop 时冲突(整合本身成功)。
+fn setup_stash_restore_conflict(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let a = init_repo(&format!("{tag}-a"));
+    write(&a, "f.txt", "1\n2\n3\n");
+    commit_all(&a, "base");
+    let remote = bare_remote(&format!("{tag}-remote"));
+    git(&a, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    git(&a, &["push", "-q", "-u", "origin", "main"]);
+
+    let b = clone(&remote, &format!("{tag}-b"));
+
+    // 远端推进:改第 2 行。
+    write(&a, "f.txt", "1\nREMOTE\n3\n");
+    commit_all(&a, "a-change");
+    git(&a, &["push", "-q", "origin", "main"]);
+
+    // b 未提交改动:也改第 2 行(与远端冲突)。
+    write(&b, "f.txt", "1\nLOCAL\n3\n");
+    (a, remote, b)
+}
+
+#[test]
+fn stash_restore_conflict_finish_drops_stash() {
+    let (a, remote, b) = setup_stash_restore_conflict("src");
+    let repo = Repo::open(&b).unwrap();
+
+    let files = match repo
+        .execute_update(&UpdateOptions::default(), &CancelToken::default())
+        .unwrap()
+    {
+        UpdateOutcome::StashRestoreConflict { files } => files,
+        other => panic!("应当 stash 还原冲突,实际 {other:?}"),
+    };
+    assert_eq!(files, vec![PathBuf::from("f.txt")]);
+
+    // 整合已 ff(无进行中整合),但仍有未合并文件。
+    let cs = repo.conflict_state().unwrap();
+    assert_eq!(cs.kind, IntegrationKind::None);
+    assert!(!cs.files.is_empty());
+
+    // 解决(保留本地)→ finish 丢弃 autostash,改动留在工作区。
+    repo.resolve_file(Path::new("f.txt"), "1\nLOCAL\n3\n")
+        .unwrap();
+    repo.finish_stash_restore(cs.autostash).unwrap();
+    assert!(
+        repo.stashes().unwrap().is_empty(),
+        "finish 后 autostash 应被丢弃"
+    );
+    assert_eq!(
+        std::fs::read_to_string(b.join("f.txt")).unwrap(),
+        "1\nLOCAL\n3\n"
+    );
+
+    cleanup(&[&a, &remote, &b]);
+}
+
+#[test]
+fn stash_restore_conflict_abort_keeps_stash() {
+    let (a, remote, b) = setup_stash_restore_conflict("sra");
+    let repo = Repo::open(&b).unwrap();
+
+    match repo
+        .execute_update(&UpdateOptions::default(), &CancelToken::default())
+        .unwrap()
+    {
+        UpdateOutcome::StashRestoreConflict { .. } => {}
+        other => panic!("应当 stash 还原冲突,实际 {other:?}"),
+    };
+
+    repo.abort_stash_restore().unwrap();
+    let st = repo.status().unwrap();
+    assert!(st.conflicted.is_empty(), "abort 后应无冲突");
+    assert_eq!(
+        std::fs::read_to_string(b.join("f.txt")).unwrap(),
+        "1\nREMOTE\n3\n",
+        "abort 回到整合后的状态"
+    );
+    assert!(
+        !repo.stashes().unwrap().is_empty(),
+        "abort 应保留 stash(原始改动可重试)"
+    );
+
+    cleanup(&[&a, &remote, &b]);
 }

@@ -172,9 +172,45 @@ pub(crate) fn read_conflict(repo: &Repo, path: &Path) -> Result<Vec<Segment>, Er
 /// 写回解决结果并 git add(标记冲突已解决)。
 pub(crate) fn write_resolution(repo: &Repo, path: &Path, text: &str) -> Result<(), Error> {
     std::fs::write(repo.workdir().join(path), text)?;
-    let p = path
-        .to_str()
-        .ok_or_else(|| Error::Parse("路径含非法字符".into()))?;
-    repo.git(&["add", "--", p])?;
+    repo.git(&["add", "--", &path_str(path)?])?;
     Ok(())
+}
+
+/// 选边:取本地或对方整份(二进制 / add-add 选边用)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize))]
+pub enum Side {
+    Ours,
+    Theirs,
+}
+
+/// 保留工作区中现有的文件版本并标记已解决
+/// (modify/delete 保留本地改动、delete/modify 保留对方改动)。
+pub(crate) fn resolve_keep(repo: &Repo, path: &Path) -> Result<(), Error> {
+    repo.git(&["add", "--", &path_str(path)?])?;
+    Ok(())
+}
+
+/// 接受删除:从工作区与索引移除该文件(标记冲突已解决)。
+pub(crate) fn resolve_remove(repo: &Repo, path: &Path) -> Result<(), Error> {
+    repo.git(&["rm", "--", &path_str(path)?])?;
+    Ok(())
+}
+
+/// 取某一侧整份内容(checkout --ours/--theirs)并 git add(二进制 / add-add 选边)。
+pub(crate) fn resolve_take_side(repo: &Repo, path: &Path, side: Side) -> Result<(), Error> {
+    let p = path_str(path)?;
+    let flag = match side {
+        Side::Ours => "--ours",
+        Side::Theirs => "--theirs",
+    };
+    repo.git(&["checkout", flag, "--", &p])?;
+    repo.git(&["add", "--", &p])?;
+    Ok(())
+}
+
+fn path_str(path: &Path) -> Result<String, Error> {
+    path.to_str()
+        .map(str::to_string)
+        .ok_or_else(|| Error::Parse("路径含非法字符".into()))
 }

@@ -25,7 +25,6 @@
   import FileHistory from "$lib/FileHistory.svelte";
   import BlameView from "$lib/BlameView.svelte";
   import BranchPicker from "$lib/BranchPicker.svelte";
-  import ConflictView from "$lib/ConflictView.svelte";
   import Settings from "$lib/Settings.svelte";
   import UpdateBanner from "$lib/UpdateBanner.svelte";
   import StashView from "$lib/StashView.svelte";
@@ -231,12 +230,75 @@
   interface StashRef {
     label: string;
   }
-  interface MergeConflict {
-    repoPath: string;
-    files: string[];
+  // ── 冲突态(主界面发现与重入):每次 reload 探测主仓库 ──
+  type ConflictKind =
+    | "BothModified"
+    | "ModifyDelete"
+    | "DeleteModify"
+    | "AddAdd"
+    | "Binary";
+  type IntegrationKind = "Merge" | "Rebase" | "CherryPick" | "Revert" | "None";
+  interface ConflictFile {
+    path: string;
+    kind: ConflictKind;
+  }
+  interface ConflictState {
+    kind: IntegrationKind;
+    files: ConflictFile[];
     autostash: StashRef | null;
   }
-  let mergeConflict = $state<MergeConflict | null>(null); // 合并/变基产生冲突时的 ConflictView 弹层
+  let conflictState = $state<ConflictState | null>(null);
+  // 处于冲突/未完成整合态:有进行中整合,或仍有未合并文件(stash 还原冲突)。
+  let inConflict = $derived(
+    !!conflictState &&
+      (conflictState.kind !== "None" || conflictState.files.length > 0),
+  );
+  const INTEGRATION_LABEL: Record<IntegrationKind, string> = {
+    Merge: "合并",
+    Rebase: "变基",
+    CherryPick: "拣选",
+    Revert: "回退",
+    None: "整合",
+  };
+
+  // 为指定仓库打开独立冲突解决窗口(可调整大小/全屏)。
+  async function openConflictResolutionFor(
+    repoPath: string,
+    initialFile?: string,
+  ) {
+    try {
+      await invoke("open_conflict_window", { path: repoPath, initialFile });
+    } catch (e) {
+      error = String(e);
+    }
+  }
+  // 从主界面 banner / 冲突文件进入(主仓库)。
+  function openConflictResolution(initialFile?: string) {
+    return openConflictResolutionFor(path, initialFile);
+  }
+
+  // 从 banner 放弃(整合 → 回到整合前;stash 还原 → reset 保留 stash)。
+  async function abortFromBanner() {
+    if (!conflictState) return;
+    const stashRestore = conflictState.kind === "None";
+    const msg = stashRestore
+      ? "确定放弃还原？工作区回到整合后的状态,你的改动仍保留在 stash 里可重试。"
+      : "确定放弃本次整合？工作区将回到整合前的状态。";
+    if (!(await ask(msg, { title: "放弃", kind: "warning" }))) return;
+    try {
+      if (stashRestore) {
+        await invoke("abort_stash_restore_cmd", { path });
+      } else {
+        await invoke("abort_update_cmd", {
+          path,
+          autostash: conflictState.autostash,
+        });
+      }
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    }
+  }
   interface BranchDiff {
     branch: string;
     files: FileDiff[];
@@ -442,6 +504,7 @@
   let repoChangedUnlisten: UnlistenFn | undefined = $state();
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
+  let conflictDoneUnlisten: UnlistenFn | undefined = $state();
   $effect(() => {
     const init = async () => {
       repoChangedUnlisten = await listen("repo-changed", () => {
@@ -454,10 +517,15 @@
           if (status) refresh();
         }, 300);
       });
+      // 独立冲突窗口解决/放弃后:更新流程中交给 UpdateView 续跑,否则刷新主界面。
+      conflictDoneUnlisten = await listen("conflict-done", () => {
+        if (!showUpdate && status) refresh();
+      });
     };
     init();
     return () => {
       repoChangedUnlisten?.();
+      conflictDoneUnlisten?.();
       if (refreshTimer) clearTimeout(refreshTimer);
     };
   });
@@ -516,6 +584,14 @@
   async function reload() {
     const s = await invoke<RepoStatus>("repo_status", { path });
     status = s;
+    // 探测主仓库冲突态(进行中整合 / 未合并文件),供 banner 与重入。
+    try {
+      conflictState = await invoke<ConflictState>("repo_conflict_state", {
+        path,
+      });
+    } catch {
+      conflictState = null;
+    }
     const main = buildRepoView(
       path,
       repoLabel(path),
@@ -1175,7 +1251,6 @@
           | "UpToDate"
           | "SyncedToRecorded"
           | "SkippedNoUpstream"
-          | "StashConflict"
           | { Updated: { commits: number } }
           | {
               Conflicted: {
@@ -1184,6 +1259,7 @@
                 autostash: unknown;
               };
             }
+          | { StashConflict: { repo_path: string; files: string[] } }
         >("repo_update_submodule_on_branch", {
           path: opts.path,
           subPath: sub.path,
@@ -1264,8 +1340,6 @@
           return "已同步到记录提交";
         case "SkippedNoUpstream":
           return "跳过:无上游分支";
-        case "StashConflict":
-          return "stash 还原冲突,需手动处理";
         default:
           return r;
       }
@@ -1273,6 +1347,9 @@
     if ("Updated" in r) {
       const d = (r as { Updated: { commits: number } }).Updated;
       return `已更新 ${d.commits} 个提交`;
+    }
+    if ("StashConflict" in r) {
+      return "stash 还原冲突,需在该子仓手动处理";
     }
     return "未知结果";
   }
@@ -1722,6 +1799,35 @@
     {/if}
 
     {#if status}
+      {#if inConflict && conflictState}
+        <div class="conflict-banner" role="alert">
+          <span class="cb-icon">⚠</span>
+          <span class="cb-text">
+            {#if conflictState.kind !== "None"}
+              {INTEGRATION_LABEL[conflictState.kind]}进行中
+            {:else}
+              还原暂存改动时发生冲突
+            {/if}
+            · {conflictState.files.length} 个冲突文件
+          </span>
+          <button
+            class="cb-btn cb-resolve"
+            onclick={() => openConflictResolution()}
+            title="进入冲突解决界面逐个处理"
+          >
+            解决冲突
+          </button>
+          <button
+            class="cb-btn cb-abort"
+            onclick={abortFromBanner}
+            title={conflictState.kind !== "None"
+              ? "放弃整合,回到整合前的状态"
+              : "放弃还原,回到整合后状态(改动保留在 stash)"}
+          >
+            {conflictState.kind !== "None" ? "放弃整合" : "放弃还原"}
+          </button>
+        </div>
+      {/if}
       <div class="split">
         <!-- ── 左侧:主仓库 + 各子仓库,每个都能独立暂存/提交 ── -->
         <aside class="file-list">
@@ -2037,7 +2143,15 @@
                 </h2>
                 <ul>
                   {#each status.conflicted as c}
-                    <li class="file-item conflict">{c}</li>
+                    <li>
+                      <button
+                        class="file-item conflict conflict-clickable"
+                        onclick={() => openConflictResolution(c)}
+                        title="点击解决该文件的冲突"
+                      >
+                        {c}
+                      </button>
+                    </li>
                   {/each}
                 </ul>
               </section>
@@ -2295,7 +2409,7 @@
       onSwitched={refresh}
       onConflict={(d) => {
         branchPickerRepo = null;
-        mergeConflict = d;
+        void openConflictResolutionFor(d.repoPath);
       }}
       onShowDiff={(d) => {
         branchPickerRepo = null;
@@ -2306,66 +2420,6 @@
         compareResult = d;
       }}
     />
-  {/if}
-
-  <!-- ── 合并/变基冲突弹层 ── -->
-  {#if mergeConflict}
-    <div class="update-overlay">
-      <div class="update-modal">
-        <div class="update-header">
-          <h2 class="update-title">解决冲突</h2>
-          <button
-            class="btn-close"
-            onclick={() => {
-              mergeConflict = null;
-              refresh();
-            }}
-            title="关闭"
-          >
-            ✕
-          </button>
-        </div>
-        <ConflictView
-          path={mergeConflict.repoPath}
-          conflictFiles={mergeConflict.files}
-          autostash={mergeConflict.autostash}
-          onContinue={async () => {
-            const mc = mergeConflict!;
-            try {
-              await invoke("continue_update_cmd", {
-                path: mc.repoPath,
-                autostash: mc.autostash,
-                recurseSubmodules: false,
-              });
-              mergeConflict = null;
-              await refresh();
-            } catch (e) {
-              error = String(e);
-            }
-          }}
-          onAbort={async () => {
-            if (
-              !(await ask("确定放弃本次整合？工作区将回到整合前的状态。", {
-                title: "放弃整合",
-                kind: "warning",
-              }))
-            )
-              return;
-            const mc = mergeConflict!;
-            try {
-              await invoke("abort_update_cmd", {
-                path: mc.repoPath,
-                autostash: mc.autostash,
-              });
-              mergeConflict = null;
-              await refresh();
-            } catch (e) {
-              error = String(e);
-            }
-          }}
-        />
-      </div>
-    </div>
   {/if}
 
   <!-- ── 分支 ↔ 工作区差异弹层(Show Diff with Working Tree) ── -->
@@ -3114,6 +3168,62 @@
   }
   .file-item.conflict {
     color: var(--color-error);
+  }
+  /* 可点击的冲突文件(按钮化,进入冲突解决并定位) */
+  .conflict-clickable {
+    width: 100%;
+    background: none;
+    border: none;
+    border-left: 3px solid transparent;
+    font: inherit;
+  }
+  .conflict-clickable:hover {
+    background: var(--bg-hover);
+    border-left-color: var(--color-error);
+  }
+
+  /* ── 主界面冲突 banner(进行中整合 / 未解决冲突) ── */
+  .conflict-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #3a2522;
+    border: 1px solid rgba(247, 120, 139, 0.35);
+    border-radius: 6px;
+    padding: 8px 14px;
+    margin: 0 0 10px;
+  }
+  .cb-icon {
+    color: var(--accent-gold);
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .cb-text {
+    flex: 1;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+  .cb-btn {
+    border: none;
+    border-radius: 5px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .cb-resolve {
+    background: var(--accent-cyan);
+    color: #fff;
+  }
+  .cb-resolve:hover {
+    background: #58a6ff;
+  }
+  .cb-abort {
+    background: rgba(247, 120, 139, 0.2);
+    color: var(--color-error);
+  }
+  .cb-abort:hover {
+    background: rgba(247, 120, 139, 0.3);
   }
   .muted {
     color: var(--text-muted);
