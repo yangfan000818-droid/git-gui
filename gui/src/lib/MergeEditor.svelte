@@ -31,7 +31,13 @@
     path,
     file,
     onWritten,
-  }: { path: string; file: string; onWritten: () => void } = $props();
+    onDirtyChange,
+  }: {
+    path: string;
+    file: string;
+    onWritten: () => void;
+    onDirtyChange?: (dirty: boolean) => void;
+  } = $props();
 
   let regions = $state<MergeRegion[]>([]);
   let decisions = $state<Decision[]>([]);
@@ -41,6 +47,19 @@
   // 整文件手动编辑(无区域可解析时的退回 / 逃生口)。
   let manualMode = $state(false);
   let manualText = $state("");
+  // 有未写入的取舍变更(用于离开前确认,防丢决策状态)。
+  let dirty = $state(false);
+  // 各 region 的 DOM 元素,供冲突导航滚动定位。
+  let regionEls: HTMLElement[] = [];
+  let focusIdx = $state(-1);
+
+  function markDirty() {
+    dirty = true;
+  }
+  // 上报 dirty 给父组件(返回列表 / 关窗前确认)。
+  $effect(() => {
+    onDirtyChange?.(dirty);
+  });
 
   onMount(async () => {
     try {
@@ -59,7 +78,7 @@
         edited = rs.map(() => "");
       }
     } catch (e) {
-      error = String(e);
+      error = `加载合并视图失败:${String(e)}`;
     }
     loading = false;
   });
@@ -140,21 +159,148 @@
   // ── 决策操作 ──
   function setDecision(i: number, d: Decision) {
     decisions[i] = d;
+    markDirty();
   }
   function startEdit(i: number) {
     const r = regions[i];
     edited[i] = r.ours.join("") + r.theirs.join("");
     decisions[i] = "edited";
+    markDirty();
+  }
+  // 点结果列直接编辑:冲突区以当前结果(或 ours+theirs)为起点进入自由编辑。
+  function editResult(i: number) {
+    const r = regions[i];
+    if (r.kind !== "Conflict") return; // v1:仅冲突区可点编辑,单边维持 ✓/○
+    const cur = regionResultText(i);
+    edited[i] = cur || r.ours.join("") + r.theirs.join("");
+    decisions[i] = "edited";
+    markDirty();
+  }
+  // 结果列(冲突区)作为可点击元素:Enter / Space 进入编辑。
+  function handleResultKey(i: number) {
+    return (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        editResult(i);
+      }
+    };
   }
   function takeAll(side: "left" | "right") {
     decisions = decisions.map((d, i) =>
       regions[i].kind === "Conflict" ? side : d,
     );
+    markDirty();
   }
   function applyAllNonConflict() {
     decisions = decisions.map((d, i) =>
       regions[i].kind === "Conflict" ? d : "applied",
     );
+    markDirty();
+  }
+
+  // ── 冲突导航:跳到上一个 / 下一个未决冲突 ──
+  function undecidedList(): number[] {
+    const r: number[] = [];
+    for (let i = 0; i < regions.length; i++) {
+      if (regions[i].kind === "Conflict" && decisions[i] === "undecided") {
+        r.push(i);
+      }
+    }
+    return r;
+  }
+  function gotoConf(dir: 1 | -1) {
+    const list = undecidedList();
+    if (list.length === 0) return;
+    let target: number;
+    if (dir === 1) {
+      target = list.find((i) => i > focusIdx) ?? list[0];
+    } else {
+      target =
+        [...list].reverse().find((i) => i < focusIdx) ?? list[list.length - 1];
+    }
+    focusIdx = target;
+    regionEls[target]?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  // 当前焦点冲突:已导航过的 focusIdx,否则第一个未决。
+  function currentConflictIdx(): number {
+    if (focusIdx >= 0 && regions[focusIdx]?.kind === "Conflict")
+      return focusIdx;
+    const list = undecidedList();
+    return list.length ? list[0] : -1;
+  }
+  function decideFocused(d: Decision) {
+    const i = currentConflictIdx();
+    if (i < 0) return;
+    setDecision(i, d);
+    gotoConf(1); // 决定后跳到下一个未决冲突
+  }
+  function editFocused() {
+    const i = currentConflictIdx();
+    if (i >= 0) editResult(i);
+  }
+
+  // 键盘:j/k 跳冲突 · 1/2 取左右 · b 两者 · e 编辑(在文本框内输入时不触发)。
+  function handleKey(e: KeyboardEvent) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target as HTMLElement | null;
+    if (
+      t &&
+      (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable)
+    )
+      return;
+    let acted = true;
+    switch (e.key) {
+      case "j":
+        gotoConf(1);
+        break;
+      case "k":
+        gotoConf(-1);
+        break;
+      case "1":
+        decideFocused("left");
+        break;
+      case "2":
+        decideFocused("right");
+        break;
+      case "b":
+        decideFocused("both");
+        break;
+      case "e":
+        editFocused();
+        break;
+      default:
+        acted = false;
+    }
+    if (acted) e.preventDefault();
+  }
+
+  // ── Unchanged 上下文折叠:行数过多时只显首尾几行 + 可点开占位 ──
+  let expanded = $state<Record<number, boolean>>({});
+  type DisplayItem = { gap: false; idx: number } | { gap: true; count: number };
+  const FOLD_CTX = 3;
+  const FOLD_THRESHOLD = 10;
+  function displayItems(
+    kind: RegionKind,
+    total: number,
+    i: number,
+  ): DisplayItem[] {
+    const fold = kind === "Unchanged" && total > FOLD_THRESHOLD && !expanded[i];
+    if (!fold) {
+      return Array.from({ length: total }, (_, k) => ({
+        gap: false as const,
+        idx: k,
+      }));
+    }
+    const items: DisplayItem[] = [];
+    for (let k = 0; k < FOLD_CTX; k++) items.push({ gap: false, idx: k });
+    items.push({ gap: true, count: total - FOLD_CTX * 2 });
+    for (let k = total - FOLD_CTX; k < total; k++)
+      items.push({ gap: false, idx: k });
+    return items;
+  }
+  function toggleExpand(i: number) {
+    expanded[i] = !expanded[i];
   }
 
   // ── 写回 ──
@@ -170,6 +316,7 @@
         return;
       }
       await invoke("resolve_conflict_file", { path, filePath: file, text });
+      dirty = false;
       onWritten();
     } catch (e) {
       error = String(e);
@@ -192,6 +339,22 @@
     manualMode = false;
   }
 
+  // 冲突块编辑框:挂载即聚焦 + 高度随内容自适应(免再点一次、免固定高度)。
+  function editArea(node: HTMLTextAreaElement) {
+    const grow = () => {
+      node.style.height = "auto";
+      node.style.height = `${Math.max(60, node.scrollHeight)}px`;
+    };
+    grow();
+    node.addEventListener("input", grow);
+    node.focus();
+    return {
+      destroy() {
+        node.removeEventListener("input", grow);
+      },
+    };
+  }
+
   // 决策态 → 列着色类。
   function bandClass(kind: RegionKind, decision: Decision): string {
     if (kind === "Unchanged") return "";
@@ -200,6 +363,8 @@
     return decision === "ignored" ? "b-ignored" : "b-change";
   }
 </script>
+
+<svelte:window onkeydown={handleKey} />
 
 <div class="merge-editor">
   {#if error}
@@ -217,11 +382,14 @@
         <button class="me-btn" onclick={exitManual}>返回三栏</button>
       {/if}
       <button class="me-btn me-primary" disabled={writing} onclick={write}>
-        写入
+        {writing ? "写入中…" : "写入"}
       </button>
     </div>
-    <textarea class="me-manual" bind:value={manualText} spellcheck="false"
-    ></textarea>
+    <textarea
+      class="me-manual"
+      bind:value={manualText}
+      oninput={markDirty}
+      spellcheck="false"></textarea>
   {:else}
     <!-- ── 工具条 ── -->
     <div class="me-toolbar">
@@ -232,6 +400,24 @@
             · {undecided} 未决</span
           >{/if}
       </span>
+      {#if conflictCount > 0}
+        <button
+          class="me-btn me-icon"
+          disabled={undecided === 0}
+          onclick={() => gotoConf(-1)}
+          title="上一个未决冲突">↑</button
+        >
+        <button
+          class="me-btn me-icon"
+          disabled={undecided === 0}
+          onclick={() => gotoConf(1)}
+          title="下一个未决冲突">↓</button
+        >
+      {/if}
+      <span
+        class="me-keys"
+        title="键盘:j/k 跳冲突 · 1/2 取左右 · b 两者 · e 编辑">⌨</span
+      >
       <span class="me-spacer"></span>
       <button class="me-btn" onclick={() => takeAll("left")}>全部取左</button>
       <button class="me-btn" onclick={() => takeAll("right")}>全部取右</button>
@@ -249,7 +435,7 @@
           : "写入并标记已解决"}
         onclick={write}
       >
-        写入
+        {writing ? "写入中…" : "写入"}
       </button>
     </div>
 
@@ -263,23 +449,44 @@
         <div class="me-head head-theirs">THEIRS · 对方</div>
       </div>
       {#each bands as band (band.i)}
+        {@const editable =
+          band.kind === "Conflict" && band.decision !== "edited"}
+        {@const focused = band.i === focusIdx}
+        {@const oursItems = displayItems(band.kind, band.ours.length, band.i)}
+        {@const theirsItems = displayItems(
+          band.kind,
+          band.theirs.length,
+          band.i,
+        )}
+        {@const resultItems = displayItems(
+          band.kind,
+          band.result.length,
+          band.i,
+        )}
         <div
+          bind:this={regionEls[band.i]}
           class="region region-{band.kind.toLowerCase()} {bandClass(
             band.kind,
             band.decision,
           )}"
+          class:region-focus={focused}
         >
           <!-- ours -->
           <div class="col col-ours">
-            {#each band.ours as row (row.no)}
-              <div class="ln">
-                <span class="lno">{row.no}</span>
-                <span class="lt"
-                  >{#each row.toks as tk}{#if tk.changed}<span class="wc"
-                        >{tk.text}</span
-                      >{:else}{tk.text}{/if}{/each}</span
-                >
-              </div>
+            {#each oursItems as it (it.gap ? "g" : "r" + it.idx)}
+              {#if it.gap}
+                <div class="ln-gap" aria-hidden="true">⋯</div>
+              {:else}
+                {@const row = band.ours[it.idx]}
+                <div class="ln">
+                  <span class="lno">{row.no}</span>
+                  <span class="lt"
+                    >{#each row.toks as tk}{#if tk.changed}<span class="wc"
+                          >{tk.text}</span
+                        >{:else}{tk.text}{/if}{/each}</span
+                  >
+                </div>
+              {/if}
             {/each}
           </div>
 
@@ -320,15 +527,55 @@
               <textarea
                 class="me-edit"
                 bind:value={edited[band.i]}
+                oninput={markDirty}
+                use:editArea
                 spellcheck="false"></textarea>
-            {:else if band.kind === "Conflict" && band.decision === "undecided"}
-              <div class="ln me-unresolved">⚠ 未解决</div>
+            {:else if editable}
+              <div
+                class="result-editable"
+                role="button"
+                tabindex={0}
+                aria-label="编辑此冲突的结果"
+                onclick={() => editResult(band.i)}
+                onkeydown={handleResultKey(band.i)}
+              >
+                {#if band.decision === "undecided"}
+                  <div class="ln me-unresolved">⚠ 未解决 — 点击编辑</div>
+                {:else}
+                  {#each band.result as row (row.no)}
+                    <div class="ln">
+                      <span class="lno">{row.no}</span>
+                      <span class="lt">{row.text}</span>
+                    </div>
+                  {/each}
+                {/if}
+              </div>
             {:else}
-              {#each band.result as row (row.no)}
-                <div class="ln">
-                  <span class="lno">{row.no}</span>
-                  <span class="lt">{row.text}</span>
-                </div>
+              {#each resultItems as it (it.gap ? "g" : "r" + it.idx)}
+                {#if it.gap}
+                  <div
+                    class="ln-gap ln-gap-action"
+                    role="button"
+                    tabindex={0}
+                    title="点击展开"
+                    aria-label="展开折叠的未改动行"
+                    onclick={() => toggleExpand(band.i)}
+                    onkeydown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleExpand(band.i);
+                      }
+                    }}
+                  >
+                    ⋯ {it.count} 行
+                  </div>
+                {:else}
+                  {@const row = band.result[it.idx]}
+                  <div class="ln">
+                    <span class="lno">{row.no}</span>
+                    <span class="lt">{row.text}</span>
+                  </div>
+                {/if}
               {/each}
             {/if}
           </div>
@@ -366,15 +613,20 @@
 
           <!-- theirs -->
           <div class="col col-theirs">
-            {#each band.theirs as row (row.no)}
-              <div class="ln">
-                <span class="lno">{row.no}</span>
-                <span class="lt"
-                  >{#each row.toks as tk}{#if tk.changed}<span class="wc"
-                        >{tk.text}</span
-                      >{:else}{tk.text}{/if}{/each}</span
-                >
-              </div>
+            {#each theirsItems as it (it.gap ? "g" : "r" + it.idx)}
+              {#if it.gap}
+                <div class="ln-gap" aria-hidden="true">⋯</div>
+              {:else}
+                {@const row = band.theirs[it.idx]}
+                <div class="ln">
+                  <span class="lno">{row.no}</span>
+                  <span class="lt"
+                    >{#each row.toks as tk}{#if tk.changed}<span class="wc"
+                          >{tk.text}</span
+                        >{:else}{tk.text}{/if}{/each}</span
+                  >
+                </div>
+              {/if}
             {/each}
           </div>
         </div>
@@ -407,6 +659,7 @@
   /* ── 工具条 ── */
   .me-toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     padding: 6px 2px 8px;
@@ -439,6 +692,18 @@
     opacity: 0.4;
     cursor: default;
   }
+  .me-icon {
+    width: 28px;
+    padding: 4px 0;
+    text-align: center;
+    font-size: 13px;
+  }
+  .me-keys {
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: help;
+    user-select: none;
+  }
   .me-primary {
     background: var(--accent-cyan);
     border-color: var(--accent-cyan);
@@ -452,7 +717,8 @@
   .me-heads,
   .region {
     display: grid;
-    grid-template-columns: 1fr 44px 1fr 44px 1fr;
+    /* 对标 WebStorm:三栏等宽,中缝承载接受箭头 */
+    grid-template-columns: 1fr 40px 1fr 40px 1fr;
   }
 
   /* ── 三栏标题(容器内粘顶,与内容列严格对齐) ── */
@@ -480,6 +746,15 @@
   .head-result {
     color: var(--text-primary);
     background: var(--bg-void, #0d1117);
+  }
+  /* 表头色点:对应词级配色,一眼区分 ours(绿)/ theirs(青) */
+  .head-ours::before {
+    content: "● ";
+    color: var(--accent-neon, #56d364);
+  }
+  .head-theirs::before {
+    content: "● ";
+    color: var(--accent-cyan, #58a6ff);
   }
   .me-gut {
     background: var(--bg-surface);
@@ -515,6 +790,19 @@
   .col-result {
     background: var(--bg-void, #0d1117);
   }
+  /* 冲突区的结果列可点击编辑:左侧淡青竖线 + hover 提示可交互 */
+  .result-editable {
+    cursor: pointer;
+    box-shadow: inset 2px 0 0 rgba(88, 166, 255, 0.35);
+  }
+  .result-editable:hover {
+    background: rgba(88, 166, 255, 0.1);
+  }
+  /* 冲突导航跳到的 region:短暂高亮提示 */
+  .region-focus {
+    outline: 2px solid var(--accent-cyan, #58a6ff);
+    outline-offset: -2px;
+  }
 
   /* 中缝:不同底色,既是列分隔又承载取舍按钮 */
   .gut {
@@ -526,13 +814,14 @@
     gap: 4px;
     padding: 4px 0;
   }
+  /* 接受箭头:对标 WebStorm,默认低调半透明,hover/激活才提亮 */
   .chev {
     width: 26px;
     height: 22px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-elevated);
+    background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--border-default);
     border-radius: 4px;
     color: var(--text-secondary);
@@ -540,6 +829,10 @@
     font-size: 14px;
     line-height: 1;
     padding: 0;
+    transition:
+      background 0.12s,
+      border-color 0.12s,
+      color 0.12s;
   }
   .chev:hover {
     background: var(--accent-cyan);
@@ -557,24 +850,37 @@
     font-size: 11px;
   }
 
-  /* ── 区域着色(只染变化的一侧,结果列保持画布) ── */
+  /* ── 区域着色(对标 WebStorm:改动侧整列柔和底色 + 内缘 gutter 竖条标记) ── */
+  /* 冲突:两侧 + 中缝暖红,改动侧内缘红竖条(指向中缝),冲突块连成一片;
+     红调比单边蓝更浓,拉开"冲突 vs 单边更改"的视觉层次(对标 WebStorm)。 */
   .region-conflict.b-conflict .col-ours,
-  .region-conflict.b-conflict .col-theirs {
-    background: #2c1719;
+  .region-conflict.b-conflict .col-theirs,
+  .region-conflict.b-conflict .gut {
+    background: rgba(229, 83, 75, 0.2);
   }
+  .region-conflict.b-conflict .col-ours {
+    box-shadow: inset -4px 0 0 rgba(229, 83, 75, 0.9);
+  }
+  .region-conflict.b-conflict .col-theirs {
+    box-shadow: inset 4px 0 0 rgba(229, 83, 75, 0.9);
+  }
+  /* 冲突已决:结果列左侧绿条 */
   .region-conflict.b-resolved .col-result {
     box-shadow: inset 3px 0 0 var(--accent-neon, #56d364);
   }
+  /* 单边改动:对标 WebStorm,统一蓝色(不分 ours/theirs);竖条朝中缝 */
   .region-oursonly .col-ours,
-  .region-bothsame .col-ours,
-  .region-bothsame .col-theirs {
-    background: #14202e;
+  .region-bothsame .col-ours {
+    background: rgba(88, 166, 255, 0.1);
+    box-shadow: inset -3px 0 0 rgba(88, 166, 255, 0.55);
   }
-  .region-theirsonly .col-theirs {
-    background: #14202e;
+  .region-theirsonly .col-theirs,
+  .region-bothsame .col-theirs {
+    background: rgba(88, 166, 255, 0.1);
+    box-shadow: inset 3px 0 0 rgba(88, 166, 255, 0.55);
   }
   .b-ignored .col {
-    opacity: 0.45;
+    opacity: 0.4;
   }
 
   .ln {
@@ -582,23 +888,55 @@
     white-space: pre;
     min-height: 1.6em;
   }
+  /* 折叠的未改动段占位行(三列同高对齐;result 列那行可点展开) */
+  .ln-gap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.6em;
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+  .ln-gap-action {
+    cursor: pointer;
+  }
+  .ln-gap-action:hover {
+    color: var(--accent-cyan);
+    background: var(--bg-hover);
+  }
+  /* 行号 gutter:对标 WebStorm,右对齐 + 与正文间细分隔线 */
   .lno {
     flex-shrink: 0;
-    width: 38px;
+    width: 40px;
     text-align: right;
-    padding-right: 10px;
+    padding-right: 8px;
+    margin-right: 8px;
+    border-right: 1px solid var(--border-default);
     color: var(--text-muted);
-    opacity: 0.5;
+    opacity: 0.55;
     user-select: none;
   }
   .lt {
     flex: 1;
     padding-right: 10px;
   }
+  /* 词级高亮:对标 WebStorm,与所在改动块同色系更深一档
+     —— 冲突区(两侧暖红)用更深红,单边改动(蓝)用更深蓝。 */
   .wc {
-    background: rgba(247, 120, 139, 0.3);
     border-radius: 2px;
-    color: #ffd0d8;
+  }
+  .region-conflict .wc {
+    background: rgba(229, 83, 75, 0.32);
+    color: #ffd0cc;
+  }
+  .region-oursonly .wc,
+  .region-theirsonly .wc,
+  .region-bothsame .wc {
+    background: rgba(88, 166, 255, 0.3);
+    color: #cfe5ff;
   }
   .me-unresolved {
     color: var(--accent-gold);
@@ -609,7 +947,7 @@
     width: 100%;
     box-sizing: border-box;
     min-height: 60px;
-    resize: vertical;
+    resize: none;
     background: var(--bg-surface);
     border: 1px solid var(--accent-cyan);
     border-radius: 4px;
@@ -619,6 +957,7 @@
     font-size: 13px;
     line-height: 1.6;
     white-space: pre;
+    overflow: hidden;
   }
 
   /* ── 整文件手动编辑 ── */

@@ -5,6 +5,7 @@
   //  ② 编辑页:MergeEditor 三栏逐冲突解决,顶部「← 返回列表」。
   //  底部继续/放弃整合。
   import { invoke } from "@tauri-apps/api/core";
+  import { ask } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import MergeEditor from "$lib/MergeEditor.svelte";
 
@@ -51,6 +52,8 @@
 
   let fileStates = $state<FileState[]>([]);
   let activeFile = $state(0);
+  // 清单多选(⌘/Ctrl+点击):用于批量接受一侧。
+  let selectedIdx = $state<number[]>([]);
   let view = $state<"list" | "editor">("list");
   let loading = $state(true);
   let globalError = $state("");
@@ -91,6 +94,7 @@
     fileStates.length > 0 && fileStates.every((fs) => fs.written),
   );
   let pendingCount = $derived(fileStates.filter((fs) => !fs.written).length);
+  let resolvedCount = $derived(fileStates.filter((fs) => fs.written).length);
 
   // ── 展示辅助 ──
   function repoName(): string {
@@ -190,6 +194,28 @@
     }
   }
 
+  // 批量接受一侧:对选中的文件串行 resolve(避免并发踩);不可逆,二次确认。
+  async function acceptBatch(side: "yours" | "theirs") {
+    const idxs = selectedIdx.filter((i) => {
+      const f = fileStates[i];
+      return f && !f.written && !f.resolving;
+    });
+    if (idxs.length === 0) {
+      selectedIdx = [];
+      return;
+    }
+    const label = side === "yours" ? "您的(本地)" : "他们的(传入)";
+    const ok = await ask(
+      `对选中的 ${idxs.length} 个文件统一接受${label}更改?\n整文件取舍不可逐文件撤销,如需改主意只能放弃整个整合重来。`,
+      { title: "批量解决", kind: "warning" },
+    );
+    if (!ok) return;
+    for (const i of idxs) {
+      await acceptSide(i, side);
+    }
+    selectedIdx = [];
+  }
+
   function openMerge(i: number) {
     const fs = fileStates[i];
     if (!fs || !isContentKind(fs.kind)) return;
@@ -199,6 +225,27 @@
 
   function selectRow(i: number) {
     activeFile = i;
+  }
+
+  function isSelected(i: number): boolean {
+    return selectedIdx.includes(i);
+  }
+  function toggleSel(i: number) {
+    selectedIdx = isSelected(i)
+      ? selectedIdx.filter((x) => x !== i)
+      : [...selectedIdx, i];
+  }
+  // ⌘/Ctrl+点击 多选;普通点击 清多选并激活当前行。
+  function rowClick(i: number, e: MouseEvent) {
+    if (e.metaKey || e.ctrlKey) {
+      toggleSel(i);
+    } else {
+      selectedIdx = [];
+      selectRow(i);
+    }
+  }
+  function clearSel() {
+    selectedIdx = [];
   }
 
   function onEditorWritten() {
@@ -211,8 +258,24 @@
     advanceToNextPending();
   }
 
+  // 编辑器是否有未写入的取舍(返回列表 / 关窗前确认)。
+  let editorDirty = $state(false);
+
   function backToList() {
     view = "list";
+  }
+
+  // 编辑页返回列表:若有未写入的取舍,确认后再返回(防丢决策状态)。
+  async function tryBack() {
+    if (editorDirty) {
+      const ok = await ask(
+        "当前文件的选择尚未写入,确定返回列表?未写入的取舍将丢弃。",
+        { title: "未保存", kind: "warning" },
+      );
+      if (!ok) return;
+    }
+    editorDirty = false;
+    backToList();
   }
 
   // ── 键盘:清单导航 / 继续 / 放弃;编辑页 Esc 返回 ──
@@ -270,7 +333,7 @@
   {:else if view === "editor" && currentFile}
     <!-- 编辑页:三栏合并 -->
     <div class="ed-bar">
-      <button class="btn-nav" onclick={backToList} aria-label="返回文件列表"
+      <button class="btn-nav" onclick={tryBack} aria-label="返回文件列表"
         >← 返回列表</button
       >
       <span class="ed-path">{currentFile.path}</span>
@@ -287,6 +350,7 @@
           {path}
           file={currentFile.path}
           onWritten={onEditorWritten}
+          onDirtyChange={(d) => (editorDirty = d)}
         />
       {/key}
     </div>
@@ -301,7 +365,27 @@
           检测到合并冲突。请先解决这些冲突,然后再继续。
         {/if}
       </p>
+      <p class="cf-tip">
+        提示:按住 ⌘(Mac)/ Ctrl(Win) 点击文件可多选,右侧批量接受一侧。
+      </p>
     </div>
+
+    {#if fileStates.length > 1}
+      <div
+        class="cf-progress-wrap"
+        title={`${resolvedCount}/${fileStates.length} 个文件已解决`}
+      >
+        <div class="cf-progress">
+          <div
+            class="cf-progress-bar"
+            style={`width:${(resolvedCount / fileStates.length) * 100}%`}
+          ></div>
+        </div>
+        <span class="cf-progress-text"
+          >{resolvedCount} / {fileStates.length}</span
+        >
+      </div>
+    {/if}
 
     <div class="cf-layout">
       <div class="cf-table">
@@ -316,12 +400,15 @@
             <button
               class="cf-row"
               class:sel={i === activeFile}
+              class:row-sel={isSelected(i)}
               class:done={fs.written}
-              onclick={() => selectRow(i)}
+              onclick={(e) => rowClick(i, e)}
               ondblclick={() => openMerge(i)}
             >
               <span class="cf-c-name">
-                <span class="cf-icon">{fileIcon(fs)}</span>
+                <span class="cf-icon" aria-hidden="true"
+                  >{isSelected(i) ? "☑" : fileIcon(fs)}</span
+                >
                 <span class="cf-fn">{fileName(fs.path)}</span>
                 <span class="cf-dir">{fileDir(fs.path)}</span>
               </span>
@@ -342,7 +429,17 @@
       </div>
 
       <aside class="cf-actions">
-        {#if currentFile}
+        {#if selectedIdx.length > 0}
+          <p class="cf-act-note">已选 {selectedIdx.length} 个文件</p>
+          <button class="btn-act" onclick={() => acceptBatch("yours")}>
+            接受您的({selectedIdx.length})
+          </button>
+          <button class="btn-act" onclick={() => acceptBatch("theirs")}>
+            接受他们的({selectedIdx.length})
+          </button>
+          <button class="btn-act" onclick={clearSel}>取消选择</button>
+          <p class="cf-act-hint">批量整文件取舍,不可逐文件撤销。</p>
+        {:else if currentFile}
           {#if currentFile.written}
             <p class="cf-act-note">「{fileName(currentFile.path)}」已解决 ✓</p>
             <p class="cf-act-hint">
@@ -441,6 +538,38 @@
     flex-shrink: 0;
     margin-bottom: 12px;
   }
+  .cf-progress-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+  }
+  .cf-progress {
+    position: relative;
+    flex: 1;
+    height: 8px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .cf-progress-bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: linear-gradient(
+      90deg,
+      var(--accent-neon, #56d364),
+      var(--accent-cyan, #58a6ff)
+    );
+    transition: width 0.25s ease;
+  }
+  .cf-progress-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
   .cf-title {
     margin: 0 0 4px;
     font-size: 16px;
@@ -451,6 +580,11 @@
     margin: 0;
     color: var(--text-secondary);
     font-size: 12.5px;
+  }
+  .cf-tip {
+    margin: 4px 0 0;
+    color: var(--text-muted);
+    font-size: 11.5px;
   }
 
   .cf-layout {
@@ -509,6 +643,9 @@
   .cf-body .cf-row.sel {
     background: rgba(88, 166, 255, 0.14);
     box-shadow: inset 2px 0 0 var(--accent-cyan);
+  }
+  .cf-body .cf-row.row-sel {
+    background: rgba(247, 200, 90, 0.1);
   }
   .cf-body .cf-row.done {
     opacity: 0.65;

@@ -82,7 +82,9 @@
     });
     await loadContext();
   });
-  onDestroy(() => unlisten?.());
+  onDestroy(() => {
+    unlisten?.();
+  });
 
   async function finishAndClose(action: "resolved" | "aborted") {
     await emit("conflict-done", { path, action });
