@@ -1,34 +1,62 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { createHighlighter, type HighlighterGeneric } from "shiki";
-  
+
   let highlighter = $state<HighlighterGeneric<any, any> | null>(null);
-  
+
   onMount(async () => {
     highlighter = await createHighlighter({
       themes: ["vitesse-dark"],
       langs: [
-        "javascript", "typescript", "svelte", "html", "css", "json", "rust", 
-        "markdown", "bash", "toml", "yaml"
-      ]
+        "javascript",
+        "typescript",
+        "svelte",
+        "html",
+        "css",
+        "json",
+        "rust",
+        "markdown",
+        "bash",
+        "toml",
+        "yaml",
+      ],
     });
   });
 
   function getLang(path: string) {
-    const ext = path.split('.').pop()?.toLowerCase() || '';
-    switch(ext) {
-      case 'ts': case 'tsx': return 'typescript';
-      case 'js': case 'jsx': return 'javascript';
-      case 'svelte': return 'svelte';
-      case 'html': return 'html';
-      case 'css': case 'scss': case 'less': return 'css';
-      case 'json': return 'json';
-      case 'rs': return 'rust';
-      case 'md': case 'mdx': return 'markdown';
-      case 'sh': case 'bat': return 'bash';
-      case 'toml': return 'toml';
-      case 'yml': case 'yaml': return 'yaml';
-      default: return 'javascript';
+    const ext = path.split(".").pop()?.toLowerCase() || "";
+    switch (ext) {
+      case "ts":
+      case "tsx":
+        return "typescript";
+      case "js":
+      case "jsx":
+        return "javascript";
+      case "svelte":
+        return "svelte";
+      case "html":
+        return "html";
+      case "css":
+      case "scss":
+      case "less":
+        return "css";
+      case "json":
+        return "json";
+      case "rs":
+        return "rust";
+      case "md":
+      case "mdx":
+        return "markdown";
+      case "sh":
+      case "bat":
+        return "bash";
+      case "toml":
+        return "toml";
+      case "yml":
+      case "yaml":
+        return "yaml";
+      default:
+        return "javascript";
     }
   }
 
@@ -359,17 +387,39 @@
   // 计算一个 hunk 里的 shiki tokens，只在 highlighter 准备好后执行
   function getHunkTokens(hunk: Hunk, path: string) {
     if (!highlighter) return [];
-    const text = hunk.lines.map(l => l.content).join('\n');
+    const text = hunk.lines.map((l) => l.content).join("\n");
     try {
-      return highlighter.codeToTokensBase(text, { 
-        lang: getLang(path), 
-        theme: 'vitesse-dark' 
+      return highlighter.codeToTokensBase(text, {
+        lang: getLang(path),
+        theme: "vitesse-dark",
       });
-    } catch(e) {
+    } catch (e) {
       return [];
     }
   }
 </script>
+
+{#snippet lineBody(
+  oldNo: number | null,
+  newNo: number | null,
+  prefix: string,
+  segments: CharSegment[] | undefined,
+  shikiTokens: { content: string; color?: string }[],
+  content: string,
+)}
+  <div class="gutter">
+    <span class="ln ln-old">{oldNo ?? ""}</span>
+    <span class="ln ln-new">{newNo ?? ""}</span>
+    <span class="ln-prefix">{prefix}</span>
+  </div>
+  <span class="line-content"
+    >{#if segments}{#each segments as seg}<mark class="char-{seg.kind}"
+          >{seg.text}</mark
+        >{/each}{:else if shikiTokens.length > 0}{#each shikiTokens as token}<span
+          style="color: {token.color || 'inherit'}">{token.content}</span
+        >{/each}{:else}{content || " "}{/if}</span
+  >
+{/snippet}
 
 {#snippet renderFileDiff(file: FileDiff)}
   {#if file.binary}
@@ -444,36 +494,44 @@
             {@const shikiTokens = hunkTokens[idx] || []}
             {@const prefix =
               line.kind === "Added" ? "+" : line.kind === "Removed" ? "-" : " "}
-            {@const selected = interactive && line.kind !== "Context" ? isLineSelected(hi, idx) : false}
-            
-            <div
-              class="diff-line {interactive && line.kind !== 'Context' ? 'line-selectable' : ''}"
-              class:line-added={line.kind === "Added"}
-              class:line-removed={line.kind === "Removed"}
-              class:line-selected={selected}
-              role={interactive && line.kind !== "Context" ? "checkbox" : null}
-              aria-checked={selected}
-              tabindex={interactive && line.kind !== "Context" ? 0 : null}
-              onclick={interactive && line.kind !== "Context" ? () => onToggleLine?.(hi, idx) : null}
-              onkeydown={interactive && line.kind !== "Context" ? (e) => onActivate(e, () => onToggleLine?.(hi, idx)) : null}
-            >
-              <div class="gutter">
-                <span class="ln ln-old">{oldNo ?? ""}</span>
-                <span class="ln ln-new">{newNo ?? ""}</span>
-                <span class="ln-prefix">{prefix}</span>
+            {#if interactive && line.kind !== "Context"}
+              {@const selected = isLineSelected(hi, idx)}
+              <div
+                class="diff-line line-selectable"
+                class:line-added={line.kind === "Added"}
+                class:line-removed={line.kind === "Removed"}
+                class:line-selected={selected}
+                role="checkbox"
+                aria-checked={selected}
+                tabindex="0"
+                onclick={() => onToggleLine?.(hi, idx)}
+                onkeydown={(e) => onActivate(e, () => onToggleLine?.(hi, idx))}
+              >
+                {@render lineBody(
+                  oldNo,
+                  newNo,
+                  prefix,
+                  segments,
+                  shikiTokens,
+                  line.content,
+                )}
               </div>
-              <span class="line-content">
-                {#if segments}
-                  {#each segments as seg}<mark class="char-{seg.kind}">{seg.text}</mark>{/each}
-                {:else if shikiTokens.length > 0}
-                  {#each shikiTokens as token}
-                    <span style="color: {token.color || 'inherit'}">{token.content}</span>
-                  {/each}
-                {:else}
-                  {line.content || " "}
-                {/if}
-              </span>
-            </div>
+            {:else}
+              <div
+                class="diff-line"
+                class:line-added={line.kind === "Added"}
+                class:line-removed={line.kind === "Removed"}
+              >
+                {@render lineBody(
+                  oldNo,
+                  newNo,
+                  prefix,
+                  segments,
+                  shikiTokens,
+                  line.content,
+                )}
+              </div>
+            {/if}
           {/each}
           {#if hunkCapped}
             <button class="diff-more" onclick={() => toggleHunk(hkey)}>
@@ -862,7 +920,7 @@
   .line-removed .ln-prefix {
     color: #ff7b72;
   }
-  
+
   .line-content {
     flex: 1;
     padding-left: 12px;

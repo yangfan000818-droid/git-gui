@@ -332,7 +332,7 @@
     background: var(--accent-cyan, #58a6ff);
     border-radius: 0 2px 2px 0;
   }
-  
+
   .indent-guide-container {
     position: absolute;
     top: 0;

@@ -21,28 +21,39 @@
   const svgHtml = `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><path fill="#e34f26" d="M4 4l2.1 23.6L16 30l9.9-2.4L28 4H4zm20 6.6H9.1l.3 3.4h14l-.9 10L16 26l-6.5-1.9-.4-4.5h3.4l.2 2 3.3.9 3.3-.9.4-4.5H8.5l-.9-10h16.8l-.4 3.6z"/></svg>`;
   // CSS Icon
   const svgCss = `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><path fill="#1572b6" d="M4 4l2.1 23.6L16 30l9.9-2.4L28 4H4zm18.3 11.2l-.9 10L15.9 27l-6.4-1.9-.3-4h3.4l.2 1.7 3.2.9 3.2-.9.4-4.3H8.3l-.3-3.4h11.2l.2-2.5H7.7l-.3-3.5H23l-.7 8z"/></svg>`;
-  
+
   // Default File (Text)
   const svgDefault = `<svg viewBox="0 0 32 32" fill="#8b949e" xmlns="http://www.w3.org/2000/svg"><path d="M22 6H10c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zM10 24V8h12v16H10z"/><path d="M13 12h6v2h-6zm0 4h6v2h-6z"/></svg>`;
-  
+
   // Default Folder (Closed)
   const svgFolder = `<svg viewBox="0 0 32 32" fill="#dcb67a" xmlns="http://www.w3.org/2000/svg"><path d="M13.3 8H6c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2V12c0-1.1-.9-2-2-2H15.3l-2-2z"/></svg>`;
-  
+
   // Open Folder
   const svgFolderOpen = `<svg viewBox="0 0 32 32" fill="#dcb67a" xmlns="http://www.w3.org/2000/svg"><path d="M28.4 12H15.3l-2-2H6c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h21c1.1 0 1.9-.8 2-1.9l1.4-10c.2-1.1-.6-2.1-1.7-2.1z"/></svg>`;
 
-  $: iconSvg = isDir 
-    ? (isOpen ? svgFolderOpen : svgFolder)
-    : ext === "svelte" ? svgSvelte
-    : ext === "ts" || ext === "tsx" ? svgTs
-    : ext === "js" || ext === "jsx" ? svgJs
-    : ext === "json" ? svgJson
-    : ext === "rs" ? svgRust
-    : ext === "md" || ext === "mdx" ? svgMd
-    : ext === "html" ? svgHtml
-    : ext === "css" || ext === "scss" || ext === "less" ? svgCss
-    : name === "Cargo.toml" ? svgRust
-    : svgDefault;
+  $: iconSvg = isDir
+    ? isOpen
+      ? svgFolderOpen
+      : svgFolder
+    : ext === "svelte"
+      ? svgSvelte
+      : ext === "ts" || ext === "tsx"
+        ? svgTs
+        : ext === "js" || ext === "jsx"
+          ? svgJs
+          : ext === "json"
+            ? svgJson
+            : ext === "rs"
+              ? svgRust
+              : ext === "md" || ext === "mdx"
+                ? svgMd
+                : ext === "html"
+                  ? svgHtml
+                  : ext === "css" || ext === "scss" || ext === "less"
+                    ? svgCss
+                    : name === "Cargo.toml"
+                      ? svgRust
+                      : svgDefault;
 </script>
 
 <div class="file-icon">
