@@ -1,4 +1,37 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { createHighlighter, type HighlighterGeneric } from "shiki";
+  
+  let highlighter = $state<HighlighterGeneric<any, any> | null>(null);
+  
+  onMount(async () => {
+    highlighter = await createHighlighter({
+      themes: ["vitesse-dark"],
+      langs: [
+        "javascript", "typescript", "svelte", "html", "css", "json", "rust", 
+        "markdown", "bash", "toml", "yaml"
+      ]
+    });
+  });
+
+  function getLang(path: string) {
+    const ext = path.split('.').pop()?.toLowerCase() || '';
+    switch(ext) {
+      case 'ts': case 'tsx': return 'typescript';
+      case 'js': case 'jsx': return 'javascript';
+      case 'svelte': return 'svelte';
+      case 'html': return 'html';
+      case 'css': case 'scss': case 'less': return 'css';
+      case 'json': return 'json';
+      case 'rs': return 'rust';
+      case 'md': case 'mdx': return 'markdown';
+      case 'sh': case 'bat': return 'bash';
+      case 'toml': return 'toml';
+      case 'yml': case 'yaml': return 'yaml';
+      default: return 'javascript';
+    }
+  }
+
   type LineKind = "Context" | "Added" | "Removed";
   interface DiffLine {
     kind: LineKind;
@@ -322,6 +355,20 @@
     }
     return map;
   }
+
+  // 计算一个 hunk 里的 shiki tokens，只在 highlighter 准备好后执行
+  function getHunkTokens(hunk: Hunk, path: string) {
+    if (!highlighter) return [];
+    const text = hunk.lines.map(l => l.content).join('\n');
+    try {
+      return highlighter.codeToTokensBase(text, { 
+        lang: getLang(path), 
+        theme: 'vitesse-dark' 
+      });
+    } catch(e) {
+      return [];
+    }
+  }
 </script>
 
 {#snippet renderFileDiff(file: FileDiff)}
@@ -342,6 +389,7 @@
         {@const hunkCapped =
           lines.length > HUNK_CAP && !expandedHunks.has(hkey)}
         {@const shownLines = hunkCapped ? lines.slice(0, HUNK_CAP) : lines}
+        {@const hunkTokens = getHunkTokens(hunk, file.path)}
         <div class="hunk">
           <div class="hunk-header">
             <span
@@ -393,44 +441,39 @@
           </div>
           {#each shownLines as { oldNo, newNo, line, idx }}
             {@const segments = segMap.get(idx)}
+            {@const shikiTokens = hunkTokens[idx] || []}
             {@const prefix =
               line.kind === "Added" ? "+" : line.kind === "Removed" ? "-" : " "}
-            {#if interactive && line.kind !== "Context"}
-              {@const selected = isLineSelected(hi, idx)}
-              <div
-                class="diff-line line-selectable"
-                class:line-added={line.kind === "Added"}
-                class:line-removed={line.kind === "Removed"}
-                class:line-selected={selected}
-                role="checkbox"
-                aria-checked={selected}
-                tabindex="0"
-                onclick={() => onToggleLine?.(hi, idx)}
-                onkeydown={(e) => onActivate(e, () => onToggleLine?.(hi, idx))}
-              >
+            {@const selected = interactive && line.kind !== "Context" ? isLineSelected(hi, idx) : false}
+            
+            <div
+              class="diff-line {interactive && line.kind !== 'Context' ? 'line-selectable' : ''}"
+              class:line-added={line.kind === "Added"}
+              class:line-removed={line.kind === "Removed"}
+              class:line-selected={selected}
+              role={interactive && line.kind !== "Context" ? "checkbox" : null}
+              aria-checked={selected}
+              tabindex={interactive && line.kind !== "Context" ? 0 : null}
+              onclick={interactive && line.kind !== "Context" ? () => onToggleLine?.(hi, idx) : null}
+              onkeydown={interactive && line.kind !== "Context" ? (e) => onActivate(e, () => onToggleLine?.(hi, idx)) : null}
+            >
+              <div class="gutter">
                 <span class="ln ln-old">{oldNo ?? ""}</span>
                 <span class="ln ln-new">{newNo ?? ""}</span>
-                <span class="line-content"
-                  >{prefix}{#if segments}{#each segments as seg}<mark
-                        class="char-{seg.kind}">{seg.text}</mark
-                      >{/each}{:else}{line.content}{/if}</span
-                >
+                <span class="ln-prefix">{prefix}</span>
               </div>
-            {:else}
-              <div
-                class="diff-line"
-                class:line-added={line.kind === "Added"}
-                class:line-removed={line.kind === "Removed"}
-              >
-                <span class="ln ln-old">{oldNo ?? ""}</span>
-                <span class="ln ln-new">{newNo ?? ""}</span>
-                <span class="line-content"
-                  >{prefix}{#if segments}{#each segments as seg}<mark
-                        class="char-{seg.kind}">{seg.text}</mark
-                      >{/each}{:else}{line.content}{/if}</span
-                >
-              </div>
-            {/if}
+              <span class="line-content">
+                {#if segments}
+                  {#each segments as seg}<mark class="char-{seg.kind}">{seg.text}</mark>{/each}
+                {:else if shikiTokens.length > 0}
+                  {#each shikiTokens as token}
+                    <span style="color: {token.color || 'inherit'}">{token.content}</span>
+                  {/each}
+                {:else}
+                  {line.content || " "}
+                {/if}
+              </span>
+            </div>
           {/each}
           {#if hunkCapped}
             <button class="diff-more" onclick={() => toggleHunk(hkey)}>
@@ -689,7 +732,12 @@
     align-items: center;
     gap: 8px;
     color: var(--text-muted);
-    padding: 4px 12px;
+    padding: 6px 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid var(--border-default);
+    border-bottom: 1px solid var(--border-default);
+    font-size: 11px;
+    margin-top: -1px;
   }
   .hunk-header span {
     flex: 1;
@@ -756,41 +804,71 @@
   .diff-line {
     display: flex;
     white-space: pre;
-    padding: 0 12px;
+    padding: 0;
+    min-height: 20px;
+    align-items: stretch;
+    border-left: 2px solid transparent;
   }
   .line-added {
-    background: rgba(86, 211, 100, 0.08);
+    background: rgba(46, 160, 67, 0.15);
+    border-left-color: #2ea043;
   }
   .line-removed {
-    background: rgba(247, 120, 139, 0.08);
+    background: rgba(248, 81, 73, 0.15);
+    border-left-color: #f85149;
   }
   .line-selectable {
     cursor: pointer;
   }
   .line-selectable:hover {
-    filter: brightness(1.3);
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .line-added.line-selectable:hover {
+    background: rgba(46, 160, 67, 0.25);
+  }
+  .line-removed.line-selectable:hover {
+    background: rgba(248, 81, 73, 0.25);
   }
   .line-selected {
-    outline: 1px solid var(--accent-cyan);
-    outline-offset: -1px;
+    box-shadow: inset 0 0 0 1px var(--accent-cyan);
   }
 
+  .gutter {
+    display: flex;
+    background: rgba(0, 0, 0, 0.15);
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 0 4px;
+    user-select: none;
+    min-width: 90px;
+    color: var(--text-muted);
+    font-size: 11px;
+    align-items: center;
+  }
   .ln {
-    width: 48px;
+    width: 36px;
     text-align: right;
     padding-right: 8px;
-    color: var(--text-muted);
-    flex-shrink: 0;
-    user-select: none;
+    opacity: 0.6;
   }
+  .ln-prefix {
+    width: 14px;
+    text-align: center;
+    font-weight: bold;
+    opacity: 0.8;
+  }
+  .line-added .ln-prefix {
+    color: #3fb950;
+  }
+  .line-removed .ln-prefix {
+    color: #ff7b72;
+  }
+  
   .line-content {
     flex: 1;
-  }
-  .line-added .line-content {
-    color: #80cc90;
-  }
-  .line-removed .line-content {
-    color: #d89090;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-top: 1px;
+    padding-bottom: 1px;
   }
 
   /* ── 行内字符级 diff ── */
@@ -798,12 +876,15 @@
     background: none;
     color: inherit;
   }
-  .char-removed {
-    background: rgba(247, 120, 139, 0.2);
+  .char-added {
+    background: rgba(46, 160, 67, 0.4);
+    color: #fff;
     border-radius: 2px;
   }
-  .char-added {
-    background: rgba(86, 211, 100, 0.2);
+  .char-removed {
+    background: rgba(248, 81, 73, 0.4);
+    color: #fff;
+    text-decoration: line-through;
     border-radius: 2px;
   }
 

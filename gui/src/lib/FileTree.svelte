@@ -32,6 +32,8 @@
     onMove,
   }: Props = $props();
 
+  import FileIcon from "./FileIcon.svelte";
+
   interface FileNode {
     type: "file";
     name: string;
@@ -138,11 +140,17 @@
     class="row dir-row"
     role="button"
     tabindex="0"
-    style="padding-left: {14 + depth * 12}px"
+    style="padding-left: {6 + depth * 16}px"
     onclick={() => toggle(dir.path)}
     onkeydown={(e) => onActivate(e, () => toggle(dir.path))}
   >
+    <div class="indent-guide-container">
+      {#each Array(depth) as _, i}
+        <div class="indent-guide" style="left: {6 + i * 16 + 7}px;"></div>
+      {/each}
+    </div>
     <span class="caret">{open ? "▾" : "▸"}</span>
+    <FileIcon isDir={true} isOpen={open} />
     <span class="dname">{dir.name}</span>
     <span class="count">{dir.allPaths.length}</span>
     <span class="actions">
@@ -209,10 +217,16 @@
     class:selected={selectedPath === node.file.path}
     role="button"
     tabindex="0"
-    style="padding-left: {14 + depth * 12}px"
+    style="padding-left: {6 + depth * 16 + 18}px"
     onclick={() => onSelect(node.file)}
     onkeydown={(e) => onActivate(e, () => onSelect(node.file))}
   >
+    <div class="indent-guide-container">
+      {#each Array(depth) as _, i}
+        <div class="indent-guide" style="left: {6 + i * 16 + 7}px;"></div>
+      {/each}
+    </div>
+    <FileIcon name={node.name} />
     <span class="fname">{node.name}</span>
     <span class="actions">
       {#if moveTargets && onMove && clOf}
@@ -295,17 +309,45 @@
     align-items: center;
     gap: 6px;
     min-height: 26px;
-    padding: 3px 10px 3px 14px;
+    padding: 3px 10px 3px 6px;
     cursor: pointer;
     user-select: none;
+    position: relative;
+    border-radius: 4px;
+    margin: 0 4px;
   }
   .row:hover {
-    background: var(--bg-hover);
+    background: var(--bg-hover, rgba(255, 255, 255, 0.05));
   }
   .file-row.selected {
-    background: rgba(88, 166, 255, 0.1);
-    box-shadow: inset 3px 0 0 var(--accent-cyan);
+    background: var(--bg-elevated, rgba(88, 166, 255, 0.15));
   }
+  .file-row.selected::before {
+    content: "";
+    position: absolute;
+    left: -4px;
+    top: 4px;
+    bottom: 4px;
+    width: 3px;
+    background: var(--accent-cyan, #58a6ff);
+    border-radius: 0 2px 2px 0;
+  }
+  
+  .indent-guide-container {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    pointer-events: none;
+  }
+  .indent-guide {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+
   .dir-more {
     display: block;
     width: 100%;
@@ -326,7 +368,7 @@
   .caret {
     color: var(--text-secondary);
     font-size: 14px;
-    width: 18px;
+    width: 14px;
     flex-shrink: 0;
     text-align: center;
   }
