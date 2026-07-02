@@ -2238,3 +2238,93 @@ fn stash_restore_conflict_abort_keeps_stash() {
 
     cleanup(&[&a, &remote, &b]);
 }
+
+#[test]
+fn remote_add_list_seturl_remove_roundtrip() {
+    let dir = init_repo("remote");
+    write(&dir, "a.txt", "v1\n");
+    commit_all(&dir, "c1");
+    let repo = Repo::open(&dir).unwrap();
+
+    // 初始无 remote。
+    assert!(repo.list_remotes().unwrap().is_empty(), "初始应无 remote");
+
+    // 添加 → 列出可见。
+    repo.add_remote("origin", "https://example.com/a.git")
+        .unwrap();
+    repo.add_remote("fork", "https://example.com/b.git")
+        .unwrap();
+    let remotes = repo.list_remotes().unwrap();
+    assert_eq!(remotes.len(), 2, "应有 2 个 remote");
+    let origin = remotes.iter().find(|r| r.name == "origin").unwrap();
+    assert_eq!(origin.url, "https://example.com/a.git");
+    assert_eq!(
+        origin.push_url, "https://example.com/a.git",
+        "未单设 push 时等于 fetch"
+    );
+
+    // 改 URL 生效。
+    repo.set_remote_url("origin", "https://example.com/new.git")
+        .unwrap();
+    let origin = repo
+        .list_remotes()
+        .unwrap()
+        .into_iter()
+        .find(|r| r.name == "origin")
+        .unwrap();
+    assert_eq!(origin.url, "https://example.com/new.git");
+
+    // 删除后消失。
+    repo.remove_remote("fork").unwrap();
+    let remotes = repo.list_remotes().unwrap();
+    assert_eq!(remotes.len(), 1);
+    assert_eq!(remotes[0].name, "origin");
+
+    // 删不存在的 remote 报错。
+    assert!(
+        repo.remove_remote("nope").is_err(),
+        "删不存在的 remote 应报错"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn clean_preview_then_force_removes_untracked() {
+    let dir = init_repo("clean");
+    write(&dir, "tracked.txt", "keep\n");
+    commit_all(&dir, "c1");
+    // 造未跟踪文件 + 未跟踪目录。用不带常见 gitignore 扩展名的文件名
+    //(用户全局 gitignore 可能忽略 *.tmp/*.log,而 clean 不删被忽略的文件)。
+    write(&dir, "junk1", "x\n");
+    write(&dir, "junk2", "y\n");
+    std::fs::create_dir(dir.join("build")).unwrap();
+    write(&dir, "build/out", "bin\n");
+    let repo = Repo::open(&dir).unwrap();
+
+    // 预览(不含目录):只列顶层未跟踪文件,不删。
+    let preview = repo.clean_preview(false).unwrap();
+    assert!(preview.contains(&PathBuf::from("junk1")));
+    assert!(preview.contains(&PathBuf::from("junk2")));
+    assert!(dir.join("junk1").exists(), "预览不删文件");
+
+    // 预览(含目录):应包含 build/。
+    let preview_d = repo.clean_preview(true).unwrap();
+    assert!(
+        preview_d.iter().any(|p| p.starts_with("build")),
+        "含目录预览应包含 build/,实际 {preview_d:?}"
+    );
+
+    // 强制清理(含目录):删除后未跟踪全消失,tracked 保留。
+    let n = repo.clean_force(true).unwrap();
+    assert!(n >= 2, "应删除至少 2 项,实际 {n}");
+    assert!(!dir.join("junk1").exists());
+    assert!(!dir.join("build").exists(), "空目录也被清理");
+    assert!(dir.join("tracked.txt").exists(), "已跟踪文件保留");
+    assert!(
+        repo.clean_preview(true).unwrap().is_empty(),
+        "清理后预览为空"
+    );
+
+    cleanup(&[&dir]);
+}

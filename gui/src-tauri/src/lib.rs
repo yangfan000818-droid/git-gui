@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use gitcore::{
     BranchComparison, BranchInfo, CancelToken, CommitOptions, ConflictState, FileDiff, Hunk,
     MergeRegion, PendingConflicts, PopResult, PrecommitReport, Progress, RebaseItem, ReflogEntry,
-    Repo, RepoStatus, ResetMode, Segment, Side, StashEntry, StashRef, SubmoduleUpdate,
+    RemoteInfo, Repo, RepoStatus, ResetMode, Segment, Side, StashEntry, StashRef, SubmoduleUpdate,
     SwitchOutcome, TagInfo, UpdateOptions, UpdateOutcome,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -1172,6 +1172,74 @@ async fn repo_reset(path: String, sha: String, mode: ResetMode) -> Result<(), St
     .map_err(|e| e.to_string())?
 }
 
+/// 列出所有远程仓库(对标 WebStorm Manage Remotes)。
+#[tauri::command]
+async fn repo_remotes(path: String) -> Result<Vec<RemoteInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.list_remotes().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 添加一个远程仓库。
+#[tauri::command]
+async fn repo_remote_add(path: String, name: String, url: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.add_remote(&name, &url).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 删除一个远程仓库。
+#[tauri::command]
+async fn repo_remote_remove(path: String, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.remove_remote(&name).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 修改一个远程仓库的 URL。
+#[tauri::command]
+async fn repo_remote_set_url(path: String, name: String, url: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.set_remote_url(&name, &url).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 预览 git clean 将删除的未跟踪文件(dry-run)。
+#[tauri::command]
+async fn repo_clean_preview(path: String, include_dirs: bool) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.clean_preview(include_dirs)
+            .map(|v| v.iter().map(|p| p.to_string_lossy().into_owned()).collect())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 强制清理未跟踪文件,返回删除数。
+#[tauri::command]
+async fn repo_clean_force(path: String, include_dirs: bool) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.clean_force(include_dirs).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 取 HEAD reflog(最近 max_count 条),供查看/恢复历史状态。
 #[tauri::command]
 async fn repo_reflog(path: String, max_count: usize) -> Result<Vec<ReflogEntry>, String> {
@@ -1748,6 +1816,12 @@ pub fn run() {
             repo_cherry_pick,
             repo_revert,
             repo_reset,
+            repo_remotes,
+            repo_remote_add,
+            repo_remote_remove,
+            repo_remote_set_url,
+            repo_clean_preview,
+            repo_clean_force,
             repo_reflog,
             repo_tags,
             repo_create_tag,

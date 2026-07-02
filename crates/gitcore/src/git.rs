@@ -61,20 +61,51 @@ pub(crate) fn run(workdir: &Path, args: &[&str]) -> Result<String, Error> {
 
 /// 跑 git;非零退出不视为错误,原样返回(供整合等可能冲突的命令使用)。
 pub(crate) fn run_checked(workdir: &Path, args: &[&str]) -> Result<Output, Error> {
+    run_checked_env(workdir, args, &[])
+}
+
+/// 同 `run_checked`,但附加额外环境变量。供需固定 locale 等的命令使用
+/// (如 `git clean -n` 的 "Would remove" 在 gettext 环境会被本地化,解析前须强制 C locale)。
+pub(crate) fn run_checked_env(
+    workdir: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> Result<Output, Error> {
     // --no-optional-locks:禁止为可选优化获取锁(主要是 status 刷新 stat cache 时回写 index)。
     // GUI 后台高频 status 与前台 git 写操作会争抢 index.lock,且每次回写 index 都触发文件监视
     // 事件 → 刷新风暴;禁掉可选锁可显著减少这类抖动。必需的锁(commit/add 等)不受影响。
-    let output = git_command()
-        .arg("--no-optional-locks")
+    let mut cmd = git_command();
+    cmd.arg("--no-optional-locks")
         .args(args)
-        .current_dir(workdir)
-        .output()?;
+        .current_dir(workdir);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let output = cmd.output()?;
     Ok(Output {
         success: output.status.success(),
         code: output.status.code(),
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     })
+}
+
+/// 带 env 跑 git;非零退出 → Err。
+pub(crate) fn run_env(
+    workdir: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> Result<String, Error> {
+    let out = run_checked_env(workdir, args, env)?;
+    if out.success {
+        Ok(out.stdout)
+    } else {
+        Err(Error::Git {
+            args: args.iter().map(|s| s.to_string()).collect(),
+            code: out.code,
+            stderr: out.stderr,
+        })
+    }
 }
 
 /// 跑 git 并把 `input` 写入其 stdin;非零退出 → Err。供 `git apply` 等需喂 patch 的命令使用。

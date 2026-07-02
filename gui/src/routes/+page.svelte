@@ -29,6 +29,8 @@
   import UpdateBanner from "$lib/UpdateBanner.svelte";
   import StashView from "$lib/StashView.svelte";
   import TagView from "$lib/TagView.svelte";
+  import RemoteManager from "$lib/RemoteManager.svelte";
+  import CleanDialog from "$lib/CleanDialog.svelte";
   import Toast from "$lib/Toast.svelte";
   import "../lib/themes.css";
 
@@ -226,6 +228,8 @@
   let showSettings = $state(false); // 全局设置弹层
   let showStash = $state(false); // Stash 储藏管理弹层
   let showTags = $state(false); // Tag 管理弹层
+  let showRemotes = $state(false); // 远程仓库管理弹层
+  let showClean = $state(false); // 清理未跟踪文件弹层
   let showMore = $state(false); // 顶栏「⋯ 更多」下拉(收纳次要操作,给顶栏减负)
   interface StashRef {
     label: string;
@@ -1749,6 +1753,24 @@
                   showTags = true;
                 }}>Tags</button
               >
+              <button
+                class="more-item"
+                role="menuitem"
+                title="远程仓库管理：添加/修改/删除 remote（git remote）"
+                onclick={() => {
+                  showMore = false;
+                  showRemotes = true;
+                }}>管理远程仓库</button
+              >
+              <button
+                class="more-item"
+                role="menuitem"
+                title="清理未跟踪文件：预览并删除工作区里未跟踪的文件（git clean，不含被忽略的文件）"
+                onclick={() => {
+                  showMore = false;
+                  showClean = true;
+                }}>清理未跟踪文件</button
+              >
             </div>
           {/if}
         </div>
@@ -2526,6 +2548,24 @@
   <!-- ── Tag 管理 ── -->
   {#if showTags && status}
     <TagView {path} onClose={() => (showTags = false)} onChanged={refresh} />
+  {/if}
+
+  <!-- ── 远程仓库管理 ── -->
+  {#if showRemotes}
+    <RemoteManager
+      {path}
+      onClose={() => (showRemotes = false)}
+      onChanged={refresh}
+    />
+  {/if}
+
+  <!-- ── 清理未跟踪文件 ── -->
+  {#if showClean}
+    <CleanDialog
+      {path}
+      onClose={() => (showClean = false)}
+      onCleaned={refresh}
+    />
   {/if}
 </main>
 

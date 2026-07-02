@@ -5,6 +5,7 @@
 
 mod blame;
 mod branch;
+mod clean;
 mod clone;
 mod commit;
 mod config;
@@ -19,6 +20,7 @@ mod precommit;
 mod push;
 mod rebase;
 mod reflog;
+mod remote;
 mod reset;
 mod resolve;
 mod stage;
@@ -47,6 +49,7 @@ pub use precommit::{PrecommitReport, PrecommitWarning, WarningKind};
 pub use push::{PushOutcome, PushPreview};
 pub use rebase::{RebaseAction, RebaseItem};
 pub use reflog::ReflogEntry;
+pub use remote::RemoteInfo;
 pub use reset::ResetMode;
 pub use resolve::{
     parse_conflicts, rebuild, refine_segments, Choice, ConflictHunk, Resolution, Segment, Side,
@@ -190,6 +193,36 @@ impl Repo {
     /// 把当前分支重置到指定提交(soft/mixed/hard)。
     pub fn reset(&self, sha: &str, mode: ResetMode) -> Result<(), Error> {
         reset::reset(self, sha, mode)
+    }
+
+    /// 列出所有远程仓库。
+    pub fn list_remotes(&self) -> Result<Vec<RemoteInfo>, Error> {
+        remote::list_remotes(self)
+    }
+
+    /// 添加一个远程仓库。
+    pub fn add_remote(&self, name: &str, url: &str) -> Result<(), Error> {
+        remote::add_remote(self, name, url)
+    }
+
+    /// 删除一个远程仓库。
+    pub fn remove_remote(&self, name: &str) -> Result<(), Error> {
+        remote::remove_remote(self, name)
+    }
+
+    /// 修改一个远程仓库的 URL。
+    pub fn set_remote_url(&self, name: &str, url: &str) -> Result<(), Error> {
+        remote::set_remote_url(self, name, url)
+    }
+
+    /// 预览 `git clean` 将删除的未跟踪文件(dry-run)。
+    pub fn clean_preview(&self, directories: bool) -> Result<Vec<std::path::PathBuf>, Error> {
+        clean::clean_preview(self, directories)
+    }
+
+    /// 强制清理未跟踪文件,返回删除数。
+    pub fn clean_force(&self, directories: bool) -> Result<usize, Error> {
+        clean::clean_force(self, directories)
     }
 
     /// 取 HEAD reflog(最近 max_count 条),供查看/恢复历史状态。
@@ -722,6 +755,11 @@ impl Repo {
     // 跑一个 git 子命令,返回原始结果,不把非零当错误(用于可能冲突的整合)。
     pub(crate) fn git_checked(&self, args: &[&str]) -> Result<git::Output, Error> {
         git::run_checked(&self.workdir, args)
+    }
+
+    // 跑一个 git 子命令并附加环境变量(如 LC_ALL=C 强制英文输出),非零退出 → Err。
+    pub(crate) fn git_env(&self, args: &[&str], env: &[(&str, &str)]) -> Result<String, Error> {
+        git::run_env(&self.workdir, args, env)
     }
 
     // 跑一个 git 子命令并把 patch 等内容写入其 stdin(供 git apply 用)。
