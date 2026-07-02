@@ -497,11 +497,9 @@
     stagedRepos.map((r) => `${r.label} (${r.staged.length})`).join(" · "),
   );
 
-  // StashView 可选文件的列表（仅主仓库的未暂存文件）
-  let stashableFiles = $derived(
-    repos
-      .filter((r) => r.path === path)
-      .flatMap((r) => r.unstaged.map((f) => ({ path: f.path }))),
+  // StashView 目标仓库列表（主仓 + 已初始化子仓，对标 WebStorm 的 Git Root 下拉）
+  let stashableRepos = $derived(
+    repos.filter((r) => r.subStatus !== "Uninitialized"),
   );
 
   // ── 文件监视:后端 debounce 300ms 后 emit "repo-changed",前端再接一次 debounce 防抖 ──
@@ -2537,9 +2535,8 @@
   <!-- ── Stash 储藏管理 ── -->
   {#if showStash && status}
     <StashView
-      {path}
-      hasChanges={status.dirty}
-      changedFiles={stashableFiles}
+      repos={stashableRepos}
+      initialPath={selectedRepoPath ?? path}
       onClose={() => (showStash = false)}
       onChanged={refresh}
     />

@@ -10,19 +10,38 @@
   // PopResult: externally tagged
   type PopResult = "Clean" | { Conflict: string[] };
 
+  // 可储藏的目标仓库(主仓 + 已初始化子仓),对标 WebStorm 的 Git Root 下拉。
+  interface StashRepo {
+    path: string;
+    label: string;
+    unstaged: { path: string }[];
+    staged: { path: string }[];
+  }
+
   let {
-    path,
-    hasChanges,
-    changedFiles = [],
+    repos,
+    initialPath,
     onClose,
     onChanged,
   }: {
-    path: string;
-    hasChanges: boolean;
-    changedFiles?: { path: string }[];
+    repos: StashRepo[];
+    initialPath: string;
     onClose: () => void;
     onChanged: () => void;
   } = $props();
+
+  // 当前操作的目标仓库;初始为打开时选中的仓,之后仅由用户在下拉中切换(刻意只取初值)。
+  // svelte-ignore state_referenced_locally
+  let targetPath = $state(
+    repos.some((r) => r.path === initialPath)
+      ? initialPath
+      : (repos[0]?.path ?? initialPath),
+  );
+  let targetRepo = $derived(repos.find((r) => r.path === targetPath));
+  let changedFiles = $derived(targetRepo?.unstaged ?? []);
+  let hasChanges = $derived(
+    (targetRepo?.unstaged.length ?? 0) + (targetRepo?.staged.length ?? 0) > 0,
+  );
 
   let stashes = $state<StashEntry[]>([]);
   let loading = $state(true);
@@ -30,6 +49,7 @@
   let error = $state("");
   let newMessage = $state("");
   let selectedFiles = $state<Set<string>>(new Set());
+  let reqId = 0; // 加载序号:快速切换目标仓库时丢弃过期的并发响应
 
   // ── 目录树 ──
   interface StashDirNode {
@@ -116,14 +136,18 @@
   }
 
   async function load() {
+    const id = ++reqId;
     loading = true;
     error = "";
     try {
-      stashes = await invoke<StashEntry[]>("repo_stashes", { path });
+      const result = await invoke<StashEntry[]>("repo_stashes", {
+        path: targetPath,
+      });
+      if (id === reqId) stashes = result;
     } catch (e) {
-      error = String(e);
+      if (id === reqId) error = String(e);
     } finally {
-      loading = false;
+      if (id === reqId) loading = false;
     }
   }
 
@@ -133,7 +157,7 @@
     error = "";
     try {
       await invoke("repo_stash_push", {
-        path,
+        path: targetPath,
         message: newMessage.trim() || null,
         paths: null,
       });
@@ -154,7 +178,7 @@
     error = "";
     try {
       await invoke("repo_stash_push", {
-        path,
+        path: targetPath,
         message: newMessage.trim() || null,
         paths: [...selectedFiles],
       });
@@ -190,7 +214,7 @@
     busy = true;
     error = "";
     try {
-      await invoke("repo_stash_apply", { path, reff });
+      await invoke("repo_stash_apply", { path: targetPath, reff });
       onChanged();
       onClose();
     } catch (e) {
@@ -205,7 +229,10 @@
     busy = true;
     error = "";
     try {
-      const r = await invoke<PopResult>("repo_stash_pop", { path, reff });
+      const r = await invoke<PopResult>("repo_stash_pop", {
+        path: targetPath,
+        reff,
+      });
       if (typeof r === "object" && "Conflict" in r) {
         await message(
           "弹出时有冲突,改动已带冲突标记留在工作区,请在改动列表中解决。",
@@ -232,7 +259,7 @@
     busy = true;
     error = "";
     try {
-      await invoke("repo_stash_drop", { path, reff });
+      await invoke("repo_stash_drop", { path: targetPath, reff });
       await load();
     } catch (e) {
       error = String(e);
@@ -245,7 +272,10 @@
     if (e.key === "Escape") onClose();
   }
 
+  // 目标仓库变化时重新加载 stash 列表,并清掉跨仓已无效的文件勾选。
   $effect(() => {
+    void targetPath;
+    selectedFiles = new Set();
     load();
   });
 </script>
@@ -269,6 +299,23 @@
 
     {#if error}
       <div class="sv-error">{error}</div>
+    {/if}
+
+    <!-- 目标仓库(主仓 + 子仓)选择,对标 WebStorm 的 Git Root 下拉 -->
+    {#if repos.length > 1}
+      <div class="sv-root">
+        <label class="sv-root-label" for="sv-root-select">仓库:</label>
+        <select
+          id="sv-root-select"
+          class="sv-root-select"
+          bind:value={targetPath}
+          disabled={busy}
+        >
+          {#each repos as r (r.path)}
+            <option value={r.path}>{r.label}</option>
+          {/each}
+        </select>
+      </div>
     {/if}
 
     <!-- 储藏当前改动 -->
@@ -483,6 +530,30 @@
     text-align: center;
     padding: 22px 18px;
     margin: 0;
+  }
+  .sv-root {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 18px 8px;
+  }
+  .sv-root-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+  .sv-root-select {
+    flex: 1;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 4px 8px;
+    min-width: 0;
+  }
+  .sv-root-select:disabled {
+    opacity: 0.5;
   }
   .sv-create {
     display: flex;
