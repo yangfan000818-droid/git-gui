@@ -161,7 +161,6 @@
   let activeList = $state<"unstaged" | "staged">("unstaged");
   let loading = $state(false);
   let error = $state("");
-  let opMessage = $state(""); // fetch/push 等操作的成功提示
   let tab = $state<"changes" | "history">("changes");
   let showProjectPicker = $state(false);
   let showUpdate = $state(false); // 更新弹层
@@ -1137,7 +1136,7 @@
     }
   }
 
-  // 提交后推送:逐个推送刚提交的仓库,结果就地汇总到 opMessage(不阻塞、不吞错)。
+  // 提交后推送:逐个推送刚提交的仓库,结果汇总到底部 toast(不阻塞、不吞错)。
   // 远端领先(NonFastForward)只如实提示,不自动开「更新后推送」流程(那走独立推送按钮)。
   async function pushAfterCommit(targets: RepoView[]) {
     const lines: string[] = [];
@@ -1149,7 +1148,7 @@
         lines.push(`${r.label}：推送失败 ${String(e)}`);
       }
     }
-    opMessage = lines.join("\n");
+    showToast("推送完成:\n" + lines.join("\n"), "success", 5000);
     await refresh();
   }
 
@@ -1177,7 +1176,6 @@
     updateTitle = "全部更新";
     updateSubsOnly = false;
     error = "";
-    opMessage = "";
     await triggerUpdate(path);
   }
 
@@ -1187,7 +1185,6 @@
     updateTitle = "更新主仓库";
     updateSubsOnly = false;
     error = "";
-    opMessage = "";
     await triggerUpdate(path);
   }
 
@@ -1198,7 +1195,6 @@
     updateTitle = "更新子仓库";
     updateSubsOnly = true;
     error = "";
-    opMessage = "";
     await triggerUpdate(path);
   }
 
@@ -1211,7 +1207,6 @@
     updateTitle = `更新子仓库 · ${repo.label}`;
     updateSubsOnly = true;
     error = "";
-    opMessage = "";
     await triggerUpdate(path);
   }
 
@@ -1476,7 +1471,6 @@
     if (repos.length === 0) return;
     operating = true;
     error = "";
-    opMessage = "";
     // 预读静默设置:静默模式下 NonFastForward 仓由后台更新+推送,
     // 不生成"远端领先"中间行,顶部提示改由 toast 汇总最终结果。
     let silent = false;
@@ -1505,19 +1499,19 @@
     operating = false;
     await refresh();
     if (rejected.length === 0) {
-      // 无远端领先:直接在顶部显示推送结果(静默/非静默一致)。
-      opMessage = lines.join("\n");
+      // 无远端领先:底部 toast 显示推送结果(静默/非静默一致)。
+      showToast("推送完成:\n" + lines.join("\n"), "success", 5000);
       return;
     }
 
     if (silent) {
-      // 静默模式:不在顶部显示中间结果,改由 toast 汇总更新后推送的完整结果。
+      // 静默模式:中间结果不单独展示,由 toast 汇总更新后推送的完整结果。
       await silentUpdateThenPushBatch(rejected, lines);
       return;
     }
 
-    // 非静默:顶部显示推送结果 + 一次确认 → 逐个「更新后推送」。
-    opMessage = lines.join("\n");
+    // 非静默:toast 显示推送结果 + 一次确认 → 逐个「更新后推送」。
+    showToast("推送结果:\n" + lines.join("\n"), "info", 8000);
     const strat = await globalStrategyLabel();
     const names = rejected.map((r) => r.label).join("、");
     if (
@@ -1552,8 +1546,12 @@
     }
     closeToast();
     if (conflictHit) {
-      // 冲突弹窗已开,部分结果就地显示在 opMessage。
-      opMessage = lines.concat(resultLines).join("\n");
+      // 冲突弹窗已开,部分结果以 toast 提示(解决后 UpdateView 有自己的结果汇总)。
+      showToast(
+        "部分推送结果:\n" + lines.concat(resultLines).join("\n"),
+        "info",
+        8000,
+      );
     } else {
       showToast(
         "推送完成:\n" + lines.concat(resultLines).join("\n"),
@@ -1866,17 +1864,6 @@
   {#if tab === "changes"}
     {#if error}
       <pre class="error">{error}</pre>
-    {/if}
-    {#if opMessage}
-      <div class="op-message">
-        <span class="op-message-text">{opMessage}</span>
-        <button
-          class="op-message-close"
-          onclick={() => (opMessage = "")}
-          aria-label="关闭提示"
-          title="关闭">×</button
-        >
-      </div>
     {/if}
 
     {#if status}
@@ -3190,37 +3177,6 @@
     white-space: pre-wrap;
     font-size: 12px;
     margin: 0;
-  }
-  .op-message {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    background: rgba(86, 211, 100, 0.08);
-    border-bottom: 1px solid rgba(86, 211, 100, 0.2);
-    padding: 8px 14px;
-    margin: 0;
-  }
-  .op-message-text {
-    flex: 1;
-    color: var(--accent-neon);
-    font-size: 12px;
-    white-space: pre-wrap;
-    min-width: 0;
-  }
-  .op-message-close {
-    flex-shrink: 0;
-    background: transparent;
-    border: none;
-    color: var(--accent-neon);
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    padding: 0 2px;
-    opacity: 0.7;
-    transition: opacity 0.15s;
-  }
-  .op-message-close:hover {
-    opacity: 1;
   }
 
   /* ═══ SPLIT LAYOUT ═══ */
