@@ -2386,3 +2386,165 @@ fn clean_preview_then_force_removes_untracked() {
 
     cleanup(&[&dir]);
 }
+
+// ========== 危险操作统一撤销(undo) ==========
+
+fn git_out(dir: &PathBuf, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[test]
+fn undo_soft_reset_restores_head_and_keeps_worktree() {
+    let dir = init_repo("undo-reset-soft");
+    write(&dir, "a.txt", "v1");
+    commit_all(&dir, "c1");
+    let c1 = git_out(&dir, &["rev-parse", "HEAD"]);
+    write(&dir, "a.txt", "v2");
+    commit_all(&dir, "c2");
+    let c2 = git_out(&dir, &["rev-parse", "HEAD"]);
+    // 未提交改动:soft reset 及其撤销都不应动它(撤销必须按原 mode,hard 会误杀)
+    write(&dir, "b.txt", "dirty");
+
+    let repo = Repo::open(&dir).unwrap();
+    let undo = repo.reset(&c1, gitcore::ResetMode::Soft).unwrap();
+    assert_eq!(git_out(&dir, &["rev-parse", "HEAD"]), c1);
+
+    repo.undo(&undo).unwrap();
+    assert_eq!(
+        git_out(&dir, &["rev-parse", "HEAD"]),
+        c2,
+        "撤销回到操作前 HEAD"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("b.txt")).unwrap(),
+        "dirty",
+        "soft 撤销不动工作区"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn undo_hard_reset_restores_head_and_content() {
+    let dir = init_repo("undo-reset-hard");
+    write(&dir, "a.txt", "v1");
+    commit_all(&dir, "c1");
+    let c1 = git_out(&dir, &["rev-parse", "HEAD"]);
+    write(&dir, "a.txt", "v2");
+    commit_all(&dir, "c2");
+    let c2 = git_out(&dir, &["rev-parse", "HEAD"]);
+
+    let repo = Repo::open(&dir).unwrap();
+    let undo = repo.reset(&c1, gitcore::ResetMode::Hard).unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "v1");
+
+    repo.undo(&undo).unwrap();
+    assert_eq!(git_out(&dir, &["rev-parse", "HEAD"]), c2);
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "v2",
+        "hard 撤销连内容一起回来"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn undo_delete_branch_recreates_at_tip() {
+    let dir = init_repo("undo-delbr");
+    write(&dir, "a.txt", "v1");
+    commit_all(&dir, "c1");
+    git(&dir, &["branch", "feat"]);
+    let tip = git_out(&dir, &["rev-parse", "feat"]);
+
+    let repo = Repo::open(&dir).unwrap();
+    let undo = repo.delete_branch("feat").unwrap();
+    assert_eq!(git_out(&dir, &["branch", "--list", "feat"]), "", "分支已删");
+
+    repo.undo(&undo).unwrap();
+    assert_eq!(
+        git_out(&dir, &["rev-parse", "feat"]),
+        tip,
+        "撤销在原 tip 重建同名分支"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn undo_stash_drop_restores_entry_with_message() {
+    let dir = init_repo("undo-stashdrop");
+    write(&dir, "a.txt", "v1");
+    commit_all(&dir, "c1");
+    write(&dir, "a.txt", "v2");
+    git(&dir, &["stash", "push", "-m", "我的储藏"]);
+
+    let repo = Repo::open(&dir).unwrap();
+    // 不变量:回存后与 drop 前完全一致(message 语义是原始 reflog subject,含 "On <branch>: " 前缀)
+    let before = repo.stashes().unwrap();
+    assert_eq!(before.len(), 1);
+
+    let undo = repo.stash_drop("stash@{0}").unwrap();
+    assert!(repo.stashes().unwrap().is_empty(), "drop 后列表为空");
+
+    repo.undo(&undo).unwrap();
+    let list = repo.stashes().unwrap();
+    assert_eq!(list.len(), 1, "撤销塞回列表");
+    assert_eq!(list[0].message, before[0].message, "消息与 drop 前一致");
+    assert!(list[0].message.contains("我的储藏"));
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn undo_discard_restores_tracked_and_untracked() {
+    let dir = init_repo("undo-discard");
+    write(&dir, "a.txt", "v1");
+    commit_all(&dir, "c1");
+    write(&dir, "a.txt", "v2");
+    write(&dir, "new.txt", "brand-new");
+
+    let repo = Repo::open(&dir).unwrap();
+    let undo = repo
+        .discard(&[Path::new("a.txt"), Path::new("new.txt")])
+        .unwrap()
+        .expect("有实际改动应返回撤销凭据");
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "v1");
+    assert!(!dir.join("new.txt").exists(), "untracked 已被丢弃");
+
+    repo.undo(&undo).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "v2",
+        "tracked 改动找回"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("new.txt")).unwrap(),
+        "brand-new",
+        "untracked 也找回"
+    );
+    assert!(
+        repo.stashes().unwrap().is_empty(),
+        "撤销成功后兜底 stash 条目已删,不留残余"
+    );
+
+    cleanup(&[&dir]);
+}
+
+#[test]
+fn undo_discard_none_when_no_changes() {
+    let dir = init_repo("undo-discard-noop");
+    write(&dir, "a.txt", "v1");
+    commit_all(&dir, "c1");
+
+    let repo = Repo::open(&dir).unwrap();
+    let undo = repo.discard(&[Path::new("a.txt")]).unwrap();
+    assert!(undo.is_none(), "无改动 → 无凭据,不出撤销按钮");
+
+    cleanup(&[&dir]);
+}

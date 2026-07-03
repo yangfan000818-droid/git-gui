@@ -77,6 +77,8 @@
       incoming: LogEntry[];
       outgoing: LogEntry[];
     }) => void;
+    // 危险操作完成后上抛撤销凭据(由 +page 出带「撤销」按钮的 toast)。
+    onUndoable?: (repoPath: string, message: string, action: unknown) => void;
   }
 
   let {
@@ -86,6 +88,7 @@
     onConflict,
     onShowDiff,
     onCompare,
+    onUndoable,
   }: Props = $props();
 
   let branches = $state<BranchInfo[]>([]);
@@ -474,8 +477,9 @@
     switching = true;
     error = "";
     try {
-      await invoke("repo_delete_branch", { path: repoPath, name });
+      const undo = await invoke("repo_delete_branch", { path: repoPath, name });
       await load();
+      onUndoable?.(repoPath, `已删除分支 ${name}`, undo);
     } catch (e) {
       error = String(e);
     } finally {

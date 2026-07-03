@@ -158,10 +158,13 @@
     path,
     submodules = [],
     onFileHistory,
+    onUndoable,
   }: {
     path: string;
     submodules?: { path: string; name: string }[];
     onFileHistory?: (filePath: string, repoPath: string) => void;
+    // 危险操作完成后上抛撤销凭据(由 +page 出带「撤销」按钮的 toast)。
+    onUndoable?: (repoPath: string, message: string, action: unknown) => void;
   } = $props();
 
   // 有子仓 → 提交历史合并主仓 + 各子仓(线性 + 仓库标识);无子仓 → 沿用单仓拓扑图。
@@ -589,7 +592,7 @@
     if (
       resetMode === "Hard" &&
       !(await ask(
-        `硬重置到 ${selectedCommit.sha}：将丢弃工作区与暂存区的所有未提交改动,且当前分支会回退到该提交。此操作不可恢复,确定?`,
+        `硬重置到 ${selectedCommit.sha}：将丢弃工作区与暂存区的所有未提交改动(不可恢复);分支位置可在完成后短暂撤销或经 reflog 找回。确定?`,
         { title: "硬重置", kind: "warning" },
       ))
     ) {
@@ -598,13 +601,15 @@
     operationInProgress = true;
     operationError = "";
     try {
-      await invoke("repo_reset", {
+      const target = selectedCommit.sha;
+      const undo = await invoke("repo_reset", {
         path: selectedRepoPath,
         sha: selectedCommit.full_sha,
         mode: resetMode,
       });
       resetting = false;
       await load();
+      onUndoable?.(selectedRepoPath, `已重置到 ${target}`, undo);
     } catch (e) {
       operationError = String(e);
     } finally {

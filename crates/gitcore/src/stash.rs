@@ -194,8 +194,14 @@ pub(crate) fn stash_pop(repo: &Repo, reff: &str) -> Result<PopResult, Error> {
     }
 }
 
-/// 丢弃指定 stash。
-pub(crate) fn stash_drop(repo: &Repo, reff: &str) -> Result<(), Error> {
+/// 丢弃指定 stash。返回撤销凭据(commit sha + 消息,供 `stash store` 塞回)。
+pub(crate) fn stash_drop(repo: &Repo, reff: &str) -> Result<crate::undo::UndoAction, Error> {
+    let sha = repo.git(&["rev-parse", reff])?.trim().to_string();
+    // %gs = reflog subject,即 stash list 展示的消息(如 "On main: xxx")。
+    let message = repo
+        .git(&["log", "-g", "-1", "--pretty=format:%gs", reff])?
+        .trim()
+        .to_string();
     repo.git(&["stash", "drop", reff])?;
-    Ok(())
+    Ok(crate::undo::UndoAction::RestoreStash { sha, message })
 }

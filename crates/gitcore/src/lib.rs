@@ -29,6 +29,7 @@ mod status;
 mod submodule;
 mod tags;
 mod topology;
+mod undo;
 mod update;
 
 use std::path::{Path, PathBuf};
@@ -59,6 +60,7 @@ pub use status::{FileState, FileStatus, RepoStatus};
 pub use submodule::{Submodule, SubmoduleStatus};
 pub use tags::TagInfo;
 pub use topology::{GraphCommit, GraphEdge, GraphLog, MergedGraphCommit, MergedGraphLog, RootMeta};
+pub use undo::UndoAction;
 pub use update::{
     ConflictState, IntegrationKind, IntegrationStrategy, PendingConflicts, SubmoduleUpdate,
     UpdateOptions, UpdateOutcome,
@@ -190,9 +192,14 @@ impl Repo {
         update::revert(self, sha)
     }
 
-    /// 把当前分支重置到指定提交(soft/mixed/hard)。
-    pub fn reset(&self, sha: &str, mode: ResetMode) -> Result<(), Error> {
-        reset::reset(self, sha, mode)
+    /// 把当前分支重置到指定提交(soft/mixed/hard),返回撤销凭据。
+    pub fn reset(&self, sha: &str, mode: ResetMode) -> Result<UndoAction, Error> {
+        reset::reset_with_undo(self, sha, mode)
+    }
+
+    /// 执行一次危险操作的撤销(凭据来自对应操作的返回值)。
+    pub fn undo(&self, action: &UndoAction) -> Result<(), Error> {
+        undo::undo(self, action)
     }
 
     /// 列出所有远程仓库。
@@ -299,7 +306,8 @@ impl Repo {
     }
 
     /// 回滚指定文件的改动(stash 兜底,可在 Stash 视图 pop 找回)。
-    pub fn discard(&self, paths: &[&Path]) -> Result<(), Error> {
+    /// 有实际改动时返回撤销凭据(一键找回兜底 stash)。
+    pub fn discard(&self, paths: &[&Path]) -> Result<Option<UndoAction>, Error> {
         stage::discard_files(self, paths)
     }
 
@@ -660,8 +668,8 @@ impl Repo {
         stash::stash_pop(self, reff)
     }
 
-    /// 丢弃指定 stash。
-    pub fn stash_drop(&self, reff: &str) -> Result<(), Error> {
+    /// 丢弃指定 stash,返回撤销凭据(塞回列表用)。
+    pub fn stash_drop(&self, reff: &str) -> Result<UndoAction, Error> {
         stash::stash_drop(self, reff)
     }
 
@@ -719,8 +727,8 @@ impl Repo {
         branch::checkout_commit_autostash(self, sha)
     }
 
-    /// 删除分支(安全模式)。
-    pub fn delete_branch(&self, name: &str) -> Result<(), Error> {
+    /// 删除分支(安全模式),返回撤销凭据(原 tip 重建用)。
+    pub fn delete_branch(&self, name: &str) -> Result<UndoAction, Error> {
         branch::delete_branch(self, name)
     }
 

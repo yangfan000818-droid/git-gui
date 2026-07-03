@@ -252,15 +252,19 @@ pub(crate) fn checkout_commit_autostash(repo: &Repo, sha: &str) -> Result<Switch
     checkout_autostash(repo, &["checkout", sha])
 }
 
-/// 删除分支（安全模式：不删除未合并的分支）。
-pub(crate) fn delete_branch(repo: &Repo, name: &str) -> Result<(), Error> {
+/// 删除分支（安全模式：不删除未合并的分支）。返回撤销凭据(原 tip,供重建)。
+pub(crate) fn delete_branch(repo: &Repo, name: &str) -> Result<crate::undo::UndoAction, Error> {
     // 不能删除当前分支
     let current = repo.git(&["rev-parse", "--abbrev-ref", "HEAD"])?;
     if current.trim() == name {
         return Err(Error::Precondition("不能删除当前分支".into()));
     }
+    let tip = repo.git(&["rev-parse", name])?.trim().to_string();
     repo.git(&["branch", "-d", name])?;
-    Ok(())
+    Ok(crate::undo::UndoAction::RestoreBranch {
+        name: name.to_string(),
+        sha: tip,
+    })
 }
 
 /// 删除远程分支:`git push <remote> --delete <branch>`。**网络操作、不可逆**;

@@ -205,6 +205,7 @@
     message: string;
     kind: ToastKind;
     duration: number;
+    action?: { label: string; onAction: () => void };
   } | null>(null);
 
   function showToast(message: string, kind: ToastKind, duration = 3500) {
@@ -213,6 +214,49 @@
 
   function closeToast() {
     toast = null;
+  }
+
+  // ── 危险操作统一撤销(见 docs/undo-design.md) ──
+  // 凭据由后端操作返回、仅存内存、单次有效;新 toast 顶掉旧的即失去入口(reflog 兜底)。
+  type UndoAction = { kind: string; mode?: string } & Record<string, unknown>;
+
+  function showUndoToast(repoPath: string, message: string, action: unknown) {
+    toast = {
+      message,
+      kind: "success",
+      duration: 8000,
+      action: {
+        label: "撤销",
+        onAction: () => void performUndo(repoPath, action as UndoAction),
+      },
+    };
+  }
+
+  async function performUndo(repoPath: string, action: UndoAction) {
+    closeToast();
+    // 硬重置的撤销会覆盖工作区:重置后工作区应是干净的,有改动=期间新产生,先确认。
+    // (soft/mixed 撤销不动工作区;discard 撤销靠 stash apply 冲突自然拒绝,无需前置守卫)
+    if (action.kind === "ResetTo" && action.mode === "Hard") {
+      try {
+        const s = await invoke<RepoStatus>("repo_status", { path: repoPath });
+        if (s.files.length > 0) {
+          const ok = await ask(
+            "撤销将把工作区恢复到重置前状态,当前未提交的新改动会被覆盖。继续?",
+            { title: "撤销硬重置", kind: "warning" },
+          );
+          if (!ok) return;
+        }
+      } catch {
+        // status 读取失败不拦截,交给 undo 本身报错
+      }
+    }
+    try {
+      await invoke("repo_undo", { path: repoPath, action });
+      showToast("已撤销", "success");
+      await refresh();
+    } catch (e) {
+      showToast(`撤销失败:${String(e)}`, "error", 6000);
+    }
   }
   // 文件查看器目标(null=关闭):整文件 + 相对 HEAD 的行内变更标记。
   let fileViewer = $state<{ repoPath: string; filePath: string } | null>(null);
@@ -890,8 +934,15 @@
     operating = true;
     error = "";
     try {
-      await invoke("repo_discard", { path: repoPath, files: paths });
+      const undo = await invoke("repo_discard", {
+        path: repoPath,
+        files: paths,
+      });
       await refresh();
+      if (undo) {
+        const label = paths.length === 1 ? paths[0] : `${paths.length} 个文件`;
+        showUndoToast(repoPath, `已丢弃 ${label} 的改动`, undo);
+      }
     } catch (e) {
       error = String(e);
     } finally {
@@ -2343,6 +2394,7 @@
         fileHistoryRepoPath = repoPath;
         showFileHistory = true;
       }}
+      onUndoable={showUndoToast}
     />
   {/if}
 
@@ -2395,14 +2447,18 @@
     />
   {/if}
 
-  <!-- ── Toast 通知(静默更新结果) ── -->
+  <!-- ── Toast 通知(静默更新结果) ──
+       key:替换 toast 对象时强制重挂载,重起自动关闭计时(撤销按钮的 8s 窗口依赖它) -->
   {#if toast}
-    <Toast
-      message={toast.message}
-      kind={toast.kind}
-      duration={toast.duration}
-      onClose={closeToast}
-    />
+    {#key toast}
+      <Toast
+        message={toast.message}
+        kind={toast.kind}
+        duration={toast.duration}
+        action={toast.action}
+        onClose={closeToast}
+      />
+    {/key}
   {/if}
 
   <!-- ── 文件查看器(整文件 + 行内变更标记) ── -->
@@ -2437,6 +2493,7 @@
       repoPath={branchPickerRepo}
       onClose={() => (branchPickerRepo = null)}
       onSwitched={refresh}
+      onUndoable={showUndoToast}
       onConflict={(d) => {
         branchPickerRepo = null;
         void openConflictResolutionFor(d.repoPath);
@@ -2549,6 +2606,7 @@
       initialPath={selectedRepoPath ?? path}
       onClose={() => (showStash = false)}
       onChanged={refresh}
+      onUndoable={showUndoToast}
     />
   {/if}
 

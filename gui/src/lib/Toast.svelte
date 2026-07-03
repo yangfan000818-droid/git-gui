@@ -5,12 +5,15 @@
     message,
     kind = "info",
     duration = 3500,
+    action,
     onClose,
   }: {
     message: string;
     kind?: "success" | "error" | "info";
     // <= 0 表示不自动消失(用于持久的"更新中"提示,由外部替换/关闭)。
     duration?: number;
+    // 可选动作按钮(如危险操作后的「撤销」);点击后由动作方负责关闭/替换 toast。
+    action?: { label: string; onAction: () => void };
     onClose: () => void;
   } = $props();
 
@@ -32,6 +35,11 @@
     {kind === "success" ? "✓" : kind === "error" ? "✕" : "⋯"}
   </span>
   <span class="toast-msg">{message}</span>
+  {#if action}
+    <button class="toast-action" onclick={action.onAction}
+      >{action.label}</button
+    >
+  {/if}
   <button class="toast-close" onclick={onClose} aria-label="关闭">×</button>
 </div>
 
@@ -82,6 +90,20 @@
     box-shadow:
       0 8px 32px rgba(0, 0, 0, 0.5),
       0 0 12px rgba(88, 166, 255, 0.15);
+  }
+  .toast-action {
+    flex-shrink: 0;
+    background: rgba(88, 166, 255, 0.14);
+    border: 1px solid rgba(88, 166, 255, 0.35);
+    border-radius: 4px;
+    color: var(--accent-blue, #58a6ff);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 10px;
+  }
+  .toast-action:hover {
+    background: rgba(88, 166, 255, 0.26);
   }
   .toast-icon {
     flex-shrink: 0;

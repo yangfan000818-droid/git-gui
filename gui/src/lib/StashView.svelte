@@ -23,11 +23,14 @@
     initialPath,
     onClose,
     onChanged,
+    onUndoable,
   }: {
     repos: StashRepo[];
     initialPath: string;
     onClose: () => void;
     onChanged: () => void;
+    // 危险操作完成后上抛撤销凭据(由 +page 出带「撤销」按钮的 toast)。
+    onUndoable?: (repoPath: string, message: string, action: unknown) => void;
   } = $props();
 
   // 当前操作的目标仓库;初始为打开时选中的仓,之后仅由用户在下拉中切换(刻意只取初值)。
@@ -250,7 +253,7 @@
 
   async function drop(reff: string, message: string) {
     if (
-      !(await ask(`确定丢弃 stash「${message}」?此操作不可恢复。`, {
+      !(await ask(`确定丢弃 stash「${message}」?(完成后可短暂撤销)`, {
         title: "丢弃 Stash",
         kind: "warning",
       }))
@@ -259,8 +262,9 @@
     busy = true;
     error = "";
     try {
-      await invoke("repo_stash_drop", { path: targetPath, reff });
+      const undo = await invoke("repo_stash_drop", { path: targetPath, reff });
       await load();
+      onUndoable?.(targetPath, `已丢弃储藏「${message}」`, undo);
     } catch (e) {
       error = String(e);
     } finally {

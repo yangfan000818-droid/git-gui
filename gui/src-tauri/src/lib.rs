@@ -549,7 +549,10 @@ async fn repo_unstage_all(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn repo_discard(path: String, files: Vec<String>) -> Result<(), String> {
+async fn repo_discard(
+    path: String,
+    files: Vec<String>,
+) -> Result<Option<gitcore::UndoAction>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         let paths: Vec<&Path> = files.iter().map(|s| Path::new(s.as_str())).collect();
@@ -762,9 +765,9 @@ async fn repo_stash_pop(path: String, reff: String) -> Result<PopResult, String>
     .map_err(|e| e.to_string())?
 }
 
-/// 丢弃指定 stash。
+/// 丢弃指定 stash。返回撤销凭据。
 #[tauri::command]
-async fn repo_stash_drop(path: String, reff: String) -> Result<(), String> {
+async fn repo_stash_drop(path: String, reff: String) -> Result<gitcore::UndoAction, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         repo.stash_drop(&reff).map_err(|e| e.to_string())
@@ -1191,11 +1194,28 @@ async fn repo_revert(path: String, sha: String) -> Result<UpdateOutcome, String>
 }
 
 /// 把当前分支重置到指定提交(soft/mixed/hard,对标 WebStorm Reset Current Branch to Here)。
+/// 返回撤销凭据(操作前 HEAD + 原 mode)。
 #[tauri::command]
-async fn repo_reset(path: String, sha: String, mode: ResetMode) -> Result<(), String> {
+async fn repo_reset(
+    path: String,
+    sha: String,
+    mode: ResetMode,
+) -> Result<gitcore::UndoAction, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         repo.reset(&sha, mode).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 执行一次危险操作的撤销(凭据来自 reset / 删分支 / stash drop / discard 的返回值,
+/// 前端内存持有、单次有效)。
+#[tauri::command]
+async fn repo_undo(path: String, action: gitcore::UndoAction) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.undo(&action).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1421,9 +1441,9 @@ async fn repo_create_branch(
     .map_err(|e| e.to_string())?
 }
 
-/// 删除分支(安全模式:拒删当前分支和未合并分支)。
+/// 删除分支(安全模式:拒删当前分支和未合并分支)。返回撤销凭据(原 tip 重建用)。
 #[tauri::command]
-async fn repo_delete_branch(path: String, name: String) -> Result<(), String> {
+async fn repo_delete_branch(path: String, name: String) -> Result<gitcore::UndoAction, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         repo.delete_branch(&name).map_err(|e| e.to_string())
@@ -1901,6 +1921,7 @@ pub fn run() {
             repo_diff_with_workdir,
             repo_compare_commits,
             repo_commit_message,
+            repo_undo,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
