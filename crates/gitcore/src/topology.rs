@@ -16,13 +16,12 @@ pub struct GraphEdge {
 }
 
 /// 拓扑图中的一个 commit 节点:包含提交信息、它在哪条 lane、以及离开它向下的连线。
+/// parents 只参与内部 lane 计算,不外发(前端画图用不到,省 IPC payload)。
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GraphCommit {
     /// 提交本体。
     pub entry: LogEntry,
-    /// 父提交的完整 SHA(按 git 顺序:第一个是"主" parent)。
-    pub parents: Vec<String>,
     /// 本 commit 落在哪条 lane(0 起)。
     pub lane: usize,
     /// 本行所有活跃 lane 到下一行的连线(每条活跃 lane 一条 edge)。
@@ -67,15 +66,28 @@ pub struct RootMeta {
 pub struct MergedGraphLog {
     /// 选中 root 列表(含各自 lane 段偏移),供前端 laneToRoot 映射。
     pub roots: Vec<RootMeta>,
-    /// 合并图提交(全局 lane / edges)。
+    /// 合并图提交(全局 lane / edges);带 skip 时为 [skip, skip+max_count) 增量窗口。
     pub commits: Vec<MergedGraphCommit>,
+    /// 第 skip-1 条的 full_sha,供前端校验增量拼接点;skip=0 时为 None。
+    pub anchor: Option<String>,
+}
+
+/// 单仓拓扑图的一页:增量窗口 + 拼接锚点(语义同 `MergedGraphLog::anchor`)。
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct GraphLog {
+    /// `[skip, skip+max_count)` 窗口内的提交。
+    pub commits: Vec<GraphCommit>,
+    /// 第 skip-1 条的 full_sha;skip=0 时为 None。
+    pub anchor: Option<String>,
 }
 
 /// 获取结构化拓扑图:每个 commit 的 lane 分配 + lane 间连线。
 ///
 /// 数据来源 `git log --parents`,自己算 lane 布局,不依赖 `--graph` 的 ASCII。
-pub(crate) fn log_topology(repo: &Repo, opts: &LogOptions) -> Result<Vec<GraphCommit>, Error> {
-    let max_count_str = format!("-{}", opts.max_count);
+/// lane 依赖完整前缀序列,故取数/计算覆盖 [0, skip+max_count),只回传 [skip, ..) 窗口。
+pub(crate) fn log_topology(repo: &Repo, opts: &LogOptions) -> Result<GraphLog, Error> {
+    let max_count_str = format!("-{}", opts.skip + opts.max_count);
     let mut args = vec![
         "log",
         "--topo-order",
@@ -131,8 +143,18 @@ pub(crate) fn log_topology(repo: &Repo, opts: &LogOptions) -> Result<Vec<GraphCo
         })
         .collect();
 
-    Ok(compute_topology(&raw_commits))
+    let (commits, anchor) = crate::log::split_window(
+        compute_topology(&raw_commits),
+        opts.skip,
+        |c: &GraphCommit| &c.entry.full_sha,
+    );
+    Ok(GraphLog { commits, anchor })
 }
+
+/// 车道数硬上限(单仓与多仓共用):merge 重的历史会同时打开很多分支车道,封顶后图宽恒定、
+/// 不溢出视口。超出的分支挤进最右一条「溢出车道」(覆盖),代价是极宽处车道为近似位置
+/// (GitKraken 等同款折叠)。
+const MAX_LANES: usize = 8;
 
 /// 纯算法内核:在解析好的 RawCommit 上跑 lane assignment,返回 GraphCommit 列表。
 /// 独立于 git 调用,方便单元测试直接构造数据验证。
@@ -181,7 +203,6 @@ fn compute_topology(raw_commits: &[RawCommit]) -> Vec<GraphCommit> {
 
         result.push(GraphCommit {
             entry,
-            parents: raw.parents.clone(),
             lane: commit_lane,
             edges,
         });
@@ -191,7 +212,7 @@ fn compute_topology(raw_commits: &[RawCommit]) -> Vec<GraphCommit> {
 }
 
 /// 为 sha 找/分配一个 lane。若 sha 已在 lanes 中则返回第一个匹配位置;
-/// 否则用空槽或新增。
+/// 否则用空槽或新增(封顶 MAX_LANES,超出挤进最右溢出车道,与多仓 assign_lane 同款)。
 fn assign_commit_lane(lanes: &mut Vec<Option<String>>, sha: &str) -> usize {
     if let Some(i) = lanes.iter().position(|slot| slot.as_deref() == Some(sha)) {
         return i;
@@ -199,11 +220,16 @@ fn assign_commit_lane(lanes: &mut Vec<Option<String>>, sha: &str) -> usize {
     // 分支头:用空槽。
     if let Some(empty) = lanes.iter().position(|slot| slot.is_none()) {
         lanes[empty] = Some(sha.to_string());
-        empty
-    } else {
-        lanes.push(Some(sha.to_string()));
-        lanes.len() - 1
+        return empty;
     }
+    if lanes.len() < MAX_LANES {
+        lanes.push(Some(sha.to_string()));
+        return lanes.len() - 1;
+    }
+    // 到上限:挤进最右一条溢出车道(覆盖),把图宽封顶。
+    let overflow = MAX_LANES - 1;
+    lanes[overflow] = Some(sha.to_string());
+    overflow
 }
 
 /// 把 commit_lane 之后重复出现的同一 sha 清空(多 child 合并到最左)。
@@ -216,6 +242,7 @@ fn clear_duplicate_lanes(lanes: &mut [Option<String>], sha: &str, commit_lane: u
 }
 
 /// 为一个 merge parent 分新 lane 或消费已有 lane(汇入 merge)。
+/// 新 lane 封顶 MAX_LANES,超出挤进最右溢出车道(与多仓 place_parent 同款)。
 fn place_additional_parent(lanes: &mut Vec<Option<String>>, parent_sha: &str) {
     // 如果 parent 已在某条 lane 里等待,消费它(该 lane 汇入 merge)。
     if let Some(existing) = lanes
@@ -229,9 +256,14 @@ fn place_additional_parent(lanes: &mut Vec<Option<String>>, parent_sha: &str) {
     // 否则分一条新 lane。
     if let Some(empty) = lanes.iter().position(|slot| slot.is_none()) {
         lanes[empty] = Some(parent_sha.to_string());
-    } else {
-        lanes.push(Some(parent_sha.to_string()));
+        return;
     }
+    if lanes.len() < MAX_LANES {
+        lanes.push(Some(parent_sha.to_string()));
+        return;
+    }
+    let overflow = MAX_LANES - 1;
+    lanes[overflow] = Some(parent_sha.to_string());
 }
 
 /// 对照本行(before)与更新后(after)的 lanes 状态,每条活跃 lane 生成一条 from→to edge。
@@ -416,7 +448,12 @@ pub(crate) fn compute_multi_root_topology(repos: &[RepoInput]) -> MergedGraphLog
         });
     }
 
-    MergedGraphLog { roots, commits }
+    // anchor/窗口切片由调用方(log_multi_root_topology)按 opts.skip 处理,这里恒返回全量。
+    MergedGraphLog {
+        roots,
+        commits,
+        anchor: None,
+    }
 }
 
 /// 多路归并各仓的 date-order 序列:每步取各仓队首中 %at 最大者(同 ts 取 repo_index 最小,主仓在前),
@@ -448,10 +485,6 @@ fn merge_by_ts(repos: &[RepoInput]) -> Vec<(usize, RawCommit)> {
     }
     out
 }
-
-/// 车道数硬上限:merge 重的仓会同时打开很多分支车道,封顶后图宽恒定、不溢出视口。
-/// 超出的分支挤进最右一条「溢出车道」(覆盖),代价是极宽处车道为近似位置(GitKraken 等同款折叠)。
-const MAX_LANES: usize = 8;
 
 /// 紧凑版 assign_commit_lane:复用已有 lane / 空槽 / 扩展(封顶 MAX_LANES),并同步记录该 lane 的 root。
 fn assign_lane(
@@ -661,7 +694,6 @@ mod tests {
         // M: 新分支头,lane 0 → fork 出 lane 1 给 F。
         let m = &result[0];
         assert_eq!(m.lane, 0, "M 应在 lane 0");
-        assert_eq!(m.parents, vec!["P", "F"]);
         assert_eq!(m.edges.len(), 2);
         assert!(m.edges.contains(&GraphEdge {
             from_lane: 0,
@@ -701,7 +733,6 @@ mod tests {
         // B: 两条 lane 都指向 B,B 占 lane 0,lane 1 merge 到 lane 0。
         let b = &result[3];
         assert_eq!(b.lane, 0);
-        assert_eq!(b.parents, Vec::<String>::new());
         assert_eq!(b.edges.len(), 1);
         assert!(b.edges.contains(&GraphEdge {
             from_lane: 1,
@@ -787,7 +818,6 @@ mod tests {
         // M: lane 0, fork 出 lane 1(P2) 和 lane 2(P3)。
         let m = &result[0];
         assert_eq!(m.lane, 0);
-        assert_eq!(m.parents.len(), 3);
         assert_eq!(m.edges.len(), 3);
         assert!(m.edges.contains(&GraphEdge {
             from_lane: 0,
@@ -1022,6 +1052,43 @@ mod tests {
         }));
     }
 
+    // ========== 单仓车道封顶 ==========
+
+    #[test]
+    fn lanes_capped_at_max_lanes() {
+        // 12 条并行链同时活跃(远超 MAX_LANES):c0..c11 各有独立 parent p0..p11。
+        // 所有节点与连线的车道号都必须 < MAX_LANES,保证图宽恒定不溢出视口。
+        let mut raws = Vec::new();
+        for i in 0..12 {
+            let c = format!("c{i}");
+            let p = format!("p{i}");
+            raws.push(raw(&c, &[p.as_str()]));
+        }
+        for i in 0..12 {
+            let p = format!("p{i}");
+            raws.push(raw(&p, &[]));
+        }
+        let result = compute_topology(&raws);
+        assert_eq!(result.len(), 24);
+        for c in &result {
+            assert!(
+                c.lane < MAX_LANES,
+                "{} 的 lane {} 应 < MAX_LANES",
+                c.entry.sha,
+                c.lane
+            );
+            for e in &c.edges {
+                assert!(
+                    e.from_lane < MAX_LANES && e.to_lane < MAX_LANES,
+                    "{} 的 edge {}→{} 车道应 < MAX_LANES",
+                    c.entry.sha,
+                    e.from_lane,
+                    e.to_lane
+                );
+            }
+        }
+    }
+
     // ========== 多 root 合并拓扑 ==========
 
     fn repo_input(index: usize, commits: Vec<(i64, RawCommit)>) -> RepoInput {
@@ -1074,7 +1141,7 @@ mod tests {
             repo_input(0, vec![rts(3, "A", &["B"]), rts(1, "B", &[])]),
             repo_input(1, vec![rts(4, "X", &["Y"]), rts(2, "Y", &[])]),
         ];
-        let MergedGraphLog { roots, commits } = compute_multi_root_topology(repos);
+        let MergedGraphLog { roots, commits, .. } = compute_multi_root_topology(repos);
 
         assert_eq!(
             roots.iter().map(|r| r.index).collect::<Vec<_>>(),
@@ -1110,7 +1177,7 @@ mod tests {
             repo_input(0, vec![rts(2, "A", &["B"]), rts(1, "B", &[])]),
             repo_input(1, vec![]),
         ];
-        let MergedGraphLog { roots, commits } = compute_multi_root_topology(repos);
+        let MergedGraphLog { roots, commits, .. } = compute_multi_root_topology(repos);
         assert_eq!(roots.len(), 2);
         assert_eq!(roots[1].index, 1);
         assert_eq!(commits.len(), 2);
@@ -1170,7 +1237,7 @@ mod tests {
     fn multi_deselect_main_only_sub() {
         // 勾掉主仓 → 只传子仓(index1):roots 只剩它,提交全归 repo_index 1。
         let repos = &[repo_input(1, vec![rts(2, "X", &["Y"]), rts(1, "Y", &[])])];
-        let MergedGraphLog { roots, commits } = compute_multi_root_topology(repos);
+        let MergedGraphLog { roots, commits, .. } = compute_multi_root_topology(repos);
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].index, 1);
         assert!(commits.iter().all(|c| c.lane == 0 && c.repo_index == 1));

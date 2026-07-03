@@ -44,7 +44,7 @@ pub use diff3::{MergeRegion, RegionKind};
 pub use error::Error;
 pub use git::{CancelToken, Progress};
 pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
-pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions, MergedLogEntry};
+pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions, MergedLog, MergedLogEntry};
 pub use precommit::{PrecommitReport, PrecommitWarning, WarningKind};
 pub use push::{PushOutcome, PushPreview};
 pub use rebase::{RebaseAction, RebaseItem};
@@ -58,7 +58,7 @@ pub use stash::{PopResult, StashEntry, StashRef};
 pub use status::{FileState, FileStatus, RepoStatus};
 pub use submodule::{Submodule, SubmoduleStatus};
 pub use tags::TagInfo;
-pub use topology::{GraphCommit, GraphEdge, MergedGraphCommit, MergedGraphLog, RootMeta};
+pub use topology::{GraphCommit, GraphEdge, GraphLog, MergedGraphCommit, MergedGraphLog, RootMeta};
 pub use update::{
     ConflictState, IntegrationKind, IntegrationStrategy, PendingConflicts, SubmoduleUpdate,
     UpdateOptions, UpdateOutcome,
@@ -379,7 +379,8 @@ impl Repo {
     }
 
     /// 合并主仓与各子仓的提交历史(按时间降序,每条带仓库标识)。
-    pub fn log_merged(&self, opts: &LogOptions) -> Result<Vec<MergedLogEntry>, Error> {
+    /// 返回 [skip, skip+max_count) 增量窗口 + 拼接锚点。
+    pub fn log_merged(&self, opts: &LogOptions) -> Result<MergedLog, Error> {
         log::log_merged(self, opts)
     }
 
@@ -413,7 +414,8 @@ impl Repo {
     }
 
     /// 获取结构化拓扑图:每个 commit 的 lane 分配 + lane 间连线,供前端 SVG 绘图。
-    pub fn log_topology(&self, opts: &LogOptions) -> Result<Vec<GraphCommit>, Error> {
+    /// 返回 [skip, skip+max_count) 增量窗口 + 拼接锚点。
+    pub fn log_topology(&self, opts: &LogOptions) -> Result<GraphLog, Error> {
         topology::log_topology(self, opts)
     }
 

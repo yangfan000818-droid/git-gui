@@ -371,11 +371,32 @@ fn start_watch(app: AppHandle, path: String, state: State<'_, WatchState>) -> Re
                     .unwrap_or(false);
                 in_git && is_index
             };
+            // 工作区递归监视引入的构建/依赖目录高频噪声:按目录名单过滤(完整 gitignore
+            // 语义太贵,名单覆盖绝大多数场景;误伤的目录与漏网事件由窗口 focus 刷新兜底)。
+            // .DS_Store 是 Finder 浏览目录即回写的元数据,不代表仓库变更。
+            let is_workdir_noise = |p: &PathBuf| {
+                if p.file_name().and_then(|n| n.to_str()) == Some(".DS_Store") {
+                    return true;
+                }
+                p.components().any(|c| {
+                    matches!(
+                        c.as_os_str().to_str(),
+                        Some("node_modules")
+                            | Some("target")
+                            | Some("dist")
+                            | Some("build")
+                            | Some(".svelte-kit")
+                            | Some(".cache")
+                            | Some("__pycache__")
+                            | Some(".idea")
+                    )
+                })
+            };
             if !event.paths.is_empty()
                 && event
                     .paths
                     .iter()
-                    .all(|p| is_git_noise(p) || is_index_write(p))
+                    .all(|p| is_git_noise(p) || is_index_write(p) || is_workdir_noise(p))
             {
                 return;
             }
@@ -384,9 +405,16 @@ fn start_watch(app: AppHandle, path: String, state: State<'_, WatchState>) -> Re
     })
     .map_err(|e| e.to_string())?;
 
-    // 监视工作目录(非递归:只关心直接文件变更)
+    // 监视工作目录。macOS/Linux 递归:FSEvents/inotify 下深层源码改动(编辑器保存
+    // src/** 等)才能触发自动刷新,噪声由上面的目录名单过滤。Windows 维持非递归:
+    // ReadDirectoryChangesW 递归监视大目录会灌满内核 buffer 丢事件,深层改动由
+    // 窗口 focus 刷新兜底。
+    #[cfg(target_os = "windows")]
+    let workdir_mode = RecursiveMode::NonRecursive;
+    #[cfg(not(target_os = "windows"))]
+    let workdir_mode = RecursiveMode::Recursive;
     watcher
-        .watch(Path::new(&path), RecursiveMode::NonRecursive)
+        .watch(Path::new(&path), workdir_mode)
         .map_err(|e| e.to_string())?;
 
     // 监视 .git,但不递归整个 .git:其 objects/ 在 fetch/gc 时写入量极大,Windows 的
@@ -1550,6 +1578,7 @@ async fn repo_log_graph(
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         let opts = gitcore::LogOptions {
             max_count,
+            skip: 0,
             branch,
             author: None,
             grep: None,
@@ -1571,6 +1600,7 @@ async fn repo_file_history(
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         let opts = gitcore::LogOptions {
             max_count,
+            skip: 0,
             branch: None,
             author: None,
             grep: None,
@@ -1612,15 +1642,17 @@ async fn repo_blame(path: String, file_path: String) -> Result<Vec<gitcore::Blam
 async fn repo_log_topology(
     path: String,
     max_count: usize,
+    skip: Option<usize>,
     branch: Option<String>,
     author: Option<String>,
     grep: Option<String>,
-) -> Result<Vec<gitcore::GraphCommit>, String> {
+) -> Result<gitcore::GraphLog, String> {
     // git log + 拓扑计算会 fork 子进程;同步 command 跑在主线程会冻结 UI,故 spawn_blocking。
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         let opts = gitcore::LogOptions {
             max_count,
+            skip: skip.unwrap_or(0),
             branch,
             author,
             grep,
@@ -1636,15 +1668,17 @@ async fn repo_log_topology(
 async fn repo_log_merged(
     path: String,
     max_count: usize,
+    skip: Option<usize>,
     branch: Option<String>,
     author: Option<String>,
     grep: Option<String>,
-) -> Result<Vec<gitcore::MergedLogEntry>, String> {
+) -> Result<gitcore::MergedLog, String> {
     // 主仓 + 各子仓串行 fork git(2+2N 次);同步 command 跑在主线程会冻结 UI,故 spawn_blocking。
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         let opts = gitcore::LogOptions {
             max_count,
+            skip: skip.unwrap_or(0),
             branch,
             author,
             grep,
@@ -1660,6 +1694,7 @@ async fn repo_log_merged(
 async fn repo_log_merged_topology(
     path: String,
     max_count: usize,
+    skip: Option<usize>,
     branch: Option<String>,
     author: Option<String>,
     grep: Option<String>,
@@ -1669,6 +1704,7 @@ async fn repo_log_merged_topology(
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         let opts = gitcore::LogOptions {
             max_count,
+            skip: skip.unwrap_or(0),
             branch,
             author,
             grep,

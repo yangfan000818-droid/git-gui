@@ -21,7 +21,6 @@
   }
   interface GraphCommit {
     entry: LogEntry;
-    parents: string[];
     lane: number;
     edges: GraphEdge[];
   }
@@ -50,6 +49,16 @@
   interface MergedGraphLog {
     roots: RootMeta[];
     commits: MergedGraphCommit[];
+    // 增量窗口拼接锚点:skip>0 时为第 skip-1 条(前端已持有的最后一条)的 full_sha。
+    anchor: string | null;
+  }
+  interface GraphLog {
+    commits: GraphCommit[];
+    anchor: string | null;
+  }
+  interface MergedLog {
+    entries: MergedLogEntry[];
+    anchor: string | null;
   }
   // 统一绘制视图模型:单仓 GraphCommit 与多仓 MergedGraphCommit 各自 map 成此扁平结构,
   // 虚拟滚动 / SVG 绘制全基于它(不强行 union,避免模板 TS 据 hasSub 收窄失败)。
@@ -150,7 +159,11 @@
   let selectedRepoPath = $state("");
   let loading = $state(false);
   let error = $state("");
+  // maxCount = 已加载的总深度(全量重载按它拉);loadMore 每次增量取 PAGE 条。
+  const PAGE = 50;
   let maxCount = $state(50);
+  // 上次加载不足一页 → 历史到底,滚动不再触发 loadMore。
+  let hasMore = $state(true);
 
   function fmtDate(s: string): string {
     // "2025-06-20 14:30:00 +0800" → "2025-06-20 14:30"
@@ -227,6 +240,7 @@
         const res = await invoke<MergedGraphLog>("repo_log_merged_topology", {
           path,
           maxCount,
+          skip: 0,
           branch: selectedBranch || null,
           author: authorFilter || null,
           grep: grepFilter || null,
@@ -234,22 +248,29 @@
         mergedGraph = res.commits;
         // 始终拉取全部仓,首载捕获完整 root 列表(权威 repo_index)供 chip 渲染。
         allRoots = res.roots;
+        hasMore = res.commits.length >= maxCount;
       } else if (hasSub) {
-        mergedRows = await invoke<MergedLogEntry[]>("repo_log_merged", {
+        const res = await invoke<MergedLog>("repo_log_merged", {
           path,
           maxCount,
+          skip: 0,
           branch: selectedBranch || null,
           author: authorFilter || null,
           grep: grepFilter || null,
         });
+        mergedRows = res.entries;
+        hasMore = res.entries.length >= maxCount;
       } else {
-        commits = await invoke<GraphCommit[]>("repo_log_topology", {
+        const res = await invoke<GraphLog>("repo_log_topology", {
           path,
           maxCount,
+          skip: 0,
           branch: selectedBranch || null,
           author: authorFilter || null,
           grep: grepFilter || null,
         });
+        commits = res.commits;
+        hasMore = res.commits.length >= maxCount;
       }
     } catch (e) {
       error = String(e);
@@ -300,10 +321,54 @@
     }
   }
 
+  // 滚动加载更多:增量拉取 [已加载, +PAGE) 窗口后追加,不全量重拉(lane 前缀确定,
+  // 增量与已持有部分天然衔接)。用 anchor(后端算出的第 skip-1 条 sha)校验拼接点:
+  // 失配说明两次请求间历史已变(新提交/rebase),退回全量重载当前深度。
+  // 筛选态(author/grep)沿现状不分页。
   async function loadMore() {
-    if (loading || filtering) return;
-    maxCount += 50;
-    await load(false);
+    if (loading || filtering || !hasMore) return;
+    const loaded = graphMode ? mergedGraph.length : commits.length;
+    if (loaded === 0) return;
+    loading = true;
+    try {
+      if (graphMode) {
+        const res = await invoke<MergedGraphLog>("repo_log_merged_topology", {
+          path,
+          maxCount: PAGE,
+          skip: loaded,
+          branch: selectedBranch || null,
+          author: null,
+          grep: null,
+        });
+        if (res.anchor !== mergedGraph[loaded - 1].entry.full_sha) {
+          await load(false);
+          return;
+        }
+        mergedGraph = [...mergedGraph, ...res.commits];
+        if (res.commits.length < PAGE) hasMore = false;
+        maxCount = mergedGraph.length;
+      } else {
+        const res = await invoke<GraphLog>("repo_log_topology", {
+          path,
+          maxCount: PAGE,
+          skip: loaded,
+          branch: selectedBranch || null,
+          author: null,
+          grep: null,
+        });
+        if (res.anchor !== commits[loaded - 1].entry.full_sha) {
+          await load(false);
+          return;
+        }
+        commits = [...commits, ...res.commits];
+        if (res.commits.length < PAGE) hasMore = false;
+        maxCount = commits.length;
+      }
+    } catch (e) {
+      error = String(e);
+    } finally {
+      loading = false;
+    }
   }
 
   // repoPath:该提交所属仓库的绝对路径(合并视图下可能是子仓);单仓视图传主仓 path。

@@ -21,6 +21,10 @@ pub struct LogEntry {
 pub struct LogOptions {
     /// 最多返回多少条。
     pub max_count: usize,
+    /// 跳过前 skip 条,只返回 [skip, skip+max_count) 增量窗口(滚动加载用)。
+    /// 仅 `log_topology` / `log_merged` / `log_multi_root_topology` 三条 History
+    /// 路径生效:lane 车道分配依赖完整前缀序列,内部仍全量计算,只是不回传前端已持有的部分。
+    pub skip: usize,
     /// 指定分支或引用(如 "main"、"HEAD"),None 表示当前 HEAD。
     pub branch: Option<String>,
     /// 按作者筛选(映射 git log --author=<>)。
@@ -33,11 +37,32 @@ impl Default for LogOptions {
     fn default() -> Self {
         Self {
             max_count: 50,
+            skip: 0,
             branch: None,
             author: None,
             grep: None,
         }
     }
+}
+
+/// 把全量序列切成 `[skip, ..)` 增量窗口,返回 (窗口, anchor)。
+/// anchor = 第 skip-1 条(前端已持有的最后一条)的 full_sha,供前端校验增量拼接点:
+/// 不匹配说明两次请求间历史已变(新提交/rebase),前端应全量重载。skip=0(首页)无锚点。
+pub(crate) fn split_window<T>(
+    mut all: Vec<T>,
+    skip: usize,
+    full_sha: impl Fn(&T) -> &str,
+) -> (Vec<T>, Option<String>) {
+    let anchor = skip
+        .checked_sub(1)
+        .and_then(|i| all.get(i))
+        .map(|c| full_sha(c).to_string());
+    let window = if skip >= all.len() {
+        Vec::new()
+    } else {
+        all.split_off(skip)
+    };
+    (window, anchor)
 }
 
 /// 获取提交历史。
@@ -155,10 +180,21 @@ pub struct MergedLogEntry {
     pub repo_path: String,
 }
 
+/// 合并视图的一页:增量窗口 + 拼接锚点(见 `split_window`)。
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct MergedLog {
+    /// `[skip, skip+max_count)` 窗口内的提交。
+    pub entries: Vec<MergedLogEntry>,
+    /// 第 skip-1 条的 full_sha;skip=0 时为 None。
+    pub anchor: Option<String>,
+}
+
 /// 与 `log` 相同,但额外解析 author unix 时间戳(`%at`),用于跨仓库合并时按时间排序。
 /// 时间戳仅用于排序,不进入 `LogEntry`(避免改动其它构造点)。
+/// 取数量为 skip+max_count:归并/切片发生在调用方,这里要把窗口前的前缀一并取回。
 fn log_with_ts(repo: &Repo, opts: &LogOptions) -> Result<Vec<(i64, LogEntry)>, Error> {
-    let max_count_str = format!("-{}", opts.max_count);
+    let max_count_str = format!("-{}", opts.skip + opts.max_count);
     let mut args = vec![
         "log",
         "--pretty=format:%H%x00%h%x00%s%x00%an%x00%ai%x00%at",
@@ -213,7 +249,8 @@ fn log_with_ts(repo: &Repo, opts: &LogOptions) -> Result<Vec<(i64, LogEntry)>, E
 
 /// 合并主仓与各已初始化子仓的提交历史,按提交时间降序排列,每条带仓库标识。
 /// 子仓打开或日志读取失败时静默跳过该子仓,不影响其它仓库的展示。
-pub(crate) fn log_merged(repo: &Repo, opts: &LogOptions) -> Result<Vec<MergedLogEntry>, Error> {
+/// 返回 `[skip, skip+max_count)` 增量窗口(归并在全量上做,保证窗口切分点稳定)。
+pub(crate) fn log_merged(repo: &Repo, opts: &LogOptions) -> Result<MergedLog, Error> {
     use crate::submodule::{list_submodules, SubmoduleStatus};
 
     // 已初始化子仓(list_submodules 自身要 fork 一次 git,无法并行于后续抽取)。
@@ -280,13 +317,16 @@ pub(crate) fn log_merged(repo: &Repo, opts: &LogOptions) -> Result<Vec<MergedLog
 
     // 时间降序(newest first),与单仓 log 一致。
     rows.sort_by_key(|(ts, _)| std::cmp::Reverse(*ts));
-    Ok(rows.into_iter().map(|(_, e)| e).collect())
+    let all: Vec<MergedLogEntry> = rows.into_iter().map(|(_, e)| e).collect();
+    let (entries, anchor) = split_window(all, opts.skip, |e| &e.entry.full_sha);
+    Ok(MergedLog { entries, anchor })
 }
 
 /// 取单仓的拓扑序 raw log(带 parents `%P` + 相对日期 `%ar` + author 时间戳 `%at`),
 /// 供多 root 合并图取数。选项处理与 `log_topology` 对齐,format 额外带 `%at` 供跨仓归并。
+/// 取数量为 skip+max_count:lane 依赖完整前缀,窗口切分在归并计算之后做。
 fn topo_log_raw(repo: &Repo, opts: &LogOptions) -> Result<String, Error> {
-    let max_count_str = format!("-{}", opts.max_count);
+    let max_count_str = format!("-{}", opts.skip + opts.max_count);
     // 用 --date-order 而非 --topo-order:跨仓按 %at 归并时,topo-order 会把某仓里
     // 一条新提交压到它 topo 前驱(常是合并进来的老侧支)之后,导致主/子仓的同期提交在
     // 合并流里被拉远(实测一条 4h 前的子仓提交被沉到一堆 5h 前提交之下)。date-order 仍
@@ -386,7 +426,13 @@ pub(crate) fn log_multi_root_topology(
         });
     }
 
-    Ok(compute_multi_root_topology(&repos))
+    let mut graph = compute_multi_root_topology(&repos);
+    let (window, anchor) = split_window(std::mem::take(&mut graph.commits), opts.skip, |c| {
+        &c.entry.full_sha
+    });
+    graph.commits = window;
+    graph.anchor = anchor;
+    Ok(graph)
 }
 
 /// 带分支拓扑图的一行 log:`graph` 是该行的图形前缀(如 `* `、`|\`、`| * `),
@@ -519,4 +565,43 @@ pub(crate) fn log_graph(repo: &Repo, opts: &LogOptions) -> Result<Vec<GraphRow>,
         })
         .collect();
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_window;
+
+    fn shas(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn split_window_first_page_no_anchor() {
+        let (win, anchor) = split_window(shas(&["a", "b", "c"]), 0, |s| s);
+        assert_eq!(win, shas(&["a", "b", "c"]));
+        assert_eq!(anchor, None);
+    }
+
+    #[test]
+    fn split_window_tail_with_anchor() {
+        let (win, anchor) = split_window(shas(&["a", "b", "c", "d"]), 2, |s| s);
+        assert_eq!(win, shas(&["c", "d"]));
+        assert_eq!(anchor, Some("b".to_string()));
+    }
+
+    #[test]
+    fn split_window_at_end_returns_empty_with_anchor() {
+        // 前端已加载全部,再翻一页:空窗口但 anchor 仍匹配 → 前端据此判定到底,不误触全量重载。
+        let (win, anchor) = split_window(shas(&["a", "b"]), 2, |s| s);
+        assert!(win.is_empty());
+        assert_eq!(anchor, Some("b".to_string()));
+    }
+
+    #[test]
+    fn split_window_past_end_no_anchor() {
+        // 历史被改写变短(rebase/reset):anchor 取不到 → 前端视为失配走全量重载。
+        let (win, anchor) = split_window(shas(&["a", "b"]), 5, |s| s);
+        assert!(win.is_empty());
+        assert_eq!(anchor, None);
+    }
 }

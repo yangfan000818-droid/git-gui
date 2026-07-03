@@ -897,6 +897,64 @@ fn log_graph_marks_commit_rows_and_merges() {
 }
 
 #[test]
+fn log_topology_skip_window_appends_seamlessly() {
+    // 滚动加载的正确性根基:lane/edges 依赖完整前缀序列,分页取回的增量窗口
+    // 必须与一次性全量取的对应切片逐条一致(sha/lane/edges),否则前端拼接后图形错位。
+    let dir = init_repo("tsw");
+    write(&dir, "a.txt", "1");
+    commit_all(&dir, "c1");
+    write(&dir, "a.txt", "2");
+    commit_all(&dir, "c2");
+    // 分支 + --no-ff 合并:让窗口切分点跨越非平凡 lane 结构
+    git(&dir, &["checkout", "-q", "-b", "feat"]);
+    write(&dir, "b.txt", "x");
+    commit_all(&dir, "feat1");
+    git(&dir, &["checkout", "-q", "main"]);
+    write(&dir, "c.txt", "y");
+    commit_all(&dir, "main1");
+    git(&dir, &["merge", "--no-ff", "feat", "-m", "merge feat"]);
+
+    let repo = Repo::open(&dir).unwrap();
+    let full = repo
+        .log_topology(&gitcore::LogOptions {
+            max_count: 10,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(full.anchor.is_none(), "首页无锚点");
+    assert_eq!(full.commits.len(), 5);
+
+    let first = repo
+        .log_topology(&gitcore::LogOptions {
+            max_count: 2,
+            ..Default::default()
+        })
+        .unwrap();
+    let more = repo
+        .log_topology(&gitcore::LogOptions {
+            max_count: 10,
+            skip: 2,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        more.anchor.as_deref(),
+        Some(first.commits[1].entry.full_sha.as_str()),
+        "anchor 应为前一页最后一条的 full_sha"
+    );
+    assert_eq!(more.commits.len(), 3, "增量窗口应为剩余 3 条");
+
+    let stitched: Vec<_> = first.commits.iter().chain(more.commits.iter()).collect();
+    for (s, f) in stitched.iter().zip(full.commits.iter()) {
+        assert_eq!(s.entry.full_sha, f.entry.full_sha, "拼接序列与全量一致");
+        assert_eq!(s.lane, f.lane, "{} 的 lane 应与全量一致", f.entry.sha);
+        assert_eq!(s.edges, f.edges, "{} 的 edges 应与全量一致", f.entry.sha);
+    }
+
+    cleanup(&[&dir]);
+}
+
+#[test]
 fn commit_empty_staging_fails() {
     let dir = init_repo("ce");
     write(&dir, "a.txt", "hello");
