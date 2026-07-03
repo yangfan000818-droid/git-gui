@@ -12,7 +12,8 @@ pub enum PushOutcome {
     NonFastForward,
 }
 
-/// Push 对话框的预览:目标 upstream + 本地领先 upstream 的待推送提交。
+/// Push 对话框的预览:目标 upstream + 本地领先 upstream 的待推送提交,
+/// 以及远端领先本地、强推会被覆盖的提交。
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PushPreview {
@@ -20,6 +21,8 @@ pub struct PushPreview {
     pub upstream: Option<String>,
     /// 本地领先 upstream 的提交(`@{u}..HEAD`,newest first)。
     pub commits: Vec<LogEntry>,
+    /// 远端领先本地的提交(`HEAD..@{u}`);非空时分支已分叉,强制推送会覆盖这些。
+    pub remote_ahead: Vec<LogEntry>,
 }
 
 /// 推送预览:取当前分支 upstream 及 `@{u}..HEAD` 待推送提交,供 Push 对话框做安全网。
@@ -30,13 +33,16 @@ pub(crate) fn push_preview(repo: &Repo) -> Result<PushPreview, Error> {
         return Ok(PushPreview {
             upstream: None,
             commits: vec![],
+            remote_ahead: vec![],
         });
     }
     let up = upstream.stdout.trim().to_string();
     let commits = crate::log::rev_range(repo, "@{u}..HEAD")?;
+    let remote_ahead = crate::log::rev_range(repo, "HEAD..@{u}")?;
     Ok(PushPreview {
         upstream: Some(up),
         commits,
+        remote_ahead,
     })
 }
 

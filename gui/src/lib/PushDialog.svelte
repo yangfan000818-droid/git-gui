@@ -14,6 +14,7 @@
   interface PushPreview {
     upstream: string | null;
     commits: LogEntry[];
+    remote_ahead: LogEntry[];
   }
   interface Progress {
     phase: string;
@@ -58,12 +59,15 @@
 
   async function doPush() {
     if (!preview?.upstream) return;
-    // 强制推送是危险操作:二次确认。
+    // 强制推送是危险操作:二次确认。分叉时在文案中点名将覆盖的远端提交数。
     if (
       forceWithLease &&
       !(await ask(
         `确定对「${label}」强制推送(--force-with-lease)?\n` +
-          `它会用本地分支覆盖远端 ${preview.upstream};仅当远端未被他人推进时才会成功。`,
+          (preview.remote_ahead.length > 0
+            ? `这将覆盖远端 ${preview.upstream} 上的 ${preview.remote_ahead.length} 个提交。\n`
+            : `它会用本地分支覆盖远端 ${preview.upstream}。\n`) +
+          `仅当远端未被他人推进时才会成功(--force-with-lease 保护)。`,
         { title: "强制推送", kind: "warning" },
       ))
     )
@@ -225,6 +229,23 @@
         </ul>
       {/if}
 
+      {#if preview.remote_ahead.length > 0}
+        <div class="pd-diverged">
+          <p class="pd-diverged-head">
+            ⚠️ 远端领先 {preview.remote_ahead.length} 个提交(普通推送将被拒;勾选强制推送可覆盖)
+          </p>
+          <ul class="pd-commits pd-remote">
+            {#each preview.remote_ahead as c (c.full_sha)}
+              <li class="pd-commit">
+                <span class="pd-sha">{c.sha}</span>
+                <span class="pd-msg">{c.message}</span>
+                <span class="pd-meta">{c.author} · {fmtDate(c.date)}</span>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+
       <label class="pd-force" title="安全强制推送:仅当远端未被他人推进时才覆盖">
         <input type="checkbox" bind:checked={forceWithLease} />
         强制推送(--force-with-lease)
@@ -357,6 +378,23 @@
     flex-shrink: 0;
     color: var(--text-muted);
     font-size: 11px;
+  }
+  .pd-diverged {
+    margin: 6px 18px 0;
+    padding: 8px 10px;
+    border: 1px solid rgba(247, 120, 139, 0.3);
+    border-radius: 6px;
+    background: rgba(247, 120, 139, 0.08);
+  }
+  .pd-diverged-head {
+    margin: 0 0 4px;
+    font-size: 12px;
+    color: var(--color-error);
+  }
+  .pd-remote {
+    max-height: 160px;
+    padding: 0;
+    margin: 0;
   }
   .pd-force {
     display: flex;
