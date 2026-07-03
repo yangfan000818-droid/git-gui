@@ -2548,3 +2548,120 @@ fn undo_discard_none_when_no_changes() {
 
     cleanup(&[&dir]);
 }
+
+// ========== 多仓合并拓扑图增量分页(回归:loadMore 卡死) ==========
+// split_window 曾漏截 max_count:多仓合并路径每仓各取 skip+max_count,归并总量翻倍,
+// 且超出 skip+max_count 的尾部不稳定 → 前端 loadMore 的 anchor 永远失配,列表数量钉死。
+// 此测试钉死两个症状:① 每页返回正好 max_count 条(非仓数倍);② 增量 anchor 稳定匹配;
+// ③ 增量拼接 == 全量前缀。
+#[test]
+fn merged_topology_incremental_windows_stable() {
+    let main = init_repo("loadmore-main");
+    write(&main, "a", "1");
+    commit_all(&main, "c1");
+    write(&main, "a", "2");
+    commit_all(&main, "c2");
+    write(&main, "a", "3");
+    commit_all(&main, "c3");
+
+    let sub = init_repo("loadmore-sub");
+    write(&sub, "b", "1");
+    commit_all(&sub, "s1");
+    write(&sub, "b", "2");
+    commit_all(&sub, "s2");
+    write(&sub, "b", "3");
+    commit_all(&sub, "s3");
+    write(&sub, "b", "4");
+    commit_all(&sub, "s4");
+
+    let sub_url = sub.to_string_lossy().to_string();
+    git(
+        &main,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            &sub_url,
+            "sub",
+        ],
+    );
+    commit_all(&main, "add-sub");
+    write(&main, "a", "4");
+    commit_all(&main, "c4");
+    write(&main, "a", "5");
+    commit_all(&main, "c5");
+    write(&main, "a", "6");
+    commit_all(&main, "c6");
+
+    let repo = Repo::open(&main).unwrap();
+    const PAGE: usize = 3;
+    let mk = |skip: usize| gitcore::LogOptions {
+        max_count: PAGE,
+        skip,
+        ..Default::default()
+    };
+
+    // 全量基准(取数深度足够覆盖全部提交)
+    let full = repo
+        .log_multi_root_topology(&gitcore::LogOptions {
+            max_count: 100,
+            skip: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    let full_shas: Vec<String> = full
+        .commits
+        .iter()
+        .map(|c| c.entry.full_sha.clone())
+        .collect();
+    assert!(
+        full_shas.len() >= PAGE * 3,
+        "fixture 至少 {} 条,实际 {}",
+        PAGE * 3,
+        full_shas.len()
+    );
+
+    // R1 首页:正好 PAGE 条,无 anchor
+    let r1 = repo.log_multi_root_topology(&mk(0)).unwrap();
+    assert_eq!(
+        r1.commits.len(),
+        PAGE,
+        "首页应正好 {PAGE} 条(bug 时为仓数倍)"
+    );
+    assert!(r1.anchor.is_none(), "首页无 anchor");
+    let mut held: Vec<String> = r1
+        .commits
+        .iter()
+        .map(|c| c.entry.full_sha.clone())
+        .collect();
+
+    // R2:正好 PAGE 条,anchor 匹配已持有末条(bug 时永远失配)
+    let r2 = repo.log_multi_root_topology(&mk(PAGE)).unwrap();
+    assert_eq!(r2.commits.len(), PAGE, "第二页应正好 {PAGE} 条");
+    assert_eq!(
+        r2.anchor.as_deref(),
+        held.last().map(|s| s.as_str()),
+        "anchor 必须匹配前端持有的末条"
+    );
+    held.extend(r2.commits.iter().map(|c| c.entry.full_sha.clone()));
+
+    // R3:同上
+    let r3 = repo.log_multi_root_topology(&mk(PAGE * 2)).unwrap();
+    assert_eq!(r3.commits.len(), PAGE, "第三页应正好 {PAGE} 条");
+    assert_eq!(
+        r3.anchor.as_deref(),
+        held.last().map(|s| s.as_str()),
+        "第三页 anchor 失配"
+    );
+    held.extend(r3.commits.iter().map(|c| c.entry.full_sha.clone()));
+
+    // 增量拼接 == 全量前缀
+    assert_eq!(
+        held,
+        full_shas[..PAGE * 3].to_vec(),
+        "增量拼接必须等于全量前缀"
+    );
+
+    cleanup(&[&main, &sub]);
+}
