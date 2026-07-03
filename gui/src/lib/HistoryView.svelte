@@ -1,3 +1,26 @@
+<script module lang="ts">
+  // ── 跨挂载快照缓存(key = 仓库路径) ──
+  // 切 tab 会销毁重建组件,每次都全量重拉 log + 转圈。这里在销毁/切仓时把列表
+  // 状态存进模块级 Map,重挂载命中后先渲染缓存(0 等待),再后台重验证。
+  // 纯内存,随进程生命周期;接口引用实例脚本里的类型(编译合并为同一模块,可见)。
+  interface HistorySnapshot {
+    subLen: number; // 保存时的子仓数,不一致视为失效(单仓/多仓命令不同)
+    commits: GraphCommit[];
+    mergedRows: MergedLogEntry[];
+    mergedGraph: MergedGraphCommit[];
+    allRoots: RootMeta[];
+    focusedRoots: number[] | null;
+    maxCount: number;
+    hasMore: boolean;
+    branches: string[];
+    selectedBranch: string;
+    authorFilter: string;
+    grepFilter: string;
+    scrollTop: number;
+  }
+  const historyCache = new Map<string, HistorySnapshot>();
+</script>
+
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { ask, message } from "@tauri-apps/plugin-dialog";
@@ -229,7 +252,31 @@
       void load();
     });
   });
-  onDestroy(() => conflictDoneUnlisten?.());
+  onDestroy(() => {
+    conflictDoneUnlisten?.();
+    saveSnapshot(path, submodules.length);
+  });
+
+  // 把当前列表状态存入模块级缓存;空列表(加载失败/未完成)不缓存。
+  function saveSnapshot(key: string, subLen: number) {
+    if (!key) return;
+    if (commits.length + mergedRows.length + mergedGraph.length === 0) return;
+    historyCache.set(key, {
+      subLen,
+      commits,
+      mergedRows,
+      mergedGraph,
+      allRoots,
+      focusedRoots,
+      maxCount,
+      hasMore,
+      branches,
+      selectedBranch,
+      authorFilter,
+      grepFilter,
+      scrollTop,
+    });
+  }
 
   // ── 数据加载 ──
   async function load(resetScrollAfter = true) {
@@ -754,19 +801,43 @@
     const subLen = submodules.length;
     if (path && (path !== prevPath || subLen !== prevSubLen)) {
       const pathChanged = path !== prevPath;
+      // 同组件内切仓(不销毁)也要保存旧仓快照;销毁路径走 onDestroy。
+      if (pathChanged && prevPath) saveSnapshot(prevPath, prevSubLen);
       prevPath = path;
       prevSubLen = subLen;
       if (pathChanged) {
-        maxCount = 50;
-        resetScroll();
-        authorFilter = "";
-        grepFilter = "";
-        selectedBranch = "";
         selectedCommit = null;
         selectedRepoPath = path;
         commitMsg = "";
         commitDiffs = [];
         loadBranches();
+        const snap = historyCache.get(path);
+        if (snap && snap.subLen === subLen) {
+          // 命中快照:先渲染缓存列表 + 恢复滚动位置(0 等待),后台重验证。
+          // 不清列表、不重置滚动;loading 仍置位,兼作 loadMore 重入守卫。
+          commits = snap.commits;
+          mergedRows = snap.mergedRows;
+          mergedGraph = snap.mergedGraph;
+          allRoots = snap.allRoots;
+          focusedRoots = snap.focusedRoots;
+          maxCount = snap.maxCount;
+          hasMore = snap.hasMore;
+          branches = snap.branches;
+          selectedBranch = snap.selectedBranch;
+          authorFilter = snap.authorFilter;
+          grepFilter = snap.grepFilter;
+          scrollTop = snap.scrollTop;
+          requestAnimationFrame(() => {
+            if (scrollEl) scrollEl.scrollTop = snap.scrollTop;
+          });
+          load(false);
+          return;
+        }
+        maxCount = 50;
+        resetScroll();
+        authorFilter = "";
+        grepFilter = "";
+        selectedBranch = "";
       }
       commits = [];
       mergedRows = [];
