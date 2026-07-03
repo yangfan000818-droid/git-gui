@@ -1,11 +1,11 @@
-<script lang="ts">
-  import { onMount } from "svelte";
+<script lang="ts" module>
   import { createHighlighter, type HighlighterGeneric } from "shiki";
 
-  let highlighter = $state<HighlighterGeneric<any, any> | null>(null);
-
-  onMount(async () => {
-    highlighter = await createHighlighter({
+  // Shiki highlighter 是重资源(oniguruma wasm + 全部 grammar,数百 ms + 数十 MB),
+  // 且不随组件销毁释放 —— 模块级单例,所有 DiffView 实例共享一份。
+  let highlighterPromise: Promise<HighlighterGeneric<any, any>> | null = null;
+  function loadHighlighter(): Promise<HighlighterGeneric<any, any>> {
+    highlighterPromise ??= createHighlighter({
       themes: ["vitesse-dark"],
       langs: [
         "javascript",
@@ -21,9 +21,21 @@
         "yaml",
       ],
     });
+    return highlighterPromise;
+  }
+</script>
+
+<script lang="ts">
+  import { onMount } from "svelte";
+
+  let highlighter = $state<HighlighterGeneric<any, any> | null>(null);
+
+  onMount(() => {
+    loadHighlighter().then((h) => (highlighter = h));
   });
 
-  function getLang(path: string) {
+  // 返回 null 表示不认识的语言:跳过高亮渲染纯文本,而非错用 js grammar 上色。
+  function getLang(path: string): string | null {
     const ext = path.split(".").pop()?.toLowerCase() || "";
     switch (ext) {
       case "ts":
@@ -56,7 +68,7 @@
       case "yaml":
         return "yaml";
       default:
-        return "javascript";
+        return null;
     }
   }
 
@@ -384,16 +396,38 @@
     return map;
   }
 
-  // 计算一个 hunk 里的 shiki tokens，只在 highlighter 准备好后执行
-  function getHunkTokens(hunk: Hunk, path: string) {
+  // 计算一个 hunk 里的 shiki tokens，只在 highlighter 准备好后执行。
+  // 只 tokenize 实际显示的前 shownCount 行(hunk 截断时不为隐藏部分买单);
+  // 结果按 hunk 对象缓存,重渲染不重复 tokenize,files 替换后随旧 hunk 自动回收。
+  type TokenLine = { content: string; color?: string }[];
+  const tokenCache = new WeakMap<Hunk, Map<number, TokenLine[]>>();
+  function getHunkTokens(
+    hunk: Hunk,
+    shownCount: number,
+    path: string,
+  ): TokenLine[] {
     if (!highlighter) return [];
-    const text = hunk.lines.map((l) => l.content).join("\n");
+    const lang = getLang(path);
+    if (!lang) return [];
+    let perHunk = tokenCache.get(hunk);
+    if (!perHunk) {
+      perHunk = new Map();
+      tokenCache.set(hunk, perHunk);
+    }
+    const cached = perHunk.get(shownCount);
+    if (cached) return cached;
+    const text = hunk.lines
+      .slice(0, shownCount)
+      .map((l) => l.content)
+      .join("\n");
     try {
-      return highlighter.codeToTokensBase(text, {
-        lang: getLang(path),
+      const tokens = highlighter.codeToTokensBase(text, {
+        lang,
         theme: "vitesse-dark",
       });
-    } catch (e) {
+      perHunk.set(shownCount, tokens);
+      return tokens;
+    } catch {
       return [];
     }
   }
@@ -439,7 +473,7 @@
         {@const hunkCapped =
           lines.length > HUNK_CAP && !expandedHunks.has(hkey)}
         {@const shownLines = hunkCapped ? lines.slice(0, HUNK_CAP) : lines}
-        {@const hunkTokens = getHunkTokens(hunk, file.path)}
+        {@const hunkTokens = getHunkTokens(hunk, shownLines.length, file.path)}
         <div class="hunk">
           <div class="hunk-header">
             <span
