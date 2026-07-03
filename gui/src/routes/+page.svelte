@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, ask } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import UpdateView from "$lib/UpdateView.svelte";
@@ -502,23 +503,33 @@
     repos.filter((r) => r.subStatus !== "Uninitialized"),
   );
 
-  // ── 文件监视:后端 debounce 300ms 后 emit "repo-changed",前端再接一次 debounce 防抖 ──
+  // ── 文件监视:后端 debounce 500ms 后 emit "repo-changed",前端再接一次 debounce 防抖 ──
   let repoChangedUnlisten: UnlistenFn | undefined = $state();
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // 更新进行中:git 大量改 .git/工作区会狂触发 watcher,此时自动刷新只会
+  // 读到中间态并反复全量 reload 阻塞主线程(卡顿源),跳过;更新完成会主动刷新。
+  function scheduleRefresh() {
+    if (showUpdate) return;
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      if (status) refresh();
+    }, 300);
+  }
+
   let conflictDoneUnlisten: UnlistenFn | undefined = $state();
+  let focusUnlisten: UnlistenFn | undefined = $state();
   $effect(() => {
     const init = async () => {
-      repoChangedUnlisten = await listen("repo-changed", () => {
-        // 更新进行中:git 大量改 .git/工作区会狂触发 watcher,此时自动刷新只会
-        // 读到中间态并反复全量 reload 阻塞主线程(卡顿源),跳过;更新完成会主动刷新。
-        if (showUpdate) return;
-        if (refreshTimer) clearTimeout(refreshTimer);
-        refreshTimer = setTimeout(() => {
-          refreshTimer = null;
-          if (status) refresh();
-        }, 300);
-      });
+      repoChangedUnlisten = await listen("repo-changed", scheduleRefresh);
+      // 窗口重获焦点 → 刷新一次:watcher 对深层工作区文件的覆盖有限(Windows 非递归;
+      // 噪声目录被过滤),切出去改代码再切回来的主场景由 focus 刷新兜底(对标 WebStorm)。
+      focusUnlisten = await getCurrentWindow().onFocusChanged(
+        ({ payload: focused }) => {
+          if (focused) scheduleRefresh();
+        },
+      );
       // 独立冲突窗口解决/放弃后:更新流程中交给 UpdateView 续跑,否则刷新主界面。
       conflictDoneUnlisten = await listen("conflict-done", () => {
         if (!showUpdate && status) refresh();
@@ -527,6 +538,7 @@
     init();
     return () => {
       repoChangedUnlisten?.();
+      focusUnlisten?.();
       conflictDoneUnlisten?.();
       if (refreshTimer) clearTimeout(refreshTimer);
     };
@@ -583,17 +595,15 @@
   }
 
   // 重新读取主仓库 + 各子仓库状态,重建 repos(只拉文件状态,不拉 diff)。
+  // 主仓 status 与冲突态探测互不依赖 → 并行;子仓列表来自主仓 status 返回值,只能随后拉。
   async function reload() {
-    const s = await invoke<RepoStatus>("repo_status", { path });
+    const [s, cs] = await Promise.all([
+      invoke<RepoStatus>("repo_status", { path }),
+      // 探测主仓库冲突态(进行中整合 / 未合并文件),供 banner 与重入;失败按无冲突处理。
+      invoke<ConflictState>("repo_conflict_state", { path }).catch(() => null),
+    ]);
     status = s;
-    // 探测主仓库冲突态(进行中整合 / 未合并文件),供 banner 与重入。
-    try {
-      conflictState = await invoke<ConflictState>("repo_conflict_state", {
-        path,
-      });
-    } catch {
-      conflictState = null;
-    }
+    conflictState = cs;
     const main = buildRepoView(
       path,
       repoLabel(path),
