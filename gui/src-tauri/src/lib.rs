@@ -1,4 +1,5 @@
 mod ai;
+mod panic_log;
 
 use std::collections::HashMap;
 use std::fs;
@@ -1789,6 +1790,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .setup(|app| {
+            if let Ok(dir) = app.path().app_log_dir() {
+                panic_log::install(dir);
+            }
+            Ok(())
+        })
         .manage(CancelRegistry::default())
         .manage(WatchState::default())
         .manage(ConflictCtx::default())
