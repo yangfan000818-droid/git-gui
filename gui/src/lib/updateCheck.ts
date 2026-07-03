@@ -5,6 +5,9 @@ import { getVersion } from "@tauri-apps/api/app";
 // 发布仓库(GitHub owner/repo)。
 const REPO = "yangfan000818-droid/git-gui";
 
+// 最新 release 页面(供"查看"按钮打开)。
+export const RELEASES_URL = `https://github.com/${REPO}/releases/latest`;
+
 export interface UpdateInfo {
   latest: string; // 最新版本号(去掉 tag 前缀 v),如 "0.9.1"
   current: string; // 当前 app 版本,如 "0.9.0"

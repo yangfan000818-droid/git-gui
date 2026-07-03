@@ -2,9 +2,15 @@
   import { onMount } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { check } from "@tauri-apps/plugin-updater";
-  import { checkForUpdate, type UpdateInfo } from "$lib/updateCheck";
+  import {
+    checkForUpdate,
+    RELEASES_URL,
+    type UpdateInfo,
+  } from "$lib/updateCheck";
 
   let update = $state<UpdateInfo | null>(null);
+  // updater 插件是否可用(false = 手动回退,只能引导去下载页)。
+  let viaPlugin = $state(false);
   let downloading = $state(false);
   let downloadError = $state("");
 
@@ -16,10 +22,11 @@
     try {
       const u = await check();
       if (u?.available) {
+        viaPlugin = true;
         update = {
           latest: u.version,
           current: u.currentVersion,
-          url: "", // updater 自带下载,不需 URL
+          url: RELEASES_URL,
           notes: u.body ?? "",
         };
         if (localStorage.getItem(DISMISS_KEY) === u.version) {
@@ -76,14 +83,19 @@
     {#if downloadError}
       <span class="ub-err">{downloadError}</span>
     {/if}
-    <button
-      class="ub-install"
-      disabled={downloading}
-      onclick={downloadAndInstall}
-    >
-      {downloading ? "下载中…" : "下载并安装"}
-    </button>
-    <button class="ub-view" onclick={viewInBrowser}>查看</button>
+    {#if viaPlugin}
+      <button
+        class="ub-install"
+        disabled={downloading}
+        onclick={downloadAndInstall}
+      >
+        {downloading ? "下载中…" : "下载并安装"}
+      </button>
+      <button class="ub-view" onclick={viewInBrowser}>查看</button>
+    {:else}
+      <!-- 插件不可用(如 macOS 未签名装不了):引导去 release 页手动下载 -->
+      <button class="ub-install" onclick={viewInBrowser}>去下载页</button>
+    {/if}
     <button
       class="ub-dismiss"
       disabled={downloading}
