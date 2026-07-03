@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "gui",
+  "productName": "GitSail",
   "version": "0.19.0",
   "identifier": "com.gitgui.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "gui",
+        "title": "GitSail",
         "width": 1280,
         "height": 820,
         "minWidth": 960,

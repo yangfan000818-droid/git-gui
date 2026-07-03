@@ -1,6 +1,6 @@
-# git-gui 使用指南
+# GitSail 使用指南
 
-git-gui 是**Tauri 2 + SvelteKit 桌面 GUI**,基于零依赖核心库 `gitcore`(spawn git CLI + plumbing 命令拿可解析输出)。本文介绍 GUI 的使用,最后集中说明核心概念（安全更新、冲突魔法棒、崩溃恢复、rerere 等）。
+GitSail 是**Tauri 2 + SvelteKit 桌面 GUI**,基于零依赖核心库 `gitcore`(spawn git CLI + plumbing 命令拿可解析输出)。本文介绍 GUI 的使用,最后集中说明核心概念（安全更新、冲突魔法棒、崩溃恢复、rerere 等）。
 
 ---
 

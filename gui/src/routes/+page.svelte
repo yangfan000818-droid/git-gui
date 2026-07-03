@@ -1677,7 +1677,7 @@
 
   <!-- ── 顶栏 ── -->
   <header class="topbar">
-    <span class="logo">git-gui</span>
+    <span class="logo">GitSail</span>
     <div class="path-bar">
       {#if status}
         <button

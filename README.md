@@ -1,4 +1,4 @@
-# git-gui
+# GitSail ⛵️
 
 把 git 操作"降维"成**可见、可操作对象**的桌面 git 客户端 —— 对标 WebStorm / JetBrains 的 git 体验,主打**可见性**与**安全网**两条护城河。
 

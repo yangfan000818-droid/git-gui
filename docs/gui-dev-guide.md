@@ -1,4 +1,4 @@
-# git-gui GUI 开发指南
+# GitSail GUI 开发指南
 
 面向接手 GUI 功能开发的同学。骨架(walking skeleton)已搭好并跑通,本文讲**在它之上怎么继续加功能**,以及**必须守住的约束**。
 

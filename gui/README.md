@@ -1,6 +1,6 @@
-# git-gui 桌面 GUI
+# GitSail 桌面 GUI
 
-git-gui 的桌面客户端 —— SvelteKit 前端 + Tauri 2 后端(Rust);后端命令直接调用零依赖核心库 [`gitcore`](../crates/gitcore)。
+GitSail 桌面客户端 —— SvelteKit 前端 + Tauri 2 后端(Rust);后端命令直接调用零依赖核心库 [`gitcore`](../crates/gitcore)。
 
 - 产品介绍与功能全景:仓库根 [README](../README.md)
 - 使用指南:[docs/USAGE.md](../docs/USAGE.md)

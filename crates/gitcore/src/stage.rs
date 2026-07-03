@@ -49,7 +49,7 @@ pub(crate) fn discard_files(repo: &Repo, paths: &[&Path]) -> Result<(), Error> {
         "push",
         "--include-untracked",
         "-m",
-        "git-gui discard 兜底",
+        "GitSail discard 兜底",
         "--",
     ];
     args.extend(paths.iter().map(|p| p.as_os_str().to_str().unwrap()));
