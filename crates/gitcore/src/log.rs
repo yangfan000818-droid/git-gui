@@ -45,23 +45,28 @@ impl Default for LogOptions {
     }
 }
 
-/// 把全量序列切成 `[skip, ..)` 增量窗口,返回 (窗口, anchor)。
+/// 把全量序列切成 `[skip, skip+max_count)` 增量窗口,返回 (窗口, anchor)。
 /// anchor = 第 skip-1 条(前端已持有的最后一条)的 full_sha,供前端校验增量拼接点:
 /// 不匹配说明两次请求间历史已变(新提交/rebase),前端应全量重载。skip=0(首页)无锚点。
+/// 截尾必须做:多仓归并的全量是「每仓 skip+max_count」的总和,远超一页;且超出
+/// skip+max_count 的尾部处在各仓取数耗尽区,随取数加深会变(不是稳定前缀),
+/// 吐给前端会导致下次 loadMore 的 anchor 永远失配、退化为原地全量重载。
 pub(crate) fn split_window<T>(
     mut all: Vec<T>,
     skip: usize,
+    max_count: usize,
     full_sha: impl Fn(&T) -> &str,
 ) -> (Vec<T>, Option<String>) {
     let anchor = skip
         .checked_sub(1)
         .and_then(|i| all.get(i))
         .map(|c| full_sha(c).to_string());
-    let window = if skip >= all.len() {
+    let mut window = if skip >= all.len() {
         Vec::new()
     } else {
         all.split_off(skip)
     };
+    window.truncate(max_count);
     (window, anchor)
 }
 
@@ -318,7 +323,7 @@ pub(crate) fn log_merged(repo: &Repo, opts: &LogOptions) -> Result<MergedLog, Er
     // 时间降序(newest first),与单仓 log 一致。
     rows.sort_by_key(|(ts, _)| std::cmp::Reverse(*ts));
     let all: Vec<MergedLogEntry> = rows.into_iter().map(|(_, e)| e).collect();
-    let (entries, anchor) = split_window(all, opts.skip, |e| &e.entry.full_sha);
+    let (entries, anchor) = split_window(all, opts.skip, opts.max_count, |e| &e.entry.full_sha);
     Ok(MergedLog { entries, anchor })
 }
 
@@ -427,9 +432,12 @@ pub(crate) fn log_multi_root_topology(
     }
 
     let mut graph = compute_multi_root_topology(&repos);
-    let (window, anchor) = split_window(std::mem::take(&mut graph.commits), opts.skip, |c| {
-        &c.entry.full_sha
-    });
+    let (window, anchor) = split_window(
+        std::mem::take(&mut graph.commits),
+        opts.skip,
+        opts.max_count,
+        |c| &c.entry.full_sha,
+    );
     graph.commits = window;
     graph.anchor = anchor;
     Ok(graph)
@@ -577,14 +585,14 @@ mod tests {
 
     #[test]
     fn split_window_first_page_no_anchor() {
-        let (win, anchor) = split_window(shas(&["a", "b", "c"]), 0, |s| s);
+        let (win, anchor) = split_window(shas(&["a", "b", "c"]), 0, 3, |s| s);
         assert_eq!(win, shas(&["a", "b", "c"]));
         assert_eq!(anchor, None);
     }
 
     #[test]
     fn split_window_tail_with_anchor() {
-        let (win, anchor) = split_window(shas(&["a", "b", "c", "d"]), 2, |s| s);
+        let (win, anchor) = split_window(shas(&["a", "b", "c", "d"]), 2, 2, |s| s);
         assert_eq!(win, shas(&["c", "d"]));
         assert_eq!(anchor, Some("b".to_string()));
     }
@@ -592,7 +600,7 @@ mod tests {
     #[test]
     fn split_window_at_end_returns_empty_with_anchor() {
         // 前端已加载全部,再翻一页:空窗口但 anchor 仍匹配 → 前端据此判定到底,不误触全量重载。
-        let (win, anchor) = split_window(shas(&["a", "b"]), 2, |s| s);
+        let (win, anchor) = split_window(shas(&["a", "b"]), 2, 2, |s| s);
         assert!(win.is_empty());
         assert_eq!(anchor, Some("b".to_string()));
     }
@@ -600,8 +608,17 @@ mod tests {
     #[test]
     fn split_window_past_end_no_anchor() {
         // 历史被改写变短(rebase/reset):anchor 取不到 → 前端视为失配走全量重载。
-        let (win, anchor) = split_window(shas(&["a", "b"]), 5, |s| s);
+        let (win, anchor) = split_window(shas(&["a", "b"]), 5, 2, |s| s);
         assert!(win.is_empty());
         assert_eq!(anchor, None);
+    }
+
+    #[test]
+    fn split_window_truncates_to_max_count() {
+        // 多仓归并的全量远超一页(每仓各取 skip+max_count):窗口必须截到 max_count,
+        // 否则尾部落在各仓取数耗尽区,随取数加深不稳定,导致 loadMore anchor 永远失配。
+        let (win, anchor) = split_window(shas(&["a", "b", "c", "d", "e", "f"]), 2, 2, |s| s);
+        assert_eq!(win, shas(&["c", "d"]));
+        assert_eq!(anchor, Some("b".to_string()));
     }
 }

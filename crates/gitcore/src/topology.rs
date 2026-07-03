@@ -146,6 +146,7 @@ pub(crate) fn log_topology(repo: &Repo, opts: &LogOptions) -> Result<GraphLog, E
     let (commits, anchor) = crate::log::split_window(
         compute_topology(&raw_commits),
         opts.skip,
+        opts.max_count,
         |c: &GraphCommit| &c.entry.full_sha,
     );
     Ok(GraphLog { commits, anchor })
