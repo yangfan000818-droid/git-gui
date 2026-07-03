@@ -1148,7 +1148,12 @@
         lines.push(`${r.label}：推送失败 ${String(e)}`);
       }
     }
-    showToast("推送完成:\n" + lines.join("\n"), "success", 5000);
+    const failed = lines.some((l) => l.includes("失败"));
+    showToast(
+      "推送完成:\n" + lines.join("\n"),
+      failed ? "error" : "success",
+      failed ? 6000 : 5000,
+    );
     await refresh();
   }
 
@@ -1493,14 +1498,19 @@
           lines.push(`${r.label}：${pushMsg(out)}`);
         }
       } catch (e) {
-        lines.push(`${r.label}：${String(e)}`);
+        lines.push(`${r.label}：推送失败 ${String(e)}`);
       }
     }
     operating = false;
     await refresh();
     if (rejected.length === 0) {
-      // 无远端领先:底部 toast 显示推送结果(静默/非静默一致)。
-      showToast("推送完成:\n" + lines.join("\n"), "success", 5000);
+      // 无远端领先:底部 toast 显示推送结果(失败→error,成功→success)。
+      const failed = lines.some((l) => l.includes("失败"));
+      showToast(
+        "推送完成:\n" + lines.join("\n"),
+        failed ? "error" : "success",
+        failed ? 6000 : 5000,
+      );
       return;
     }
 
@@ -1553,10 +1563,12 @@
         8000,
       );
     } else {
+      const all = lines.concat(resultLines);
+      const failed = all.some((l) => l.includes("失败"));
       showToast(
-        "推送完成:\n" + lines.concat(resultLines).join("\n"),
-        "success",
-        5000,
+        "推送完成:\n" + all.join("\n"),
+        failed ? "error" : "success",
+        failed ? 6000 : 5000,
       );
     }
     await refresh();
