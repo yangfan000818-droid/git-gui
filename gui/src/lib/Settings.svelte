@@ -128,6 +128,30 @@
       kind: "暗色",
       preview: ["#0D1117", "#3FB950", "#58A6FF", "#F85149"],
     },
+    {
+      id: "synthwave",
+      name: "Synthwave",
+      kind: "暗色",
+      preview: ["#1A0B2E", "#2EFFB8", "#00F0FF", "#FF2E63"],
+    },
+    {
+      id: "cyberpunk",
+      name: "Cyberpunk",
+      kind: "暗色",
+      preview: ["#0A0A0F", "#00FF9F", "#FCEE0A", "#00F0FF"],
+    },
+    {
+      id: "catppuccin",
+      name: "Catppuccin Mocha",
+      kind: "暗色",
+      preview: ["#1E1E2E", "#A6E3A1", "#CBA6F7", "#F9E2AF"],
+    },
+    {
+      id: "gruvbox",
+      name: "Gruvbox Dark",
+      kind: "暗色",
+      preview: ["#282828", "#B8BB26", "#FABD2F", "#FE8019"],
+    },
   ];
 
   onMount(async () => {
