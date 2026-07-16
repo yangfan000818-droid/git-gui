@@ -57,6 +57,7 @@ amend 上次提交 · cherry-pick / revert · reset(soft / mixed / hard)· **交
 ### 其它
 
 - **从远程 clone**:输入 URL + 父目录,带进度条 / 可取消,失败自动清理残留。
+- **AI 提交信息**:支持 OpenAI 兼容接口;超长 diff 按文件分批汇总,兼顾完整性与小 diff 的单次请求速度。API Key 保存在系统凭据存储中。
 - **全局设置**:整合策略(merge / rebase)、忽略空白、跳过 git 钩子。
 - **新版本提醒**:启动检查 GitHub Releases,有新版顶部提示。
 - **文件变更自动刷新**:监听工作区(含子仓库)外部改动,自动刷新。
@@ -110,5 +111,5 @@ path = "../frontend"
 - [x] 标签 / 储藏 / 多仓库 + 子仓库合并提交历史
 - [x] 从远程 clone + 全局设置 + 新版本提醒 + 文件变更自动刷新
 - [x] 跨平台 CI + Release(macOS aarch64 / Windows x64)
-- [ ] Windows 平台实机验证
+- [x] Windows 平台实机验证
 - [ ] 安装包签名 / 公证(macOS notarization + Windows 证书)

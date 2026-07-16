@@ -18,7 +18,8 @@
     glow_intensity: string;
     ai_enabled: boolean;
     ai_base_url: string;
-    ai_api_key: string;
+    ai_configured: boolean;
+    ai_credential_error?: string | null;
     ai_model: string;
     ai_language: string;
     ai_max_diff_chars: number;
@@ -51,6 +52,8 @@
   let aiEnabled = $state(false);
   let aiBaseUrl = $state("https://api.openai.com/v1");
   let aiApiKey = $state("");
+  let aiKeyConfigured = $state(false);
+  let deleteAiKey = $state(false);
   let aiModel = $state("gpt-4o-mini");
   let aiLanguage = $state("zh");
   let aiMaxDiffChars = $state(30000);
@@ -169,7 +172,10 @@
       glowIntensity = s.glow_intensity || "medium";
       aiEnabled = s.ai_enabled ?? false;
       aiBaseUrl = s.ai_base_url || "https://api.openai.com/v1";
-      aiApiKey = s.ai_api_key || "";
+      aiKeyConfigured = s.ai_configured ?? false;
+      if (s.ai_credential_error) {
+        error = `读取 AI 凭据状态失败:${s.ai_credential_error}`;
+      }
       aiModel = s.ai_model || "gpt-4o-mini";
       aiLanguage = s.ai_language || "zh";
       aiMaxDiffChars = s.ai_max_diff_chars ?? 30000;
@@ -185,6 +191,11 @@
     saving = true;
     error = "";
     try {
+      const nextKeyConfigured = deleteAiKey
+        ? false
+        : aiApiKey.trim()
+          ? true
+          : aiKeyConfigured;
       const settings: AppSettings = {
         update_strategy: strategy,
         ignore_whitespace: ignoreWhitespace,
@@ -198,13 +209,18 @@
         glow_intensity: glowIntensity,
         ai_enabled: aiEnabled,
         ai_base_url: aiBaseUrl,
-        ai_api_key: aiApiKey,
+        ai_configured: nextKeyConfigured,
         ai_model: aiModel,
         ai_language: aiLanguage,
         ai_max_diff_chars: aiMaxDiffChars,
         ai_generate_body: aiGenerateBody,
       };
-      await invoke("save_settings", { settings });
+      const keyUpdate = deleteAiKey
+        ? "Delete"
+        : aiApiKey.trim()
+          ? { Set: aiApiKey.trim() }
+          : "Keep";
+      await invoke("save_settings", { settings, keyUpdate });
       onAppearanceChanged?.(settings);
       onClose();
     } catch (e) {
@@ -468,8 +484,8 @@
           <p class="st-hint">
             根据「暂存的改动」自动生成 Conventional Commits
             风格的提交信息草稿;生成后可再编辑。仅支持 OpenAI 兼容协议(智谱 /
-            DeepSeek / Kimi / 通义 / OpenAI 等均可填)。Key 明文保存在本地
-            settings.json。
+            DeepSeek / Kimi / 通义 / OpenAI 等均可填)。Key
+            保存在操作系统凭据存储中。
           </p>
 
           <label class="st-check">
@@ -511,8 +527,24 @@
                 class="ai-input"
                 type="password"
                 bind:value={aiApiKey}
-                placeholder="sk-..."
+                oninput={() => (deleteAiKey = false)}
+                placeholder={aiKeyConfigured && !deleteAiKey
+                  ? "已安全保存；留空保持不变"
+                  : "sk-..."}
               />
+              {#if aiKeyConfigured && !deleteAiKey}
+                <em class="ai-key-status">已保存到系统凭据存储</em>
+                <button
+                  class="st-cancel ai-key-delete"
+                  type="button"
+                  onclick={() => {
+                    aiApiKey = "";
+                    deleteAiKey = true;
+                  }}>删除已保存 Key</button
+                >
+              {:else if deleteAiKey}
+                <em class="ai-key-status">保存设置后将删除系统凭据</em>
+              {/if}
             </span>
           </label>
 
@@ -934,5 +966,17 @@
   .ai-input:focus {
     outline: none;
     border-color: var(--accent-cyan, #58a6ff);
+  }
+  .ai-key-status {
+    display: inline-block;
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: var(--fs-xs, 11px);
+  }
+  .ai-key-delete {
+    margin-top: 6px;
+    margin-left: 8px;
+    padding: 4px 8px;
+    font-size: var(--fs-xs, 11px);
   }
 </style>

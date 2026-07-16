@@ -1,5 +1,7 @@
 # AI 提交信息:超长 diff 渐进式 map-reduce 实现计划
 
+> **执行状态（2026-06-26）:** 已全部实现并通过自动化验证；实现提交为 `0c2921f`～`2404380`。下方未勾选框保留为原始执行步骤，不再作为当前进度来源。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 AI 生成提交信息在 diff 超长时,从"砍前 N 字符丢信息"升级为"按文件分批 map-reduce 覆盖全部改动",失败回退单次截断,小 diff 零变化。

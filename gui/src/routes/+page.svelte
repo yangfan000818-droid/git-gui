@@ -33,17 +33,35 @@
   import RemoteManager from "$lib/RemoteManager.svelte";
   import CleanDialog from "$lib/CleanDialog.svelte";
   import Toast from "$lib/Toast.svelte";
+  import type {
+    AppearanceSettings,
+    BranchDiff,
+    CompareResult,
+    ConflictState,
+    FileDiff,
+    FileEntry,
+    FileStatus,
+    Hunk,
+    LogEntry,
+    PrecommitReport,
+    PrecommitWarning,
+    RepoStatus,
+    RepoView,
+    ToastKind,
+    UndoAction,
+    PushOutcome,
+  } from "$lib/gitTypes";
+  import {
+    buildRepoView,
+    COMMIT_PUSH_KEY,
+    INTEGRATION_LABEL,
+    joinPath,
+    pushMsg,
+    repoLabel,
+    sameDiff,
+    SUB_STATE_LABEL,
+  } from "$lib/repoView";
   import "../lib/themes.css";
-
-  // ── 外观设置接口（与 Rust AppSettings 外观字段对应） ──
-  interface AppearanceSettings {
-    theme: string;
-    density: string;
-    font_size: string;
-    animations_enabled: boolean;
-    scanline_enabled: boolean;
-    glow_intensity: string;
-  }
 
   function applyAppearance(s: AppearanceSettings) {
     const body = document.body;
@@ -77,78 +95,20 @@
     try {
       const s = await invoke<{
         ai_enabled: boolean;
-        ai_api_key: string;
+        ai_configured: boolean;
+        ai_credential_error?: string | null;
       }>("get_settings");
       aiEnabled = !!s.ai_enabled;
-      aiConfigured = aiEnabled && !!s.ai_api_key?.trim();
-    } catch {
+      aiConfigured = aiEnabled && s.ai_configured;
+      if (s.ai_credential_error) {
+        error = `读取 AI 凭据状态失败:${s.ai_credential_error}`;
+      }
+    } catch (e) {
       aiEnabled = false;
       aiConfigured = false;
+      error = `读取 AI 凭据状态失败:${String(e)}`;
     }
   });
-
-  // ── 类型（与 gitcore serde 对应） ──
-  type FileState = "Staged" | "Modified" | "Untracked" | "StagedAndModified";
-  type LineKind = "Context" | "Added" | "Removed";
-  interface DiffLine {
-    kind: LineKind;
-    content: string;
-  }
-  interface Hunk {
-    old_start: number;
-    new_start: number;
-    heading: string;
-    lines: DiffLine[];
-    raw: string;
-  }
-  interface FileDiff {
-    path: string;
-    binary: boolean;
-    hunks: Hunk[];
-    header_raw: string;
-  }
-  interface FileStatus {
-    path: string;
-    state: FileState;
-  }
-  type SubStatus = "Clean" | "Dirty" | "Detached" | "Uninitialized";
-  interface RepoStatus {
-    branch: string | null;
-    upstream: string | null;
-    behind: number;
-    ahead: number;
-    dirty: boolean;
-    conflicted: string[];
-    files: FileStatus[];
-    submodules: { name: string; path: string; status: SubStatus }[];
-  }
-
-  // 列表用的轻量文件条目(只含路径和状态;完整 diff 在选中文件时懒加载)。
-  interface FileEntry {
-    path: string;
-    state: FileState;
-  }
-
-  // 一个仓库（主仓库或某子仓库）在 Changes 视图里的本地状态。
-  interface RepoView {
-    path: string; // 绝对路径，用于 stage/diff/commit 等所有命令
-    label: string; // 显示名
-    isMain: boolean;
-    subRelPath: string | null; // 子仓库相对主仓库的路径（管理操作用），主仓库为 null
-    subStatus: SubStatus | null; // 子仓库状态徽章，主仓库为 null
-    branch: string | null; // 当前分支，detached HEAD 时为 null
-    ahead: number;
-    behind: number;
-    unstaged: FileEntry[];
-    staged: FileEntry[];
-  }
-
-  const SUB_STATE_LABEL: Record<SubStatus, string> = {
-    Clean: "干净",
-    Dirty: "有改动",
-    Detached: "游离 HEAD",
-    Uninitialized: "未初始化",
-  };
 
   // ── 状态 ──
   let path = $state(""); // 主仓库路径
@@ -177,29 +137,12 @@
   let pushQueue = $state<RepoView[]>([]);
   let pushDialogRepo = $state<RepoView | null>(null); // Push 对话框目标仓(null=关闭)
 
-  // ── 提交前检查(对标 WebStorm commit checks) ──
-  interface PrecommitWarning {
-    kind:
-      | "SensitiveInfo"
-      | "ConflictMarker"
-      | "LargeFile"
-      | "DebugResidue"
-      | "Todo";
-    file: string;
-    line: number | null;
-    detail: string;
-  }
-  interface PrecommitReport {
-    warnings: PrecommitWarning[];
-  }
   // 检查有警告时挂起 doCommit/doAmend,等用户在对话框里决策(resolve)。
   let precommitState = $state<{
     warnings: PrecommitWarning[];
     resolve: (proceed: boolean) => void;
   } | null>(null);
 
-  // ── Toast 通知(静默更新结果用) ──
-  type ToastKind = "success" | "error" | "info";
   let toast = $state<{
     message: string;
     kind: ToastKind;
@@ -217,8 +160,6 @@
 
   // ── 危险操作统一撤销(见 docs/undo-design.md) ──
   // 凭据由后端操作返回、仅存内存、单次有效;新 toast 顶掉旧的即失去入口(reflog 兜底)。
-  type UndoAction = { kind: string; mode?: string } & Record<string, unknown>;
-
   function showUndoToast(repoPath: string, message: string, action: unknown) {
     toast = {
       message,
@@ -275,40 +216,13 @@
   let showRemotes = $state(false); // 远程仓库管理弹层
   let showClean = $state(false); // 清理未跟踪文件弹层
   let showMore = $state(false); // 顶栏「⋯ 更多」下拉(收纳次要操作,给顶栏减负)
-  interface StashRef {
-    label: string;
-  }
   // ── 冲突态(主界面发现与重入):每次 reload 探测主仓库 ──
-  type ConflictKind =
-    | "BothModified"
-    | "ModifyDelete"
-    | "DeleteModify"
-    | "AddAdd"
-    | "Binary";
-  type IntegrationKind = "Merge" | "Rebase" | "CherryPick" | "Revert" | "None";
-  interface ConflictFile {
-    path: string;
-    kind: ConflictKind;
-  }
-  interface ConflictState {
-    kind: IntegrationKind;
-    files: ConflictFile[];
-    autostash: StashRef | null;
-  }
   let conflictState = $state<ConflictState | null>(null);
   // 处于冲突/未完成整合态:有进行中整合,或仍有未合并文件(stash 还原冲突)。
   let inConflict = $derived(
     !!conflictState &&
       (conflictState.kind !== "None" || conflictState.files.length > 0),
   );
-  const INTEGRATION_LABEL: Record<IntegrationKind, string> = {
-    Merge: "合并",
-    Rebase: "变基",
-    CherryPick: "拣选",
-    Revert: "回退",
-    None: "整合",
-  };
-
   // 为指定仓库打开独立冲突解决窗口(可调整大小/全屏)。
   async function openConflictResolutionFor(
     repoPath: string,
@@ -347,23 +261,7 @@
       error = String(e);
     }
   }
-  interface BranchDiff {
-    branch: string;
-    files: FileDiff[];
-  }
   let branchDiff = $state<BranchDiff | null>(null); // 分支↔工作区差异弹层(Show Diff with Working Tree)
-  interface LogEntry {
-    sha: string;
-    full_sha: string;
-    message: string;
-    author: string;
-    date: string;
-  }
-  interface CompareResult {
-    branch: string;
-    incoming: LogEntry[]; // 在所选分支、不在当前(分支领先当前)
-    outgoing: LogEntry[]; // 在当前、不在所选分支(当前领先分支)
-  }
   let compareResult = $state<CompareResult | null>(null); // 分支↔当前提交对比弹层(Compare with Current)
   let subCount = $derived(status?.submodules.length ?? 0); // 子仓库数(顶部「更新子仓库」据此启用)
 
@@ -380,7 +278,6 @@
   let amendMode = $state(false); // amend 模式:仅修改主仓库上次提交
   let commitResult = $state("");
   // 提交后自动推送(记住上次选择,存 localStorage)。
-  const COMMIT_PUSH_KEY = "git-gui:commit-then-push";
   let commitThenPush = $state(false);
   function toggleCommitThenPush(on: boolean) {
     commitThenPush = on;
@@ -587,56 +484,6 @@
     };
   });
 
-  // ── 路径辅助 ──
-  function joinPath(base: string, rel: string): string {
-    return `${base.replace(/[/\\]+$/, "")}/${rel}`;
-  }
-  function repoLabel(p: string): string {
-    return (
-      p
-        .replace(/[/\\]+$/, "")
-        .split(/[/\\]/)
-        .pop() || p
-    );
-  }
-
-  // 用仓库的文件状态列表构建 RepoView(轻量,不含 diff 内容;diff 选中时懒加载)。
-  function buildRepoView(
-    repoPath: string,
-    label: string,
-    isMain: boolean,
-    subRelPath: string | null,
-    subStatus: SubStatus | null,
-    branch: string | null,
-    ahead: number,
-    behind: number,
-    files: FileStatus[],
-  ): RepoView {
-    const unstaged = files
-      .filter(
-        (f) =>
-          f.state === "Modified" ||
-          f.state === "Untracked" ||
-          f.state === "StagedAndModified",
-      )
-      .map((f) => ({ path: f.path, state: f.state }));
-    const staged = files
-      .filter((f) => f.state === "Staged" || f.state === "StagedAndModified")
-      .map((f) => ({ path: f.path, state: f.state }));
-    return {
-      path: repoPath,
-      label,
-      isMain,
-      subRelPath,
-      subStatus,
-      branch,
-      ahead,
-      behind,
-      unstaged,
-      staged,
-    };
-  }
-
   // 重新读取主仓库 + 各子仓库状态,重建 repos(只拉文件状态,不拉 diff)。
   // 主仓 status 与冲突态探测互不依赖 → 并行;子仓列表来自主仓 status 返回值,只能随后拉。
   async function reload() {
@@ -817,14 +664,6 @@
     } finally {
       if (!keepStale) diffLoading = false;
     }
-  }
-
-  // 两个 diff 是否内容相同(按 hunk 原始文本逐段比较;null 安全)。
-  function sameDiff(a: FileDiff | null, b: FileDiff | null): boolean {
-    if (a === b) return true;
-    if (!a || !b) return false;
-    if (a.hunks.length !== b.hunks.length) return false;
-    return a.hunks.every((h, i) => h.raw === b.hunks[i].raw);
   }
 
   function isActive(repo: RepoView, list: "unstaged" | "staged"): boolean {
@@ -1415,15 +1254,6 @@
       return "stash 还原冲突,需在该子仓手动处理";
     }
     return "未知结果";
-  }
-
-  // repo_push 的返回(PushOutcome,外部 tagged 单元枚举 → 字符串)。
-  type PushOutcome = "Success" | "NoUpstream" | "NonFastForward";
-
-  function pushMsg(r: PushOutcome): string {
-    if (r === "Success") return "推送成功";
-    if (r === "NoUpstream") return "跳过:无 upstream";
-    return "远端领先,待更新后推送";
   }
 
   // 推送单个仓库:打开 Push 对话框(待推预览 + force-with-lease + 进度),替代直接推。
@@ -2594,7 +2424,11 @@
   {#if showSettings}
     <Settings
       onClose={() => (showSettings = false)}
-      onAppearanceChanged={applyAppearance}
+      onAppearanceChanged={(settings) => {
+        applyAppearance(settings);
+        aiEnabled = settings.ai_enabled;
+        aiConfigured = settings.ai_enabled && settings.ai_configured;
+      }}
     />
   {/if}
 
