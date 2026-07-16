@@ -41,17 +41,14 @@ jobs:
             libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev
 
-      - name: clippy (gitcore)
-        run: cargo clippy -p gitcore --features serde -- -D warnings
-
-      - name: clippy (gui)
-        run: cargo clippy -p gui --all-targets -- -D warnings
-
       - name: fmt check
         run: cargo fmt --all --check
 
-      - name: test (gitcore)
-        run: cargo test -p gitcore
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: test
+        run: cargo test --workspace
 
   # ── 前端质量门 ──
   svelte-check:
@@ -69,9 +66,10 @@ jobs:
         run: |
           cd gui
           npm ci
+          npm run version:check
           npx svelte-kit sync
           npx svelte-check --tsconfig ./tsconfig.json
-          npx prettier --check "src/**/*.svelte"
+          npm run format:check
 
   # ── 三平台构建(未签名) ──
   build:

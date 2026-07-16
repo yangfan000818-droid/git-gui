@@ -1,4 +1,5 @@
 mod ai;
+mod credentials;
 mod panic_log;
 
 use std::collections::HashMap;
@@ -9,6 +10,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use credentials::{CredentialState, CredentialStore};
 use gitcore::{
     BranchComparison, BranchInfo, CancelToken, CommitOptions, ConflictState, FileDiff, Hunk,
     MergeRegion, PendingConflicts, PopResult, PrecommitReport, Progress, RebaseItem, ReflogEntry,
@@ -136,9 +138,9 @@ struct AppSettings {
     /// OpenAI 兼容端点(可改智谱 / DeepSeek / Kimi / 通义等)。
     #[serde(default = "default_ai_base_url")]
     ai_base_url: String,
-    /// API Key(明文存 settings.json)。
-    #[serde(default)]
-    ai_api_key: String,
+    /// 旧版本明文 API Key。仅反序列化用于一次性迁移,永不再写入文件或返回前端。
+    #[serde(default, rename = "ai_api_key", skip_serializing)]
+    legacy_ai_api_key: Option<String>,
     /// 模型名。
     #[serde(default = "default_ai_model")]
     ai_model: String,
@@ -196,7 +198,7 @@ impl Default for AppSettings {
             glow_intensity: default_glow(),
             ai_enabled: false,
             ai_base_url: default_ai_base_url(),
-            ai_api_key: String::new(),
+            legacy_ai_api_key: None,
             ai_model: default_ai_model(),
             ai_language: default_ai_language(),
             ai_max_diff_chars: default_ai_max_diff_chars(),
@@ -206,13 +208,19 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
-    fn load(app: &AppHandle) -> Self {
+    fn load_file(app: &AppHandle) -> Self {
         let path = Self::config_path(app);
         if let Ok(content) = fs::read_to_string(&path) {
             serde_json::from_str(&content).unwrap_or_default()
         } else {
             Self::default()
         }
+    }
+
+    fn load(app: &AppHandle, credentials: &dyn CredentialStore) -> Result<Self, String> {
+        let mut settings = Self::load_file(app);
+        migrate_legacy_api_key(&mut settings, credentials, |settings| settings.save(app))?;
+        Ok(settings)
     }
 
     fn save(&self, app: &AppHandle) -> Result<(), String> {
@@ -232,14 +240,200 @@ impl AppSettings {
     }
 }
 
-#[tauri::command]
-fn get_settings(app: AppHandle) -> AppSettings {
-    AppSettings::load(&app)
+#[derive(Serialize)]
+struct SettingsResponse {
+    #[serde(flatten)]
+    settings: AppSettings,
+    ai_configured: bool,
+    ai_credential_error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+enum ApiKeyUpdate {
+    Keep,
+    Set(String),
+    Delete,
+}
+
+fn migrate_legacy_api_key(
+    settings: &mut AppSettings,
+    credentials: &dyn CredentialStore,
+    persist: impl FnOnce(&AppSettings) -> Result<(), String>,
+) -> Result<(), String> {
+    let Some(stored_legacy) = settings.legacy_ai_api_key.clone() else {
+        return Ok(());
+    };
+    let legacy = stored_legacy.trim().to_string();
+    if !legacy.is_empty() {
+        credentials
+            .set_ai_api_key(&legacy)
+            .map_err(|e| format!("迁移旧版 AI API Key 失败:{e};原 Key 仍保留在 settings.json"))?;
+    }
+    settings.legacy_ai_api_key = None;
+    if let Err(e) = persist(settings) {
+        settings.legacy_ai_api_key = Some(stored_legacy);
+        return Err(format!(
+            "AI API Key 已写入系统凭据,但清理 settings.json 失败:{e};原 Key 未删除"
+        ));
+    }
+    Ok(())
+}
+
+fn apply_api_key_update(
+    credentials: &dyn CredentialStore,
+    update: ApiKeyUpdate,
+) -> Result<(), String> {
+    match update {
+        ApiKeyUpdate::Keep => Ok(()),
+        ApiKeyUpdate::Set(value) => {
+            let value = value.trim();
+            if value.is_empty() {
+                return Err("新 API Key 不能为空;如需删除请使用清除操作".into());
+            }
+            credentials.set_ai_api_key(value)
+        }
+        ApiKeyUpdate::Delete => credentials.delete_ai_api_key(),
+    }
+}
+
+fn ai_credential_status(credentials: &dyn CredentialStore) -> (bool, Option<String>) {
+    match credentials.get_ai_api_key() {
+        Ok(key) => (key.is_some_and(|value| !value.trim().is_empty()), None),
+        Err(error) => (false, Some(error)),
+    }
 }
 
 #[tauri::command]
-fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+fn get_settings(
+    app: AppHandle,
+    credentials: State<'_, CredentialState>,
+) -> Result<SettingsResponse, String> {
+    let settings = AppSettings::load(&app, credentials.store())?;
+    // 系统凭据不可用不应阻断主题、更新策略等无关设置的读取；
+    // 错误随响应显式返回，由设置页提示用户修复。
+    let (ai_configured, ai_credential_error) = ai_credential_status(credentials.store());
+    Ok(SettingsResponse {
+        settings,
+        ai_configured,
+        ai_credential_error,
+    })
+}
+
+#[tauri::command]
+fn save_settings(
+    app: AppHandle,
+    mut settings: AppSettings,
+    key_update: ApiKeyUpdate,
+    credentials: State<'_, CredentialState>,
+) -> Result<(), String> {
+    // 保存前先迁移旧值,避免 Keep 操作把尚未迁移的明文 Key 从 JSON 覆盖掉。
+    AppSettings::load(&app, credentials.store())?;
+    apply_api_key_update(credentials.store(), key_update)?;
+    settings.legacy_ai_api_key = None;
     settings.save(&app)
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::{
+        ai_credential_status, apply_api_key_update, migrate_legacy_api_key, ApiKeyUpdate,
+        AppSettings,
+    };
+    use crate::credentials::tests::MemoryCredentialStore;
+
+    #[test]
+    fn migrates_legacy_key_then_clears_json_field() {
+        let store = MemoryCredentialStore::default();
+        let mut settings = AppSettings {
+            legacy_ai_api_key: Some(" old-secret ".into()),
+            ..Default::default()
+        };
+        let mut persisted = String::new();
+
+        migrate_legacy_api_key(&mut settings, &store, |settings| {
+            persisted = serde_json::to_string(settings).unwrap();
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(store.value().as_deref(), Some("old-secret"));
+        assert_eq!(settings.legacy_ai_api_key, None);
+        assert!(!persisted.contains("ai_api_key"));
+        assert!(!persisted.contains("old-secret"));
+    }
+
+    #[test]
+    fn migration_failure_preserves_legacy_key() {
+        let store = MemoryCredentialStore::default();
+        store.fail_set("keychain locked");
+        let mut settings = AppSettings {
+            legacy_ai_api_key: Some("old-secret".into()),
+            ..Default::default()
+        };
+        let mut persisted = false;
+
+        let error = migrate_legacy_api_key(&mut settings, &store, |_| {
+            persisted = true;
+            Ok(())
+        })
+        .unwrap_err();
+
+        assert!(error.contains("keychain locked"));
+        assert_eq!(settings.legacy_ai_api_key.as_deref(), Some("old-secret"));
+        assert!(!persisted);
+    }
+
+    #[test]
+    fn migration_persist_failure_restores_legacy_value() {
+        let store = MemoryCredentialStore::default();
+        let mut settings = AppSettings {
+            legacy_ai_api_key: Some("old-secret".into()),
+            ..Default::default()
+        };
+
+        let error =
+            migrate_legacy_api_key(&mut settings, &store, |_| Err("disk full".into())).unwrap_err();
+
+        assert!(error.contains("disk full"));
+        assert_eq!(settings.legacy_ai_api_key.as_deref(), Some("old-secret"));
+        assert_eq!(store.value().as_deref(), Some("old-secret"));
+    }
+
+    #[test]
+    fn key_update_sets_keeps_and_deletes_explicitly() {
+        let store = MemoryCredentialStore::with_value("original");
+
+        apply_api_key_update(&store, ApiKeyUpdate::Keep).unwrap();
+        assert_eq!(store.value().as_deref(), Some("original"));
+
+        apply_api_key_update(&store, ApiKeyUpdate::Set(" replacement ".into())).unwrap();
+        assert_eq!(store.value().as_deref(), Some("replacement"));
+
+        apply_api_key_update(&store, ApiKeyUpdate::Delete).unwrap();
+        assert_eq!(store.value(), None);
+    }
+
+    #[test]
+    fn failed_delete_preserves_existing_key() {
+        let store = MemoryCredentialStore::with_value("original");
+        store.fail_delete("denied");
+
+        let error = apply_api_key_update(&store, ApiKeyUpdate::Delete).unwrap_err();
+
+        assert_eq!(error, "denied");
+        assert_eq!(store.value().as_deref(), Some("original"));
+    }
+
+    #[test]
+    fn credential_status_surfaces_failure_without_blocking_settings() {
+        let store = MemoryCredentialStore::default();
+        store.fail_get("keychain locked");
+
+        let (configured, error) = ai_credential_status(&store);
+
+        assert!(!configured);
+        assert_eq!(error.as_deref(), Some("keychain locked"));
+    }
 }
 
 // ── 冲突解决窗口上下文:开窗时写入,窗口挂载时取出 ──
@@ -617,16 +811,18 @@ async fn repo_unstage_lines(
 #[tauri::command]
 async fn repo_commit(
     app: AppHandle,
+    credentials: State<'_, CredentialState>,
     path: String,
     message: String,
     amend: bool,
 ) -> Result<String, String> {
+    let no_verify = AppSettings::load(&app, credentials.store())?.skip_hooks;
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
         let opts = CommitOptions {
             message,
             amend,
-            no_verify: AppSettings::load(&app).skip_hooks,
+            no_verify,
             ..Default::default()
         };
         repo.commit(&opts).map_err(|e| e.to_string())
@@ -651,13 +847,14 @@ async fn repo_precommit_check(path: String) -> Result<PrecommitReport, String> {
 #[tauri::command]
 async fn repo_commit_paths(
     app: AppHandle,
+    credentials: State<'_, CredentialState>,
     path: String,
     message: String,
     paths: Vec<String>,
 ) -> Result<String, String> {
+    let no_verify = AppSettings::load(&app, credentials.store())?.skip_hooks;
     tauri::async_runtime::spawn_blocking(move || {
         let repo = Repo::open(&path).map_err(|e| e.to_string())?;
-        let no_verify = AppSettings::load(&app).skip_hooks;
         repo.commit_paths(&message, &paths, no_verify)
             .map_err(|e| e.to_string())
     })
@@ -668,12 +865,13 @@ async fn repo_commit_paths(
 /// 用 AI 为指定仓库的暂存改动生成提交信息(OpenAI 兼容协议)。
 /// 同步 git 操作放 spawn_blocking,网络调用走 async,避免阻塞 webview。
 #[tauri::command]
-async fn ai_generate_commit_message(app: AppHandle, path: String) -> Result<String, String> {
-    let settings = AppSettings::load(&app);
-    if !settings.ai_enabled || settings.ai_api_key.trim().is_empty() {
-        return Err("未配置 AI 提交助手,请在设置中填写 API Key 并启用".into());
-    }
-    let cfg = ai::AiConfig::from_settings(&settings);
+async fn ai_generate_commit_message(
+    app: AppHandle,
+    credentials: State<'_, CredentialState>,
+    path: String,
+) -> Result<String, String> {
+    let settings = AppSettings::load(&app, credentials.store())?;
+    let cfg = ai::AiConfig::from_credentials(&settings, credentials.store())?;
     let max_chars = cfg.max_diff_chars;
     // 同步部分:取 staged diff(git 调用放 spawn_blocking,不阻塞 webview)。
     let diff_text = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
@@ -1819,6 +2017,7 @@ pub fn run() {
         .manage(CancelRegistry::default())
         .manage(WatchState::default())
         .manage(ConflictCtx::default())
+        .manage(CredentialState::default())
         .invoke_handler(tauri::generate_handler![
             get_last_project,
             get_recent_projects,

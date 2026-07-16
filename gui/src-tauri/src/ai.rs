@@ -6,7 +6,7 @@ use futures_util::future::BoxFuture;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use serde_json::json;
 
-use crate::AppSettings;
+use crate::{credentials::CredentialStore, AppSettings};
 
 /// 提交信息语言。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,7 +246,7 @@ pub fn split_diff(diff: &str, max_chars: usize) -> Vec<String> {
 const MIN_MAX_DIFF_CHARS: usize = 1000;
 
 /// AI 调用配置(从 AppSettings 提取,解耦 ai 模块与完整设置结构)。
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AiConfig {
     pub base_url: String,
     pub api_key: String,
@@ -257,10 +257,10 @@ pub struct AiConfig {
 }
 
 impl AiConfig {
-    pub fn from_settings(s: &AppSettings) -> Self {
+    fn from_settings(s: &AppSettings, api_key: String) -> Self {
         Self {
             base_url: s.ai_base_url.clone(),
-            api_key: s.ai_api_key.clone(),
+            api_key,
             model: s.ai_model.clone(),
             language: if s.ai_language == "en" {
                 Language::En
@@ -270,6 +270,20 @@ impl AiConfig {
             max_diff_chars: s.ai_max_diff_chars.max(MIN_MAX_DIFF_CHARS),
             generate_body: s.ai_generate_body,
         }
+    }
+
+    pub(crate) fn from_credentials(
+        settings: &AppSettings,
+        credentials: &dyn CredentialStore,
+    ) -> Result<Self, String> {
+        if !settings.ai_enabled {
+            return Err("未启用 AI 提交助手,请先在设置中启用".into());
+        }
+        let api_key = credentials
+            .get_ai_api_key()?
+            .filter(|key| !key.trim().is_empty())
+            .ok_or_else(|| "未配置 AI 提交助手,请在设置中填写 API Key".to_string())?;
+        Ok(Self::from_settings(settings, api_key))
     }
 }
 
@@ -369,6 +383,7 @@ mod tests {
     use super::{build_map_prompt, build_reduce_prompt, sanitize_notes};
     use super::{build_prompt, AiConfig, Language, MIN_MAX_DIFF_CHARS};
     use super::{generate_map_reduce, RequestFn};
+    use crate::credentials::tests::MemoryCredentialStore;
     use futures_util::future::BoxFuture;
     use serde_json::json;
     use std::sync::{
@@ -491,7 +506,7 @@ mod tests {
         assert_eq!(s.ai_model, "gpt-4o-mini");
         assert_eq!(s.ai_language, "zh");
         assert_eq!(s.ai_max_diff_chars, 30000);
-        assert_eq!(s.ai_api_key, "");
+        assert_eq!(s.legacy_ai_api_key, None);
         assert!(!s.ai_generate_body);
     }
 
@@ -502,13 +517,47 @@ mod tests {
             ai_max_diff_chars: 0,
             ..Default::default()
         };
-        let cfg = AiConfig::from_settings(&s);
+        let cfg = AiConfig::from_settings(&s, "key".into());
         assert_eq!(cfg.max_diff_chars, MIN_MAX_DIFF_CHARS);
 
         // 正常大值不受影响。
         s.ai_max_diff_chars = 30000;
-        let cfg = AiConfig::from_settings(&s);
+        let cfg = AiConfig::from_settings(&s, "key".into());
         assert_eq!(cfg.max_diff_chars, 30000);
+    }
+
+    #[test]
+    fn config_reads_api_key_from_credentials() {
+        let store = MemoryCredentialStore::with_value("secret-key");
+        let settings = crate::AppSettings {
+            ai_enabled: true,
+            ..Default::default()
+        };
+        let cfg = AiConfig::from_credentials(&settings, &store).unwrap();
+        assert_eq!(cfg.api_key, "secret-key");
+    }
+
+    #[test]
+    fn config_rejects_missing_api_key() {
+        let store = MemoryCredentialStore::default();
+        let settings = crate::AppSettings {
+            ai_enabled: true,
+            ..Default::default()
+        };
+        let error = AiConfig::from_credentials(&settings, &store).unwrap_err();
+        assert!(error.contains("未配置"));
+    }
+
+    #[test]
+    fn config_surfaces_credential_read_failure() {
+        let store = MemoryCredentialStore::default();
+        store.fail_get("keychain locked");
+        let settings = crate::AppSettings {
+            ai_enabled: true,
+            ..Default::default()
+        };
+        let error = AiConfig::from_credentials(&settings, &store).unwrap_err();
+        assert_eq!(error, "keychain locked");
     }
 
     #[test]

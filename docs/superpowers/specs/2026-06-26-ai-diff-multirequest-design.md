@@ -1,18 +1,18 @@
 # AI 提交信息:超长 diff 渐进式 map-reduce
 
 - 日期:2026-06-26
-- 状态:设计已确认,待实现
+- 状态:已实现并通过自动化验证(实现提交 `0c2921f`～`2404380`)
 - 关联代码:`gui/src-tauri/src/ai.rs`、`gui/src-tauri/src/lib.rs`、`gui/src/lib/Settings.svelte`
 
 ## 1. 背景与问题
 
-当前 AI 生成提交信息是**纯单次请求**(`ai_generate_commit_message`,`lib.rs:594`):
+改造前 AI 生成提交信息是**纯单次请求**(`ai_generate_commit_message`):
 
 ```
 取 staged diff → truncate_diff 砍到前 N 字符 → 单次 chat_complete → 清洗
 ```
 
-`truncate_diff`(`ai.rs:137`)是"取前 N 字符"的粗暴截断。当 diff 超过 `ai_max_diff_chars`(默认 30000)时,**排在后面的文件改动 AI 完全看不到**,生成的 commit message 只覆盖部分文件,信息不全。
+旧实现的 `truncate_diff` 是"取前 N 字符"的粗暴截断。当 diff 超过 `ai_max_diff_chars`(默认 30000)时,**排在后面的文件改动 AI 完全看不到**,生成的 commit message 只覆盖部分文件,信息不全。
 
 (注:前端已有的"批量生成"是按多个仓库目录循环调同一个 command,不是把一条 commit 的 diff 拆开重发,与本设计无关。)
 

@@ -100,7 +100,8 @@ cd gui && npm install && npm run tauri dev
 
 - `⋯ 更多 → Stash`:创建 / 应用 / 弹出 / 丢弃储藏。
 - `⋯ 更多 → Tags`:列出 / 创建(轻量或注释)/ 删除 / 推送 tag 到远程。
-- `⚙` **设置**:整合策略(merge / rebase)· 忽略空白差异 · 跳过 git 钩子 · 手动检查更新。
+- `⚙` **设置**:整合策略(merge / rebase)· 忽略空白差异 · 跳过 git 钩子 · AI 提交助手 · 手动检查更新。
+- **AI 提交助手**支持 OpenAI 兼容接口。API Key 写入操作系统凭据存储(macOS Keychain / Windows Credential Manager / Linux Secret Service),不会返回前端或继续明文保存在 `settings.json`;旧版本中的明文 Key 会在首次读取设置时自动迁移。
 
 ---
 

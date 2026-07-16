@@ -2137,7 +2137,7 @@ fn classify_conflicts_detects_all_kinds() {
         state
             .files
             .iter()
-            .find(|f| f.path == PathBuf::from(name))
+            .find(|f| f.path == Path::new(name))
             .unwrap_or_else(|| panic!("缺少冲突文件 {name}"))
             .kind
     };

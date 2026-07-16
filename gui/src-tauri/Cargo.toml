@@ -31,4 +31,5 @@ tauri-plugin-updater = "2.10.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # AI 分批生成:stream buffer_unordered 做温和并发 map。
 futures-util = "0.3"
-
+# AI API Key 使用系统凭据存储:macOS Keychain / Windows Credential Manager / Linux Secret Service。
+keyring = "4.1.4"

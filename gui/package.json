@@ -9,12 +9,14 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "format:check": "prettier --check \"src/**/*.{svelte,ts,js}\"",
+    "version:check": "node ../scripts/check-version.mjs",
     "tauri": "tauri",
     "prepare": "cd .. && husky gui/.husky"
   },
   "license": "MIT",
   "lint-staged": {
-    "src/**/*.svelte": "prettier --write"
+    "src/**/*.{svelte,ts,js}": "prettier --write"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
