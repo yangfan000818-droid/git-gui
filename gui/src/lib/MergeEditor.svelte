@@ -102,7 +102,9 @@
         if (d === "right") return r.theirs.join("");
         // ours 末行无换行(文件末尾)时补一个,否则 theirs 会粘到同一行。
         if (d === "both") return nlTerm(r.ours.join("")) + r.theirs.join("");
-        if (d === "edited") return edited[i];
+        // 同样要补换行:startEdit 预填的文本末尾有换行,但用户删掉它是最自然不过的
+        // 事(手工敲完最后一个字符就收手),不补的话下一段会整段粘到这一行末尾。
+        if (d === "edited") return nlTerm(edited[i]);
         return ""; // undecided
     }
   }
