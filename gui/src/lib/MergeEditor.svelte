@@ -2,6 +2,7 @@
   // WebStorm 式三栏合并编辑器(单个内容文件):整文件 ours | 结果 | theirs,
   // 冲突与单边更改都对齐高亮、可逐区域取左/取右/两者/忽略/编辑;结果按决策实时拼接。
   import { invoke } from "@tauri-apps/api/core";
+  import { ask } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { wordDiffLines, type WordTok } from "$lib/wordDiff";
 
@@ -99,7 +100,8 @@
       case "Conflict":
         if (d === "left") return r.ours.join("");
         if (d === "right") return r.theirs.join("");
-        if (d === "both") return r.ours.join("") + r.theirs.join("");
+        // ours 末行无换行(文件末尾)时补一个,否则 theirs 会粘到同一行。
+        if (d === "both") return nlTerm(r.ours.join("")) + r.theirs.join("");
         if (d === "edited") return edited[i];
         return ""; // undecided
     }
@@ -140,20 +142,32 @@
     return text.replace(/\n$/, "").split("\n");
   }
 
-  // 带各列行号的对齐 band(决策/edited 变化时重算)。
-  let bands = $derived.by(() => {
+  // 左右两列的词级 token 只由 regions 决定,与决策无关 —— 必须单独 derive。
+  // (原来和结果列算在同一个 $derived 里:改一次取舍、在编辑框里敲一个字符,
+  //  就把整份文件所有区域的词级 LCS 全部重跑一遍,大文件明显卡顿。)
+  let sideBands = $derived.by(() => {
     let oN = 0;
     let tN = 0;
+    return regions.map((r) => ({
+      ours: oursTok(r).map((toks) => ({ no: ++oN, toks })),
+      theirs: theirsTok(r).map((toks) => ({ no: ++tN, toks })),
+    }));
+  });
+
+  // 带各列行号的对齐 band;只有结果列随决策 / 编辑内容重算。
+  let bands = $derived.by(() => {
     let rN = 0;
-    return regions.map((r, i) => {
-      const ours = oursTok(r).map((toks) => ({ no: ++oN, toks }));
-      const theirs = theirsTok(r).map((toks) => ({ no: ++tN, toks }));
-      const result = splitLines(regionResultText(i)).map((text) => ({
+    return regions.map((r, i) => ({
+      i,
+      kind: r.kind,
+      decision: decisions[i],
+      ours: sideBands[i].ours,
+      theirs: sideBands[i].theirs,
+      result: splitLines(regionResultText(i)).map((text) => ({
         no: ++rN,
         text,
-      }));
-      return { i, kind: r.kind, decision: decisions[i], ours, theirs, result };
-    });
+      })),
+    }));
   });
 
   // ── 决策操作 ──
@@ -161,19 +175,42 @@
     decisions[i] = d;
     markDirty();
   }
+  // 文本段末尾补换行:拼接时少一个换行会把下一段粘到同一行。
+  function nlTerm(t: string): string {
+    return t === "" || t.endsWith("\n") ? t : t + "\n";
+  }
   function startEdit(i: number) {
     const r = regions[i];
-    edited[i] = r.ours.join("") + r.theirs.join("");
+    edited[i] = nlTerm(r.ours.join("")) + nlTerm(r.theirs.join(""));
     decisions[i] = "edited";
     markDirty();
   }
-  // 点结果列直接编辑:冲突区以当前结果(或 ours+theirs)为起点进入自由编辑。
+  // 点结果列:已决的块以当前结果为起点进自由编辑;未决的块只定位,不替你做决定。
+  // (以前点一下就把 ours+theirs 拼起来写进结果并标记已决,误点一次且无法退回。)
   function editResult(i: number) {
     const r = regions[i];
-    if (r.kind !== "Conflict") return; // v1:仅冲突区可点编辑,单边维持 ✓/○
-    const cur = regionResultText(i);
-    edited[i] = cur || r.ours.join("") + r.theirs.join("");
+    if (r.kind !== "Conflict") return; // 单边更改维持 ✓/○
+    if (decisions[i] === "undecided") {
+      focusIdx = i;
+      return;
+    }
+    edited[i] = regionResultText(i);
     decisions[i] = "edited";
+    markDirty();
+  }
+  // 重置一个冲突块回未决:误点 / 改主意时的退路。手工编辑过的先确认。
+  async function resetDecision(i: number) {
+    if (regions[i].kind !== "Conflict") return;
+    if (decisions[i] === "edited" && edited[i].trim() !== "") {
+      const ok = await ask("重置会丢弃这一块手工编辑的内容。确定?", {
+        title: "重置本块",
+        kind: "warning",
+      });
+      if (!ok) return;
+    }
+    decisions[i] = "undecided";
+    edited[i] = "";
+    focusIdx = i;
     markDirty();
   }
   // 结果列(冲突区)作为可点击元素:Enter / Space 进入编辑。
@@ -185,7 +222,17 @@
       }
     };
   }
-  function takeAll(side: "left" | "right") {
+  async function takeAll(side: "left" | "right") {
+    const edits = regions.filter(
+      (r, i) => r.kind === "Conflict" && decisions[i] === "edited",
+    ).length;
+    if (edits > 0) {
+      const ok = await ask(
+        `有 ${edits} 个块是手工编辑过的,「全部取${side === "left" ? "左" : "右"}」会覆盖掉它们。确定?`,
+        { title: "覆盖手工编辑", kind: "warning" },
+      );
+      if (!ok) return;
+    }
     decisions = decisions.map((d, i) =>
       regions[i].kind === "Conflict" ? side : d,
     );
@@ -237,7 +284,11 @@
   }
   function editFocused() {
     const i = currentConflictIdx();
-    if (i >= 0) editResult(i);
+    if (i < 0) return;
+    // 键盘 e 是明确的"我要编辑"意图:未决块直接以 ours+theirs 起手,
+    // 不走结果列点击那条"只定位"的路。
+    if (decisions[i] === "undecided") startEdit(i);
+    else editResult(i);
   }
 
   // 键盘:j/k 跳冲突 · 1/2 取左右 · b 两者 · e 编辑(在文本框内输入时不触发)。
@@ -324,19 +375,92 @@
     writing = false;
   }
 
+  // 未决冲突块回写成 zdiff3 标记(write 会拦住带标记的文本,逼你处理完再写)。
+  function manualDraft(): string {
+    return regions
+      .map((r, i) => {
+        if (r.kind === "Conflict" && decisions[i] === "undecided") {
+          return (
+            "<<<<<<< ours\n" +
+            nlTerm(r.ours.join("")) +
+            "||||||| base\n" +
+            nlTerm(r.base.join("")) +
+            "=======\n" +
+            nlTerm(r.theirs.join("")) +
+            ">>>>>>> theirs\n"
+          );
+        }
+        return regionResultText(i);
+      })
+      .join("");
+  }
+
+  // 进入手动编辑时的初始文本,用于判断要不要拦"返回三栏"。
+  let manualBase = $state("");
+
   async function enterManual() {
+    // 有三栏数据时以当前取舍拼出的结果为起点:以前直接读磁盘上的原始标记文件,
+    // 已经做完的取舍全部白做。
+    if (regions.length > 0) {
+      manualText = manualDraft();
+      manualBase = manualText;
+      manualMode = true;
+      return;
+    }
     try {
       manualText = await invoke<string>("read_repo_file", {
         path,
         filePath: file,
       });
+      manualBase = manualText;
       manualMode = true;
     } catch (e) {
       error = String(e);
     }
   }
-  function exitManual() {
+  async function exitManual() {
+    if (manualText !== manualBase) {
+      const ok = await ask(
+        "返回三栏会丢弃手动编辑的内容(回到按取舍拼出的结果)。确定?",
+        { title: "放弃手动编辑", kind: "warning" },
+      );
+      if (!ok) return;
+    }
     manualMode = false;
+  }
+
+  // ── 横向滚动同步 ──
+  // 每个区域的每一列都是独立滚动容器(列宽 1fr,长行只能自己横滚),
+  // 不同步的话长行一滚就三列错位、区域之间也各滚各的。按列归组,组内跟随。
+  type HCol = "ours" | "result" | "theirs";
+  const hGroups: Record<HCol, Set<HTMLElement>> = {
+    ours: new Set(),
+    result: new Set(),
+    theirs: new Set(),
+  };
+  let hSyncing = false;
+  function hsync(node: HTMLElement, col: HCol) {
+    const group = hGroups[col];
+    group.add(node);
+    const onScroll = () => {
+      if (hSyncing) return;
+      hSyncing = true;
+      const left = node.scrollLeft;
+      for (const el of group) {
+        if (el !== node) el.scrollLeft = left;
+      }
+      // 赋值触发的 scroll 事件在下一帧才到,用帧边界解锁避免来回抖。
+      requestAnimationFrame(() => {
+        hSyncing = false;
+      });
+    };
+    node.addEventListener("scroll", onScroll, { passive: true });
+    return {
+      destroy() {
+        node.removeEventListener("scroll", onScroll);
+        group.delete(node);
+      },
+    };
   }
 
   // 冲突块编辑框:挂载即聚焦 + 高度随内容自适应(免再点一次、免固定高度)。
@@ -472,7 +596,7 @@
           class:region-focus={focused}
         >
           <!-- ours -->
-          <div class="col col-ours">
+          <div class="col col-ours" use:hsync={"ours"}>
             {#each oursItems as it (it.gap ? "g" : "r" + it.idx)}
               {#if it.gap}
                 <div class="ln-gap" aria-hidden="true">⋯</div>
@@ -522,7 +646,7 @@
           </div>
 
           <!-- result -->
-          <div class="col col-result">
+          <div class="col col-result" use:hsync={"result"}>
             {#if band.kind === "Conflict" && band.decision === "edited"}
               <textarea
                 class="me-edit"
@@ -533,14 +657,19 @@
             {:else if editable}
               <div
                 class="result-editable"
+                class:result-undecided={band.decision === "undecided"}
                 role="button"
                 tabindex={0}
-                aria-label="编辑此冲突的结果"
+                aria-label={band.decision === "undecided"
+                  ? "定位到此冲突"
+                  : "编辑此冲突的结果"}
                 onclick={() => editResult(band.i)}
                 onkeydown={handleResultKey(band.i)}
               >
                 {#if band.decision === "undecided"}
-                  <div class="ln me-unresolved">⚠ 未解决 — 点击编辑</div>
+                  <div class="ln me-unresolved">
+                    ⚠ 未解决 — 用两侧 » « 选边,或 ✎ 手动编辑
+                  </div>
                 {:else}
                   {#each band.result as row (row.no)}
                     <div class="ln">
@@ -595,6 +724,13 @@
                 title="手动编辑此块"
                 onclick={() => startEdit(band.i)}>✎</button
               >
+              {#if band.decision !== "undecided"}
+                <button
+                  class="chev chev-mini"
+                  title="重置本块 — 回到未决,重新选"
+                  onclick={() => resetDecision(band.i)}>↺</button
+                >
+              {/if}
             {:else if band.kind === "TheirsOnly"}
               <button
                 class="chev"
@@ -612,7 +748,7 @@
           </div>
 
           <!-- theirs -->
-          <div class="col col-theirs">
+          <div class="col col-theirs" use:hsync={"theirs"}>
             {#each theirsItems as it (it.gap ? "g" : "r" + it.idx)}
               {#if it.gap}
                 <div class="ln-gap" aria-hidden="true">⋯</div>
@@ -797,6 +933,10 @@
   }
   .result-editable:hover {
     background: rgba(88, 166, 255, 0.1);
+  }
+  /* 未决块点了只定位不做决定,别用编辑光标误导 */
+  .result-undecided {
+    cursor: default;
   }
   /* 冲突导航跳到的 region:短暂高亮提示 */
   .region-focus {

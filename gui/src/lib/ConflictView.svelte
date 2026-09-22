@@ -28,6 +28,7 @@
     stashRestore = false,
     onContinue,
     onAbort,
+    onDirtyChange,
   }: {
     path: string;
     conflictFiles: string[];
@@ -36,6 +37,8 @@
     stashRestore?: boolean; // true=stash 还原冲突,仅影响文案
     onContinue: () => Promise<void>;
     onAbort: () => Promise<void>;
+    // 有未写入的取舍时上报宿主窗口,供关窗 / 切换上下文前确认。
+    onDirtyChange?: (dirty: boolean) => void;
   } = $props();
 
   interface FileState {
@@ -152,11 +155,14 @@
     if (next >= 0) activeFile = next;
   }
 
-  // 整文件取一侧:按冲突类型映射到对应后端命令。
+  // 整文件取一侧:按冲突类型映射到对应后端命令。成功返回 true。
   // resolving 守卫防止连点竞态(await 完成前 written 仍为 false,两次会并发跑破坏性命令)。
-  async function acceptSide(i: number, side: "yours" | "theirs") {
+  async function acceptSide(
+    i: number,
+    side: "yours" | "theirs",
+  ): Promise<boolean> {
     const fs = fileStates[i];
-    if (!fs || fs.written || fs.resolving) return;
+    if (!fs || fs.written || fs.resolving) return false;
     let cmd: string;
     const extra: Record<string, unknown> = {};
     switch (fs.kind) {
@@ -181,17 +187,25 @@
             : "resolve_conflict_keep";
         break;
     }
-    globalError = "";
     fs.resolving = true;
     try {
       await invoke(cmd, { path, filePath: fs.path, ...extra });
       fs.written = true;
       fs.error = "";
+      return true;
     } catch (e) {
       fs.error = String(e);
+      return false;
     } finally {
       fs.resolving = false;
     }
+  }
+
+  // 单文件取一侧(右侧动作区按钮):清掉上一次的批量汇总再动手。
+  async function acceptOne(i: number, side: "yours" | "theirs") {
+    globalError = "";
+    await acceptSide(i, side);
+    if (fileStates[i]?.written) advanceToNextPending();
   }
 
   // 批量接受一侧:对选中的文件串行 resolve(避免并发踩);不可逆,二次确认。
@@ -210,10 +224,18 @@
       { title: "批量解决", kind: "warning" },
     );
     if (!ok) return;
+    globalError = "";
+    const failed: string[] = [];
     for (const i of idxs) {
-      await acceptSide(i, side);
+      if (!(await acceptSide(i, side))) {
+        failed.push(`· ${fileStates[i].path}:${fileStates[i].error}`);
+      }
     }
     selectedIdx = [];
+    // 逐行的 error 只有选中那行会渲染,批量失败必须汇总出来,否则静默失败。
+    if (failed.length > 0) {
+      globalError = `${failed.length} / ${idxs.length} 个文件解决失败:\n${failed.join("\n")}`;
+    }
   }
 
   function openMerge(i: number) {
@@ -260,8 +282,13 @@
 
   // 编辑器是否有未写入的取舍(返回列表 / 关窗前确认)。
   let editorDirty = $state(false);
+  // 只有停在编辑页时未写入的取舍才算"会丢东西";回到清单页即视为已放弃。
+  $effect(() => {
+    onDirtyChange?.(view === "editor" && editorDirty);
+  });
 
   function backToList() {
+    editorDirty = false;
     view = "list";
   }
 
@@ -274,8 +301,28 @@
       );
       if (!ok) return;
     }
-    editorDirty = false;
     backToList();
+  }
+
+  // ── 继续 / 放弃:in-flight 守卫,双击不会并发跑两次 commit / rebase --continue ──
+  let finishing = $state(false);
+  async function runContinue() {
+    if (finishing || !allWritten) return;
+    finishing = true;
+    try {
+      await onContinue();
+    } finally {
+      finishing = false;
+    }
+  }
+  async function runAbort() {
+    if (finishing) return;
+    finishing = true;
+    try {
+      await onAbort();
+    } finally {
+      finishing = false;
+    }
   }
 
   // ── 键盘:清单导航 / 继续 / 放弃;编辑页 Esc 返回 ──
@@ -289,7 +336,8 @@
       return;
     if (view === "editor") {
       if (e.key === "Escape") {
-        backToList();
+        // 与「← 返回列表」同语义:有未写入的取舍要先确认,不能静默丢。
+        void tryBack();
         e.preventDefault();
       }
       return;
@@ -309,10 +357,10 @@
           openMerge(activeFile);
         break;
       case "c":
-        if (allWritten) onContinue();
+        void runContinue();
         break;
       case "x":
-        onAbort();
+        void runAbort();
         break;
       default:
         handled = false;
@@ -415,6 +463,11 @@
               {#if fs.written}
                 <span class="cf-c-st cf-done-tag">已解决</span>
                 <span class="cf-c-st"></span>
+              {:else if fs.error}
+                <span class="cf-c-st cf-fail-tag" title={fs.error}
+                  >解决失败</span
+                >
+                <span class="cf-c-st"></span>
               {:else}
                 <span class="cf-c-st cf-st-{st.yours.tone}"
                   >{st.yours.text}</span
@@ -449,14 +502,14 @@
             <button
               class="btn-act"
               disabled={currentFile.resolving}
-              onclick={() => acceptSide(activeFile, "yours")}
+              onclick={() => acceptOne(activeFile, "yours")}
             >
               接受您的更改
             </button>
             <button
               class="btn-act"
               disabled={currentFile.resolving}
-              onclick={() => acceptSide(activeFile, "theirs")}
+              onclick={() => acceptOne(activeFile, "theirs")}
             >
               接受他们的
             </button>
@@ -484,17 +537,18 @@
     <div class="bottom-actions">
       <button
         class="btn-primary"
-        disabled={!allWritten}
-        onclick={onContinue}
+        disabled={!allWritten || finishing}
+        onclick={runContinue}
         title={stashRestore
           ? "所有冲突已解决后,完成还原(改动留在工作区,丢弃 stash)"
           : "所有冲突文件已解决后,完成本次整合"}
       >
-        {stashRestore ? "完成还原" : "继续整合"}
+        {finishing ? "处理中…" : stashRestore ? "完成还原" : "继续整合"}
       </button>
       <button
         class="btn-danger"
-        onclick={onAbort}
+        disabled={finishing}
+        onclick={runAbort}
         title={stashRestore
           ? "放弃还原,回到整合后状态(改动保留在 stash)"
           : "放弃整合,回到整合前的状态"}
@@ -693,6 +747,10 @@
     color: var(--accent-neon);
     font-weight: 600;
   }
+  .cf-fail-tag {
+    color: var(--color-error);
+    font-weight: 600;
+  }
 
   /* 右侧动作区(对标 WebStorm 右栏) */
   .cf-actions {
@@ -814,8 +872,12 @@
     font-size: 13px;
     cursor: pointer;
   }
-  .btn-danger:hover {
+  .btn-danger:hover:not(:disabled) {
     background: rgba(247, 120, 139, 0.25);
+  }
+  .btn-danger:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
   .cv-hint {
     color: var(--text-muted);

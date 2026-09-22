@@ -438,7 +438,7 @@ mod settings_tests {
 
 // ── 冲突解决窗口上下文:开窗时写入,窗口挂载时取出 ──
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct ConflictContext {
     path: String,
     initial_file: Option<String>,
@@ -1217,9 +1217,19 @@ fn open_conflict_window(
     path: String,
     initial_file: Option<String>,
 ) -> Result<(), String> {
-    *state.0.lock().unwrap() = Some(ConflictContext { path, initial_file });
+    let next = ConflictContext { path, initial_file };
+    // 上下文真变了才通知窗口重载:重载会重建 ConflictView,丢掉正在进行的合并取舍。
+    // 反复点主界面的「解决冲突」通常是同一个上下文,那种情况只聚焦、不重载。
+    let changed = {
+        let mut cur = state.0.lock().unwrap();
+        let changed = cur.as_ref() != Some(&next);
+        *cur = Some(next);
+        changed
+    };
     if let Some(w) = app.get_webview_window("conflict") {
-        let _ = w.emit("conflict-context-changed", ());
+        if changed {
+            let _ = w.emit("conflict-context-changed", ());
+        }
         let _ = w.set_focus();
         return Ok(());
     }

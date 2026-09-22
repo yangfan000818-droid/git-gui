@@ -97,6 +97,33 @@ fn uncommitted_change_makes_repo_dirty() {
     cleanup(&[&dir]);
 }
 
+// 回归:路径含引号 / 反斜杠 / TAB 时,status 必须拿到逐字路径。
+// core.quotePath=false 只挡住非 ASCII 的转义,这几类字符照样会被 C 风格加引号
+// (`"back\\slash.txt"`),前端拿着这种名字既 diff 不了也暂存不了。
+// 这些字符在 Windows 上非法,故只在类 Unix 上跑(CI 的 cargo test 也只在 ubuntu)。
+#[cfg(not(windows))]
+#[test]
+fn status_keeps_paths_with_quote_backslash_and_tab() {
+    let dir = init_repo("weirdpath");
+    write(&dir, "seed.txt", "x");
+    commit_all(&dir, "init");
+    let weird = ["has\"quote.txt", "back\\slash.txt", "tab\there.txt"];
+    for name in weird {
+        write(&dir, name, "content");
+    }
+
+    let st = Repo::open(&dir).unwrap().status().unwrap();
+    let names: Vec<&Path> = st.files.iter().map(|f| f.path.as_path()).collect();
+    for name in weird {
+        assert!(
+            names.contains(&Path::new(name)),
+            "status 应原样返回 {name:?},实际 {names:?}"
+        );
+    }
+
+    cleanup(&[&dir]);
+}
+
 #[test]
 fn execute_update_fast_forwards_when_behind() {
     // a 先建仓推到裸库;b 克隆后,a 再推一个提交 → b 落后 1。
@@ -2123,6 +2150,30 @@ fn auto_resolve_does_not_swallow_non_content_conflicts() {
             "冲突列表应包含 {f},实际 {names:?}"
         );
     }
+    cleanup(&[&a]);
+}
+
+// 回归:非 ASCII / 带空格的路径必须原样返回。git 默认 core.quotePath=true 会把这类
+// 路径转义成 "\344\270\255..." ,少了 -z 就会把一个根本不存在的名字报成冲突文件,
+// 之后所有按路径下发的 resolve 命令全部失配。测试里显式打开 quotePath,不受本机全局配置影响。
+#[test]
+fn conflicted_files_keeps_non_ascii_paths() {
+    let a = init_repo("quotepath");
+    git(&a, &["config", "core.quotePath", "true"]);
+    let name = "\u{4e2d}\u{6587} \u{6587}\u{4ef6}.txt";
+    write(&a, name, "a\nb\nc\n");
+    commit_all(&a, "base");
+    git(&a, &["checkout", "-qb", "feature"]);
+    write(&a, name, "a\nT\nc\n");
+    commit_all(&a, "theirs");
+    git(&a, &["checkout", "-q", "main"]);
+    write(&a, name, "a\nO\nc\n");
+    commit_all(&a, "ours");
+    assert!(!git_try(&a, &["merge", "feature"]), "merge 应当冲突");
+
+    let files = gitcore::conflicted_files(&Repo::open(&a).unwrap()).unwrap();
+    assert_eq!(files, vec![PathBuf::from(name)]);
+
     cleanup(&[&a]);
 }
 
