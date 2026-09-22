@@ -38,11 +38,15 @@ pub struct ThreeVersions {
 }
 
 /// 列出当前所有冲突文件。
+///
+/// 必须走 `-z`:不加时 git 按 `core.quotePath`(默认 true)把非 ASCII 路径转义成
+/// `"\344\270\255..."`,中文 / 带空格路径会解析成一个根本不存在的名字,
+/// 后续所有按路径下发的 resolve 命令全部失配。
 pub fn conflicted_files(repo: &Repo) -> Result<Vec<PathBuf>, Error> {
-    let out = repo.git(&["diff", "--name-only", "--diff-filter=U"])?;
+    let out = repo.git(&["diff", "--name-only", "--diff-filter=U", "-z"])?;
     Ok(out
-        .lines()
-        .filter(|l| !l.trim().is_empty())
+        .split('\0')
+        .filter(|l| !l.is_empty())
         .map(PathBuf::from)
         .collect())
 }

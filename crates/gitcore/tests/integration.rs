@@ -2126,6 +2126,30 @@ fn auto_resolve_does_not_swallow_non_content_conflicts() {
     cleanup(&[&a]);
 }
 
+// 回归:非 ASCII / 带空格的路径必须原样返回。git 默认 core.quotePath=true 会把这类
+// 路径转义成 "\344\270\255..." ,少了 -z 就会把一个根本不存在的名字报成冲突文件,
+// 之后所有按路径下发的 resolve 命令全部失配。测试里显式打开 quotePath,不受本机全局配置影响。
+#[test]
+fn conflicted_files_keeps_non_ascii_paths() {
+    let a = init_repo("quotepath");
+    git(&a, &["config", "core.quotePath", "true"]);
+    let name = "\u{4e2d}\u{6587} \u{6587}\u{4ef6}.txt";
+    write(&a, name, "a\nb\nc\n");
+    commit_all(&a, "base");
+    git(&a, &["checkout", "-qb", "feature"]);
+    write(&a, name, "a\nT\nc\n");
+    commit_all(&a, "theirs");
+    git(&a, &["checkout", "-q", "main"]);
+    write(&a, name, "a\nO\nc\n");
+    commit_all(&a, "ours");
+    assert!(!git_try(&a, &["merge", "feature"]), "merge 应当冲突");
+
+    let files = gitcore::conflicted_files(&Repo::open(&a).unwrap()).unwrap();
+    assert_eq!(files, vec![PathBuf::from(name)]);
+
+    cleanup(&[&a]);
+}
+
 #[test]
 fn classify_conflicts_detects_all_kinds() {
     let a = setup_conflict_kinds("ck");
