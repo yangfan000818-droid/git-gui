@@ -49,7 +49,10 @@ pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
     // 一条 `git status --porcelain=v2 --branch` 同时拿到分支/upstream/ahead-behind/
     // 文件状态,替代原先 rev-parse×2 + rev-list + status 四次 fork。status 在文件监视
     // 刷新里高频调用,Windows 上进程创建昂贵,合并进程对刷新风暴下的卡顿改善显著。
-    // quotepath=false:非 ASCII 路径不转义,保持原始 UTF-8,供前端按 path 懒加载 diff。
+    // -z:记录以 NUL 分隔且路径逐字输出。quotepath=false 只挡住非 ASCII 的转义,
+    // 含 " \ TAB 换行的路径照样会被 C 风格加引号(实测 `"back\\slash.txt"`),
+    // 且重命名记录的新旧路径在非 -z 下用 TAB 拼在一起,路径含 TAB 就解析错。
+    // quotepath=false 保留作兜底(-z 万一未生效时仍不转义非 ASCII)。
     // untracked-files=all:展开未跟踪目录到文件级,否则 git 默认把整个未跟踪目录折叠成
     // 一个 "dir/" 条目,前端按 path 取 basename 会得到空名、且无法 diff/单独暂存。
     let porcelain = repo.git(&[
@@ -59,6 +62,7 @@ pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
         "--porcelain=v2",
         "--branch",
         "--untracked-files=all",
+        "-z",
     ])?;
     let parsed = parse_v2(&porcelain);
 
@@ -87,9 +91,9 @@ struct ParsedV2 {
     conflicted: Vec<PathBuf>,
 }
 
-/// 解析 `git status --porcelain=v2 --branch` 输出。
+/// 解析 `git status --porcelain=v2 --branch -z` 输出。
 ///
-/// header 行以 `# branch.*` 开头;条目行首字符标识类型:
+/// 记录以 NUL 分隔(`-z`),header 记录以 `# branch.*` 开头;条目首字符标识类型:
 /// `1`=普通改动,`2`=重命名/复制,`u`=未合并(冲突),`?`=未跟踪,`!`=忽略。
 /// porcelain v2 的 XY 状态码用 `.` 表示"无变化"(v1 用空格,二者不同)。
 fn parse_v2(output: &str) -> ParsedV2 {
@@ -100,7 +104,11 @@ fn parse_v2(output: &str) -> ParsedV2 {
     let mut files = Vec::new();
     let mut conflicted = Vec::new();
 
-    for line in output.lines() {
+    let mut records = output.split('\0');
+    while let Some(line) = records.next() {
+        if line.is_empty() {
+            continue; // 末尾 NUL 切出的空串
+        }
         if let Some(rest) = line.strip_prefix("# branch.head ") {
             // detached HEAD 时 git 输出字面量 "(detached)"。
             branch = (rest != "(detached)").then(|| rest.to_string());
@@ -122,10 +130,11 @@ fn parse_v2(output: &str) -> ParsedV2 {
                 }
             }
         } else if let Some(rest) = line.strip_prefix("2 ") {
-            // 重命名/复制: 比普通改动多一个 <Xscore> 字段,path 为第 8 字段,
-            // 且形如 "<new>\t<orig>"(TAB 分隔,新路径在前,与 v1 的 "old -> new" 相反)。
+            // 重命名/复制: 比普通改动多一个 <Xscore> 字段,新路径为第 8 字段;
+            // -z 下源路径是紧随其后的独立 NUL 字段,必须消费掉;不消费的话,
+            // 源路径本身长得像一条记录时(如文件名以 "? " 开头)会被当成条目解析。
+            records.next();
             if let Some((_, y, path)) = split_xy_path(rest, 8) {
-                let new_path = path.split('\t').next().unwrap_or(&path);
                 // rename/copy 总是已暂存;其后工作区又改动(Y=M)则同时未暂存。
                 let state = if y == 'M' {
                     FileState::StagedAndModified
@@ -133,7 +142,7 @@ fn parse_v2(output: &str) -> ParsedV2 {
                     FileState::Staged
                 };
                 files.push(FileStatus {
-                    path: new_path.into(),
+                    path: path.into(),
                     state,
                 });
             }
@@ -211,20 +220,26 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    // 典型 porcelain v2 --branch 输出,覆盖各类型条目行。
-    const SAMPLE: &str = "\
-# branch.oid 1111111111111111111111111111111111111111
-# branch.head main
-# branch.upstream origin/main
-# branch.ab +2 -3
-1 M. N... 100644 100644 100644 aaa bbb staged.txt
-1 .M N... 100644 100644 100644 aaa bbb modified.txt
-1 MM N... 100644 100644 100644 aaa bbb both.txt
-1 .M N... 100644 100644 100644 aaa bbb with space.txt
-2 R. N... 100644 100644 100644 aaa bbb R100 new name.txt\told name.txt
-u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt
-? untracked.txt
-! ignored.txt";
+    // 典型 porcelain v2 --branch -z 输出:记录以 NUL 分隔,
+    // 重命名记录后紧跟一条独立的源路径记录。
+    const SAMPLE: &str = concat!(
+        "# branch.oid 1111111111111111111111111111111111111111\0",
+        "# branch.head main\0",
+        "# branch.upstream origin/main\0",
+        "# branch.ab +2 -3\0",
+        "1 M. N... 100644 100644 100644 aaa bbb staged.txt\0",
+        "1 .M N... 100644 100644 100644 aaa bbb modified.txt\0",
+        "1 MM N... 100644 100644 100644 aaa bbb both.txt\0",
+        "1 .M N... 100644 100644 100644 aaa bbb with space.txt\0",
+        // -z 下路径逐字输出:引号 / 反斜杠 / TAB 都不再被 C 风格转义。
+        "1 .M N... 100644 100644 100644 aaa bbb has\"quote.txt\0",
+        "1 .M N... 100644 100644 100644 aaa bbb tab\there.txt\0",
+        "2 R. N... 100644 100644 100644 aaa bbb R100 new name.txt\0",
+        "old name.txt\0",
+        "u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt\0",
+        "? untracked.txt\0",
+        "! ignored.txt\0",
+    );
 
     #[test]
     fn parse_v2_header_branch_and_ab() {
@@ -249,6 +264,9 @@ u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt
         assert_eq!(find("both.txt"), Some(FileState::StagedAndModified));
         // path 含空格:取该字段到行尾。
         assert_eq!(find("with space.txt"), Some(FileState::Modified));
+        // -z 下引号 / TAB 逐字保留,不再是 `"has\"quote.txt"` 这种转义串。
+        assert_eq!(find("has\"quote.txt"), Some(FileState::Modified));
+        assert_eq!(find("tab\there.txt"), Some(FileState::Modified));
         // rename 取新路径,源路径不作为独立文件。
         assert_eq!(find("new name.txt"), Some(FileState::Staged));
         assert!(find("old name.txt").is_none());
@@ -264,17 +282,38 @@ u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt
         assert_eq!(p.conflicted, vec![PathBuf::from("conflict.txt")]);
     }
 
+    // 回归:-z 下重命名的源路径是独立记录,必须被消费掉。源路径本身长得像一条
+    // 记录时(这里是以 "? " 开头的文件名),不消费就会被当成一个未跟踪文件。
+    #[test]
+    fn parse_v2_rename_orig_path_is_consumed() {
+        let out = concat!(
+            "2 R. N... 100644 100644 100644 aaa bbb R100 renamed.txt\0",
+            "? weird name.txt\0",
+            "1 .M N... 100644 100644 100644 aaa bbb after.txt\0",
+        );
+        let p = parse_v2(out);
+        let names: Vec<&Path> = p.files.iter().map(|f| f.path.as_path()).collect();
+        assert_eq!(
+            names,
+            vec![Path::new("renamed.txt"), Path::new("after.txt")],
+            "源路径不得被解析成未跟踪文件,其后的记录仍要正常解析"
+        );
+    }
+
     #[test]
     fn parse_v2_detached_head() {
-        let p = parse_v2("# branch.oid abc\n# branch.head (detached)\n");
+        let p = parse_v2("# branch.oid abc\0# branch.head (detached)\0");
         assert_eq!(p.branch, None);
     }
 
     #[test]
     fn parse_v2_no_upstream_zero_ab() {
         // 无 upstream 时 git 不输出 branch.upstream / branch.ab 行。
-        let out =
-            "# branch.oid abc\n# branch.head main\n1 .M N... 100644 100644 100644 aaa bbb f.txt\n";
+        let out = concat!(
+            "# branch.oid abc\0",
+            "# branch.head main\0",
+            "1 .M N... 100644 100644 100644 aaa bbb f.txt\0",
+        );
         let p = parse_v2(out);
         assert_eq!(p.branch.as_deref(), Some("main"));
         assert_eq!(p.upstream, None);
