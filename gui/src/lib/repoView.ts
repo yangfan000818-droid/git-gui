@@ -47,6 +47,8 @@ export function buildRepoView(
   ahead: number,
   behind: number,
   files: FileStatus[],
+  conflicted: string[],
+  integration: IntegrationKind,
 ): RepoView {
   const unstaged = files
     .filter(
@@ -70,6 +72,8 @@ export function buildRepoView(
     behind,
     unstaged,
     staged,
+    conflicted,
+    integration,
   };
 }
 

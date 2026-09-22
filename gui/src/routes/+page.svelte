@@ -42,6 +42,7 @@
     FileEntry,
     FileStatus,
     Hunk,
+    IntegrationKind,
     LogEntry,
     PrecommitReport,
     PrecommitWarning,
@@ -222,6 +223,19 @@
   let inConflict = $derived(
     !!conflictState &&
       (conflictState.kind !== "None" || conflictState.files.length > 0),
+  );
+  // 有冲突的仓库(主仓在前):子仓库的冲突只能从各自 status 发现,
+  // 顶层 conflictState 只探测主仓库。
+  let conflictedRepos = $derived(repos.filter((r) => r.conflicted.length > 0));
+  let totalConflicted = $derived(
+    conflictedRepos.reduce((n, r) => n + r.conflicted.length, 0),
+  );
+  // 子仓库需要处理:有冲突文件,或冲突已解完但整合还没收尾(此时 conflicted 为空,
+  // 只看它这个子仓会从界面上彻底消失,而整合仍停在半路)。
+  let pendingSubs = $derived(
+    repos.filter(
+      (r) => !r.isMain && (r.conflicted.length > 0 || r.integration !== "None"),
+    ),
   );
   // 为指定仓库打开独立冲突解决窗口(可调整大小/全屏)。
   async function openConflictResolutionFor(
@@ -504,6 +518,8 @@
       s.ahead,
       s.behind,
       s.files,
+      s.conflicted,
+      s.integration,
     );
     const subs = await Promise.all(
       s.submodules.map(async (sub) => {
@@ -511,6 +527,8 @@
         let branch: string | null = null;
         let ahead = 0;
         let behind = 0;
+        let conflicted: string[] = [];
+        let integration: IntegrationKind = "None";
         // 未初始化的子仓库没有 .git,无法读状态。
         if (sub.status !== "Uninitialized") {
           try {
@@ -521,6 +539,8 @@
             branch = ss.branch;
             ahead = ss.ahead;
             behind = ss.behind;
+            conflicted = ss.conflicted;
+            integration = ss.integration;
           } catch {
             // 子仓库读取失败(损坏等)时留空,不阻塞整体加载。
           }
@@ -535,6 +555,8 @@
           ahead,
           behind,
           files,
+          conflicted,
+          integration,
         );
       }),
     );
@@ -1738,6 +1760,28 @@
           </button>
         </div>
       {/if}
+      <!-- 子仓库冲突:顶层 conflictState 只看主仓,这些冲突过去在主界面完全不可见。
+           继续 / 放弃都针对具体仓库,交给冲突窗口内的按钮,这里只给入口。 -->
+      {#each pendingSubs as sub (sub.path)}
+        <div class="conflict-banner" role="alert">
+          <span class="cb-icon">⚠</span>
+          <span class="cb-text">
+            子仓库「{sub.label}」·
+            {#if sub.conflicted.length > 0}
+              {sub.conflicted.length} 个冲突文件
+            {:else}
+              {INTEGRATION_LABEL[sub.integration]}进行中,冲突已解决,待继续
+            {/if}
+          </span>
+          <button
+            class="cb-btn cb-resolve"
+            onclick={() => openConflictResolutionFor(sub.path)}
+            title="打开该子仓库的冲突解决窗口(继续 / 放弃整合都在窗口内)"
+          >
+            解决冲突
+          </button>
+        </div>
+      {/each}
       <div class="split">
         <!-- ── 左侧:主仓库 + 各子仓库,每个都能独立暂存/提交 ── -->
         <aside class="file-list">
@@ -2043,27 +2087,55 @@
               </section>
             {/if}
 
-            <!-- 冲突(主仓库) -->
-            {#if status.conflicted.length}
+            <!-- 冲突:主仓库 + 各子仓库分组(子仓库冲突只有这里能发现) -->
+            {#if totalConflicted > 0}
               <section class="zone">
                 <h2 class="zone-title zone-conflict">
                   <span class="zone-icon">!</span>
                   冲突
-                  <span class="zone-badge">{status.conflicted.length}</span>
+                  <span class="zone-badge">{totalConflicted}</span>
                 </h2>
-                <ul>
-                  {#each status.conflicted as c}
-                    <li>
+                {#each conflictedRepos as repo (repo.path)}
+                  <div class="repo-group">
+                    <div class="repo-grouphead">
+                      {#if repo.isMain}
+                        <span class="repo-title main"
+                          >主仓库 · {repo.label}</span
+                        >
+                      {:else}
+                        <span
+                          class="sub-dot sub-{repo.subStatus?.toLowerCase()}"
+                          >●</span
+                        >
+                        <span class="repo-title" title={repo.path}
+                          >{repo.label}</span
+                        >
+                      {/if}
+                      <span class="zone-badge">{repo.conflicted.length}</span>
                       <button
-                        class="file-item conflict conflict-clickable"
-                        onclick={() => openConflictResolution(c)}
-                        title="点击解决该文件的冲突"
+                        class="sub-btn"
+                        onclick={() => openConflictResolutionFor(repo.path)}
+                        title="打开该仓库的冲突解决窗口"
                       >
-                        {c}
+                        解决冲突
                       </button>
-                    </li>
-                  {/each}
-                </ul>
+                    </div>
+                    <ul>
+                      {#each repo.conflicted as c}
+                        <li>
+                          <button
+                            class="file-item conflict conflict-clickable"
+                            onclick={() =>
+                              openConflictResolutionFor(repo.path, c)}
+                            title="点击解决该文件的冲突"
+                          >
+                            {c}
+                          </button>
+                        </li>
+                      {/each}
+                    </ul>
+                  </div>
+                {/each}
               </section>
             {/if}
           </div>

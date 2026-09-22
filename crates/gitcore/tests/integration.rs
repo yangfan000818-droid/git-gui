@@ -2261,6 +2261,74 @@ fn resolve_take_side_picks_binary_version() {
     cleanup(&[&a]);
 }
 
+// 撤销已解决:内容冲突 / add-add / 二进制都能重新回到冲突态,
+// 让误点「接受某一侧」(尤其是批量)有一条不必放弃整合的退路。
+#[test]
+fn unresolve_restores_conflict_for_two_sided_kinds() {
+    let a = setup_conflict_kinds("unr");
+    let repo = Repo::open(&a).unwrap();
+
+    for f in ["both.txt", "addadd.txt", "bin.dat"] {
+        repo.resolve_take_side(Path::new(f), Side::Ours).unwrap();
+        assert!(
+            !repo
+                .status()
+                .unwrap()
+                .conflicted
+                .contains(&PathBuf::from(f)),
+            "{f} 取一侧后应已解决"
+        );
+
+        repo.unresolve_file(Path::new(f)).unwrap();
+        assert!(
+            repo.status()
+                .unwrap()
+                .conflicted
+                .contains(&PathBuf::from(f)),
+            "{f} 撤销后应回到冲突态"
+        );
+    }
+
+    // 撤销后分类不变,三栏 UI 仍按原类型走(add-add 无 base,不该退化成 both-modified)。
+    let kinds: Vec<_> = repo
+        .conflict_state()
+        .unwrap()
+        .files
+        .into_iter()
+        .filter(|f| f.path == Path::new("addadd.txt"))
+        .map(|f| f.kind)
+        .collect();
+    assert_eq!(kinds, vec![ConflictKind::AddAdd]);
+
+    cleanup(&[&a]);
+}
+
+// modify/delete 类缺被删那一侧的 blob,git 无从重放合并 —— 必须给出可读原因,
+// 而不是把 "does not have all necessary versions" 直接抛给用户。
+#[test]
+fn unresolve_rejects_modify_delete_with_readable_reason() {
+    let a = setup_conflict_kinds("unrmd");
+    let repo = Repo::open(&a).unwrap();
+
+    repo.resolve_keep(Path::new("moddel.txt")).unwrap();
+    let err = repo
+        .unresolve_file(Path::new("moddel.txt"))
+        .expect_err("modify/delete 不应能撤销");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("删除") && msg.contains("放弃整合"),
+        "错误应说明原因与出路,实际:{msg}"
+    );
+    // 失败不得留下半吊子状态:文件仍是已解决的。
+    assert!(!repo
+        .status()
+        .unwrap()
+        .conflicted
+        .contains(&PathBuf::from("moddel.txt")));
+
+    cleanup(&[&a]);
+}
+
 // ── stash 还原冲突(Phase 4) ──
 
 // 脏工作区改动与远端推进同一行 → autostash pop 时冲突(整合本身成功)。

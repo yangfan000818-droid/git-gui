@@ -28,6 +28,8 @@
   let ready = $state(false);
   let error = $state("");
   let notice = $state(""); // 非错误提示(如多提交变基推进到下一个冲突)
+  // 窗口内容已过期(整合在别处结束 / 外部新增了冲突文件);提示用户刷新,不自动重挂打断操作。
+  let stale = $state("");
   let dirty = $state(false); // ConflictView 上报:编辑页有未写入的取舍
   let busy = $state(false); // 继续 / 放弃进行中
   let reloadKey = $state(0); // 上下文变化 / 多提交再冲突时强制 ConflictView 重挂
@@ -55,6 +57,29 @@
     autostash = cs.autostash;
   }
 
+  // 重获焦点时静默探测:窗口只在 onMount / 上下文切换时取过状态,期间用户可能在终端
+  // 解决了冲突,或在主窗 banner 放弃了整合。只提示,不自动重挂——重挂会丢正在做的取舍。
+  async function probeStale() {
+    if (!ready || !path || busy) return;
+    try {
+      const cs = await invoke<ConflictState>("repo_conflict_state", { path });
+      // 整合已在别处收尾(完成或放弃):本窗口的继续 / 放弃都已失去对象。
+      // stash 还原模式本就 kind=None,无从区分,跳过这一判定。
+      if (!stashRestore && cs.kind === "None") {
+        stale = "本次整合已在别处结束(已完成或已放弃),此窗口的内容已过期。";
+        return;
+      }
+      const added = cs.files.filter((f) => !files.includes(f.path));
+      if (added.length > 0) {
+        stale = `检测到 ${added.length} 个新的冲突文件,点「刷新」重新载入。`;
+        return;
+      }
+      stale = "";
+    } catch {
+      // 探测失败不打扰用户,保持现状。
+    }
+  }
+
   // 重载会重建 ConflictView,正在进行的取舍会丢 → 先确认。
   async function reloadContext() {
     if (dirty) {
@@ -72,6 +97,7 @@
     ready = false;
     error = "";
     notice = "";
+    stale = "";
     try {
       const ctx = await invoke<{
         path: string;
@@ -93,11 +119,18 @@
 
   let unlisten: UnlistenFn | null = null;
   let unlistenClose: UnlistenFn | null = null;
+  let unlistenFocus: UnlistenFn | null = null;
   onMount(async () => {
     await applyAppearance();
     unlisten = await listen("conflict-context-changed", () => {
       void reloadContext();
     });
+    // 切出去(终端解冲突 / 主窗放弃整合)再切回来 → 探测一次,对标主窗的 focus 刷新。
+    unlistenFocus = await getCurrentWindow().onFocusChanged(
+      ({ payload: focused }) => {
+        if (focused) void probeStale();
+      },
+    );
     // 关窗前确认:未写入的取舍不能被一个红叉静默吞掉。
     unlistenClose = await getCurrentWindow().onCloseRequested(async (e) => {
       if (!dirty) return;
@@ -116,6 +149,7 @@
   onDestroy(() => {
     unlisten?.();
     unlistenClose?.();
+    unlistenFocus?.();
   });
 
   async function finishAndClose(action: "resolved" | "aborted") {
@@ -193,6 +227,14 @@
   {#if notice}
     <p class="cw-notice" role="status">{notice}</p>
   {/if}
+  {#if stale}
+    <div class="cw-stale" role="status">
+      <span>{stale}</span>
+      <button class="cw-stale-btn" onclick={() => void reloadContext()}
+        >刷新</button
+      >
+    </div>
+  {/if}
   {#if ready}
     {#key reloadKey}
       <ConflictView
@@ -203,6 +245,7 @@
         {stashRestore}
         onContinue={doContinue}
         onAbort={doAbort}
+        onReload={reloadContext}
         onDirtyChange={(d) => (dirty = d)}
       />
     {/key}
@@ -248,5 +291,33 @@
     color: var(--text-primary, #e6edf3);
     font-size: 12.5px;
     margin: 12px 12px 0;
+  }
+  .cw-stale {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(210, 153, 34, 0.12);
+    border: 1px solid rgba(210, 153, 34, 0.35);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text-primary, #e6edf3);
+    font-size: 12.5px;
+    margin: 12px 12px 0;
+  }
+  .cw-stale span {
+    flex: 1;
+  }
+  .cw-stale-btn {
+    flex-shrink: 0;
+    padding: 4px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--border-default, #30363d);
+    background: var(--bg-surface, #161b22);
+    color: var(--text-primary, #e6edf3);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .cw-stale-btn:hover {
+    border-color: var(--accent-cyan, #58a6ff);
   }
 </style>

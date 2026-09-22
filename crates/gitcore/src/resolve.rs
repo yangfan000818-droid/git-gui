@@ -209,6 +209,31 @@ pub(crate) fn resolve_take_side(repo: &Repo, path: &Path, side: Side) -> Result<
     Ok(())
 }
 
+/// 撤销一次已解决:`checkout -m` 重放合并,把冲突标记写回工作区、三个 stage 写回索引。
+///
+/// 只对两侧 blob 都在的类型有效(内容冲突 / add-add / 二进制)。modify/delete 类缺了
+/// 被删那一侧的 blob,git 无从重放,报 "does not have all necessary versions" ——
+/// 不预判类型,让 git 自己裁决,只把它的错误翻译成用户能懂的话。
+pub(crate) fn unresolve(repo: &Repo, path: &Path) -> Result<(), Error> {
+    let p = path_str(path)?;
+    let out = repo.git_checked(&["checkout", "-m", "--", &p])?;
+    if out.success {
+        return Ok(());
+    }
+    if out.stderr.contains("does not have all necessary versions") {
+        return Err(Error::Precondition(
+            "该文件是「一侧修改、一侧删除」类冲突,git 缺少被删那一侧的版本,无法恢复冲突态。\
+             如需改主意,只能放弃整合后重来。"
+                .into(),
+        ));
+    }
+    Err(Error::Git {
+        args: vec!["checkout".into(), "-m".into(), "--".into(), p],
+        code: out.code,
+        stderr: out.stderr,
+    })
+}
+
 fn path_str(path: &Path) -> Result<String, Error> {
     path.to_str()
         .map(str::to_string)
