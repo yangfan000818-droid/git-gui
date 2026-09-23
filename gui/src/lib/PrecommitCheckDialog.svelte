@@ -3,11 +3,7 @@
   // 汇总警告数 + 按类别分组列详情 + [取消][仍然提交]。纯展示,决策交给调用方。
 
   type WarningKind =
-    | "SensitiveInfo"
-    | "ConflictMarker"
-    | "LargeFile"
-    | "DebugResidue"
-    | "Todo";
+    "SensitiveInfo" | "ConflictMarker" | "LargeFile" | "DebugResidue" | "Todo";
 
   interface PrecommitWarning {
     kind: WarningKind;
