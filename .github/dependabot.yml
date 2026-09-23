@@ -18,6 +18,11 @@ updates:
       minor-patch:
         update-types: [minor, patch]
         exclude-patterns: ["@tauri-apps/*"]
+    ignore:
+      # TypeScript 7(Go 原生版)暂不可用:@sveltejs/kit 与 svelte-check 的 peer 依赖
+      # 只到 "^5 || ^6"。两者声明支持 TS 7 后删掉这条。
+      - dependency-name: typescript
+        versions: [">=7"]
 
   - package-ecosystem: cargo
     directory: /
