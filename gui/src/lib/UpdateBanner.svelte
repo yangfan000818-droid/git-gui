@@ -7,12 +7,15 @@
     RELEASES_URL,
     type UpdateInfo,
   } from "$lib/updateCheck";
+  import { parseNotes } from "$lib/releaseNotes";
 
   let update = $state<UpdateInfo | null>(null);
   // updater 插件是否可用(false = 手动回退,只能引导去下载页)。
   let viaPlugin = $state(false);
   let downloading = $state(false);
   let downloadError = $state("");
+  let showNotes = $state(false);
+  let notes = $derived(update ? parseNotes(update.notes) : []);
 
   const DISMISS_KEY = "dismissed_update_version";
 
@@ -80,6 +83,15 @@
     <span class="ub-text">
       🎉 新版本 <b>v{update.latest}</b> 可用（当前 v{update.current}）
     </span>
+    {#if notes.length}
+      <button
+        class="ub-view"
+        aria-expanded={showNotes}
+        onclick={() => (showNotes = !showNotes)}
+      >
+        {showNotes ? "收起" : "更新内容"}
+      </button>
+    {/if}
     {#if downloadError}
       <span class="ub-err">{downloadError}</span>
     {/if}
@@ -103,6 +115,27 @@
       aria-label="忽略此版本">×</button
     >
   </div>
+  {#if showNotes && notes.length}
+    <div class="ub-notes">
+      {#each notes as b, k (k)}
+        {#snippet segs()}
+          {#each b.segs as s, j (j)}
+            {#if s.code}<code>{s.text}</code>{:else if s.bold}<b>{s.text}</b
+              >{:else}{s.text}{/if}
+          {/each}
+        {/snippet}
+        {#if b.kind === "heading"}
+          <div class="ubn-h">{@render segs()}</div>
+        {:else if b.kind === "item"}
+          <div class="ubn-item">{@render segs()}</div>
+        {:else if b.kind === "quote"}
+          <div class="ubn-quote">{@render segs()}</div>
+        {:else}
+          <div class="ubn-p">{@render segs()}</div>
+        {/if}
+      {/each}
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -179,5 +212,47 @@
   }
   .ub-dismiss:hover:not(:disabled) {
     color: var(--text-primary);
+  }
+  .ub-notes {
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 6px 14px 8px 38px;
+    background: rgba(86, 211, 100, 0.06);
+    border-bottom: 1px solid rgba(86, 211, 100, 0.25);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    user-select: text;
+  }
+  .ubn-h {
+    margin-top: 4px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .ubn-item {
+    padding-left: 12px;
+    position: relative;
+  }
+  .ubn-item::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: var(--text-muted);
+  }
+  .ubn-quote {
+    padding-left: 8px;
+    border-left: 2px solid var(--border-default);
+    color: var(--text-muted);
+  }
+  .ub-notes b {
+    color: var(--text-primary);
+  }
+  .ub-notes code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: rgba(127, 127, 127, 0.15);
   }
 </style>
