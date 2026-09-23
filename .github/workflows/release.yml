@@ -86,7 +86,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # ── 三平台构建 ──
+  # ── 双平台构建(macOS aarch64 / Windows x64;不出 Linux / Intel Mac) ──
   build:
     needs: [release]
     strategy:

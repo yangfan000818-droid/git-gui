@@ -26,7 +26,7 @@ gui/src            SvelteKit 前端(WebView)。画界面,通过 invoke 调后端
 git-gui/
   .github/workflows/       CI + Release
     ci.yml                 push main/PR → lint/test/构建检查
-    release.yml            push tag v* → 三平台构建 + GitHub Release
+    release.yml            push tag v* → 双平台构建 + GitHub Release
   Cargo.toml              workspace(members 含 gui/src-tauri)
   crates/
     gitcore/              核心库;GUI 用时开 serde feature(默认仍零依赖)
@@ -192,13 +192,13 @@ derive 哪些按命令的**数据方向**定,别无脑全加:只读展示给前�
 
 ### CI（push main / PR）
 
-自动运行 lint + test + 三平台构建检查，不发版。
+自动运行 lint + test + 双平台构建检查，不发版。
 
 工作流 `.github/workflows/ci.yml`：
 
 - **lint-test** — `cargo clippy`（gitcore + gui）+ `cargo fmt --check` + `cargo test -p gitcore`
-- **svelte-check** — `svelte-check` + `prettier --check`
-- **build**（三平台）— `npx tauri build --ci`
+- **svelte-check** — `svelte-check` + `prettier --check` + `npm test`
+- **build**（macOS aarch64 / Windows x64）— `npx tauri build --ci`
 
 ### Release（push tag v\*）
 
@@ -206,12 +206,14 @@ derive 哪些按命令的**数据方向**定,别无脑全加:只读展示给前�
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-推 tag 后 `.github/workflows/release.yml` 自动跑质量门 + 三平台构建，产物直接挂到 [GitHub Releases](https://github.com/yangfan000818-droid/git-gui/releases) 页面：
+推 tag 后 `.github/workflows/release.yml` 自动跑质量门 + 双平台构建，产物直接挂到 [GitHub Releases](https://github.com/yangfan000818-droid/git-gui/releases) 页面：
 
 | 平台    | 产物                  |
 | ------- | --------------------- |
 | macOS   | `.dmg`                |
 | Windows | `.exe`（NSIS 安装器） |
+
+不提供 Linux / Intel Mac 安装包（Linux 的编译与测试仍由 lint-test 覆盖）。
 
 签名/公证后置（需 Apple Developer ID + Windows 代码签名证书）。
 
