@@ -52,6 +52,7 @@ jobs:
           npx svelte-kit sync
           npx svelte-check --tsconfig ./tsconfig.json
           npm run format:check
+          npm test
 
   # ── 三平台构建 ──
   build:

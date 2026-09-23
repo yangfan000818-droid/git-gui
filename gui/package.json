@@ -10,6 +10,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "format:check": "prettier --check \"src/**/*.{svelte,ts,js}\"",
+    "test": "vitest run",
     "version:check": "node ../scripts/check-version.mjs",
     "tauri": "tauri",
     "prepare": "cd .. && husky gui/.husky"
@@ -37,6 +38,7 @@
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "typescript": "~5.6.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vitest": "^4.1.11"
   }
 }
