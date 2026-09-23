@@ -52,6 +52,7 @@ jobs:
           npx svelte-kit sync
           npx svelte-check --tsconfig ./tsconfig.json
           npm run format:check
+          npm test
 
   # ── 创建 Release,正文由提交记录生成(构建前完成,避免各平台并发创建) ──
   release:

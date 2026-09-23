@@ -5,28 +5,17 @@
   import { ask } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { wordDiffLines, type WordTok } from "$lib/wordDiff";
-
-  type RegionKind =
-    | "Unchanged"
-    | "OursOnly"
-    | "TheirsOnly"
-    | "BothSame"
-    | "Conflict";
-  interface MergeRegion {
-    kind: RegionKind;
-    ours: string[];
-    base: string[];
-    theirs: string[];
-  }
-  // 单边:applied|ignored;冲突:undecided|left|right|both|edited。
-  type Decision =
-    | "applied"
-    | "ignored"
-    | "undecided"
-    | "left"
-    | "right"
-    | "both"
-    | "edited";
+  import {
+    hasConflictMarkers,
+    manualDraft as buildManualDraft,
+    mergeResult,
+    nlTerm,
+    regionResultText as buildRegionText,
+    splitLines,
+    type Decision,
+    type MergeRegion,
+    type RegionKind,
+  } from "$lib/mergeText";
 
   let {
     path,
@@ -86,29 +75,9 @@
 
   // ── 结果文本(按决策拼接) ──
   function regionResultText(i: number): string {
-    const r = regions[i];
-    const d = decisions[i];
-    switch (r.kind) {
-      case "Unchanged":
-        return r.ours.join("");
-      case "OursOnly":
-        return (d === "ignored" ? r.base : r.ours).join("");
-      case "TheirsOnly":
-        return (d === "ignored" ? r.base : r.theirs).join("");
-      case "BothSame":
-        return (d === "ignored" ? r.base : r.ours).join("");
-      case "Conflict":
-        if (d === "left") return r.ours.join("");
-        if (d === "right") return r.theirs.join("");
-        // ours 末行无换行(文件末尾)时补一个,否则 theirs 会粘到同一行。
-        if (d === "both") return nlTerm(r.ours.join("")) + r.theirs.join("");
-        // 同样要补换行:startEdit 预填的文本末尾有换行,但用户删掉它是最自然不过的
-        // 事(手工敲完最后一个字符就收手),不补的话下一段会整段粘到这一行末尾。
-        if (d === "edited") return nlTerm(edited[i]);
-        return ""; // undecided
-    }
+    return buildRegionText(regions[i], decisions[i], edited[i]);
   }
-  let fullText = $derived(regions.map((_, i) => regionResultText(i)).join(""));
+  let fullText = $derived(mergeResult(regions, decisions, edited));
   let conflictCount = $derived(
     regions.filter((r) => r.kind === "Conflict").length,
   );
@@ -138,10 +107,6 @@
     if (r.kind === "TheirsOnly" || r.kind === "BothSame")
       return wordDiffLines(r.theirs.join(""), r.base.join(""));
     return plainToks(r.theirs);
-  }
-  function splitLines(text: string): string[] {
-    if (text === "") return [];
-    return text.replace(/\n$/, "").split("\n");
   }
 
   // 左右两列的词级 token 只由 regions 决定,与决策无关 —— 必须单独 derive。
@@ -176,10 +141,6 @@
   function setDecision(i: number, d: Decision) {
     decisions[i] = d;
     markDirty();
-  }
-  // 文本段末尾补换行:拼接时少一个换行会把下一段粘到同一行。
-  function nlTerm(t: string): string {
-    return t === "" || t.endsWith("\n") ? t : t + "\n";
   }
   function startEdit(i: number) {
     const r = regions[i];
@@ -363,7 +324,7 @@
     error = "";
     try {
       const text = manualMode ? manualText : fullText;
-      if (/^<{7}/m.test(text) || /^>{7}/m.test(text)) {
+      if (hasConflictMarkers(text)) {
         error = "文本仍含冲突标记（<<<<<<< / >>>>>>>),请先清除再写入";
         writing = false;
         return;
@@ -379,22 +340,7 @@
 
   // 未决冲突块回写成 zdiff3 标记(write 会拦住带标记的文本,逼你处理完再写)。
   function manualDraft(): string {
-    return regions
-      .map((r, i) => {
-        if (r.kind === "Conflict" && decisions[i] === "undecided") {
-          return (
-            "<<<<<<< ours\n" +
-            nlTerm(r.ours.join("")) +
-            "||||||| base\n" +
-            nlTerm(r.base.join("")) +
-            "=======\n" +
-            nlTerm(r.theirs.join("")) +
-            ">>>>>>> theirs\n"
-          );
-        }
-        return regionResultText(i);
-      })
-      .join("");
+    return buildManualDraft(regions, decisions, edited);
   }
 
   // 进入手动编辑时的初始文本,用于判断要不要拦"返回三栏"。
