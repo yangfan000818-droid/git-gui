@@ -28,6 +28,7 @@
     stashRestore = false,
     onContinue,
     onAbort,
+    onReload,
     onDirtyChange,
   }: {
     path: string;
@@ -37,6 +38,8 @@
     stashRestore?: boolean; // true=stash 还原冲突,仅影响文案
     onContinue: () => Promise<void>;
     onAbort: () => Promise<void>;
+    // 重新探测冲突态(外部改动后手动刷新);宿主负责未写入取舍的确认。
+    onReload?: () => Promise<void>;
     // 有未写入的取舍时上报宿主窗口,供关窗 / 切换上下文前确认。
     onDirtyChange?: (dirty: boolean) => void;
   } = $props();
@@ -51,6 +54,11 @@
 
   function isContentKind(k: ConflictKind): boolean {
     return k === "BothModified" || k === "AddAdd";
+  }
+  // 能否撤销已解决:`checkout -m` 重放合并需要两侧 blob 都在。
+  // 一侧改一侧删的类型缺被删那侧的版本,git 无从重放(后端也会拦并说明原因)。
+  function canUndo(k: ConflictKind): boolean {
+    return k !== "ModifyDelete" && k !== "DeleteModify";
   }
 
   let fileStates = $state<FileState[]>([]);
@@ -93,9 +101,9 @@
   });
 
   let currentFile = $derived(fileStates[activeFile]);
-  let allWritten = $derived(
-    fileStates.length > 0 && fileStates.every((fs) => fs.written),
-  );
+  // 空列表 = 冲突已在别处解完(解决后没点继续就关窗 / 在终端里解的),
+  // 此时整合仍未完成,必须放行「继续整合」,否则用户只剩「放弃」一条路。
+  let allWritten = $derived(fileStates.every((fs) => fs.written));
   let pendingCount = $derived(fileStates.filter((fs) => !fs.written).length);
   let resolvedCount = $derived(fileStates.filter((fs) => fs.written).length);
 
@@ -208,6 +216,30 @@
     if (fileStates[i]?.written) advanceToNextPending();
   }
 
+  // 撤销一次已解决:git 重放合并,文件回到冲突态重新选。
+  // 工作区那份内容会被冲突标记覆盖 —— 手工编辑过的要先确认。
+  async function undoOne(i: number) {
+    const fs = fileStates[i];
+    if (!fs || !fs.written || fs.resolving) return;
+    const ok = await ask(
+      `撤销「${fileName(fs.path)}」的解决结果?\n该文件会回到冲突态重新选,工作区里这个文件当前的内容(含手工编辑)将被冲突标记覆盖。`,
+      { title: "撤销解决", kind: "warning" },
+    );
+    if (!ok) return;
+    globalError = "";
+    fs.resolving = true;
+    try {
+      await invoke("unresolve_conflict", { path, filePath: fs.path });
+      fs.written = false;
+      fs.error = "";
+      activeFile = i;
+    } catch (e) {
+      fs.error = String(e);
+    } finally {
+      fs.resolving = false;
+    }
+  }
+
   // 批量接受一侧:对选中的文件串行 resolve(避免并发踩);不可逆,二次确认。
   async function acceptBatch(side: "yours" | "theirs") {
     const idxs = selectedIdx.filter((i) => {
@@ -220,7 +252,7 @@
     }
     const label = side === "yours" ? "您的(本地)" : "他们的(传入)";
     const ok = await ask(
-      `对选中的 ${idxs.length} 个文件统一接受${label}更改?\n整文件取舍不可逐文件撤销,如需改主意只能放弃整个整合重来。`,
+      `对选中的 ${idxs.length} 个文件统一接受${label}更改?\n这会用整份文件覆盖取舍结果;选错了可以逐个「撤销解决」重来(改/删类冲突除外)。`,
       { title: "批量解决", kind: "warning" },
     );
     if (!ok) return;
@@ -407,15 +439,21 @@
     <div class="cf-head-text">
       <h2 class="cf-title">冲突</h2>
       <p class="cf-sub">
-        {#if stashRestore}
+        {#if fileStates.length === 0}
+          没有待解决的冲突文件(已在别处解决完),但整合尚未收尾。请点下方{stashRestore
+            ? "「完成还原」"
+            : "「继续整合」"}。
+        {:else if stashRestore}
           还原暂存改动时检测到冲突。请先解决这些冲突,再完成还原。
         {:else}
           检测到合并冲突。请先解决这些冲突,然后再继续。
         {/if}
       </p>
-      <p class="cf-tip">
-        提示:按住 ⌘(Mac)/ Ctrl(Win) 点击文件可多选,右侧批量接受一侧。
-      </p>
+      {#if fileStates.length > 0}
+        <p class="cf-tip">
+          提示:按住 ⌘(Mac)/ Ctrl(Win) 点击文件可多选,右侧批量接受一侧。
+        </p>
+      {/if}
     </div>
 
     {#if fileStates.length > 1}
@@ -443,6 +481,9 @@
           <span class="cf-c-st">他人的更改 (传入)</span>
         </div>
         <div class="cf-body">
+          {#if fileStates.length === 0}
+            <p class="cf-empty">冲突列表为空 ✓</p>
+          {/if}
           {#each fileStates as fs, i (fs.path)}
             {@const st = statuses(fs.kind)}
             <button
@@ -491,13 +532,37 @@
             接受他们的({selectedIdx.length})
           </button>
           <button class="btn-act" onclick={clearSel}>取消选择</button>
-          <p class="cf-act-hint">批量整文件取舍,不可逐文件撤销。</p>
+          <p class="cf-act-hint">
+            整文件取舍;选错了可以逐个「撤销解决」重来(改/删类除外)。
+          </p>
         {:else if currentFile}
           {#if currentFile.written}
             <p class="cf-act-note">「{fileName(currentFile.path)}」已解决 ✓</p>
-            <p class="cf-act-hint">
-              整文件取舍不可逐文件撤销;如需改主意,请放弃整合后重来。
-            </p>
+            {#if canUndo(currentFile.kind)}
+              <button
+                class="btn-act"
+                disabled={currentFile.resolving}
+                onclick={() => undoOne(activeFile)}
+                title="回到冲突态重新选(工作区该文件会被冲突标记覆盖)"
+              >
+                撤销解决
+              </button>
+              {#if isContentKind(currentFile.kind)}
+                <button
+                  class="btn-act btn-act-merge"
+                  disabled={currentFile.resolving}
+                  onclick={() => openMerge(activeFile)}
+                  title="再次编辑这个文件的最终内容"
+                >
+                  再次编辑…
+                </button>
+              {/if}
+            {:else}
+              <p class="cf-act-hint">
+                「一侧修改、一侧删除」类冲突缺少被删那侧的版本,无法撤销;
+                如需改主意,只能放弃整合后重来。
+              </p>
+            {/if}
           {:else}
             <button
               class="btn-act"
@@ -555,6 +620,16 @@
       >
         {stashRestore ? "放弃还原" : "放弃整合 (abort)"}
       </button>
+      {#if onReload}
+        <button
+          class="btn-plain"
+          disabled={finishing}
+          onclick={() => void onReload?.()}
+          title="重新探测冲突态(在终端或别处改动过之后)"
+        >
+          刷新
+        </button>
+      {/if}
       {#if !allWritten}
         <span class="cv-hint">还有 {pendingCount} 个文件未解决</span>
       {:else}
@@ -663,6 +738,12 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+  }
+  .cf-empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 24px 12px;
+    margin: 0;
   }
   .cf-row {
     display: grid;
@@ -876,6 +957,22 @@
     background: rgba(247, 120, 139, 0.25);
   }
   .btn-danger:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .btn-plain {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn-plain:hover:not(:disabled) {
+    border-color: var(--accent-cyan);
+  }
+  .btn-plain:disabled {
     opacity: 0.4;
     cursor: default;
   }

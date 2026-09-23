@@ -1318,6 +1318,18 @@ async fn resolve_conflict_take_side(
     .map_err(|e| e.to_string())?
 }
 
+/// 撤销一次已解决,把文件放回冲突态(误点 / 改主意时的退路)。
+#[tauri::command]
+async fn unresolve_conflict(path: String, file_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = Repo::open(&path).map_err(|e| e.to_string())?;
+        repo.unresolve_file(Path::new(&file_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 冲突解决后完成整合,并还原 autostash。
 #[tauri::command]
 async fn continue_update_cmd(
@@ -2080,6 +2092,7 @@ pub fn run() {
             resolve_conflict_keep,
             resolve_conflict_remove,
             resolve_conflict_take_side,
+            unresolve_conflict,
             continue_update_cmd,
             abort_update_cmd,
             finish_stash_restore_cmd,

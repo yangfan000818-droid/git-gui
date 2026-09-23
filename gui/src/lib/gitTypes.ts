@@ -50,6 +50,7 @@ export interface RepoStatus {
   conflicted: string[];
   files: FileStatus[];
   submodules: { name: string; path: string; status: SubStatus }[];
+  integration: IntegrationKind;
 }
 
 export interface FileEntry {
@@ -68,6 +69,10 @@ export interface RepoView {
   behind: number;
   unstaged: FileEntry[];
   staged: FileEntry[];
+  /// 未合并文件(冲突)。子仓库的冲突只能从这里发现 —— 顶层 banner 只探测主仓库。
+  conflicted: string[];
+  /// 进行中的整合。冲突解完但没点「继续」时 conflicted 会空,靠这个字段仓库才不会从 UI 上消失。
+  integration: IntegrationKind;
 }
 
 export interface PrecommitWarning {

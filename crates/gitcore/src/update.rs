@@ -356,17 +356,21 @@ pub struct ConflictState {
     pub autostash: Option<StashRef>,
 }
 
-/// 报告当前冲突态(总是返回;无冲突则 files 空)。供主界面在 refresh 时探测。
-pub(crate) fn conflict_state(repo: &Repo) -> Result<ConflictState, Error> {
-    let kind = match in_progress(repo)? {
+/// 进行中的整合类型(无则 `None`)。status 与 conflict_state 共用同一判据。
+pub(crate) fn integration_kind(repo: &Repo) -> Result<IntegrationKind, Error> {
+    Ok(match in_progress(repo)? {
         Some(Integration::Merge) => IntegrationKind::Merge,
         Some(Integration::Rebase) => IntegrationKind::Rebase,
         Some(Integration::CherryPick) => IntegrationKind::CherryPick,
         Some(Integration::Revert) => IntegrationKind::Revert,
         None => IntegrationKind::None,
-    };
+    })
+}
+
+/// 报告当前冲突态(总是返回;无冲突则 files 空)。供主界面在 refresh 时探测。
+pub(crate) fn conflict_state(repo: &Repo) -> Result<ConflictState, Error> {
     Ok(ConflictState {
-        kind,
+        kind: integration_kind(repo)?,
         files: crate::conflict::classify_conflicts(repo)?,
         autostash: stash::find_autostash(repo)?,
     })

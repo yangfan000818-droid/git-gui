@@ -17,6 +17,9 @@ pub struct RepoStatus {
     pub dirty: bool,
     /// 当前冲突文件。
     pub conflicted: Vec<PathBuf>,
+    /// 进行中的整合(无则 None)。冲突全部解决后 `conflicted` 会空,但整合仍未收尾 ——
+    /// 只看 `conflicted` 会让这种"待继续"的仓库彻底从 UI 上消失。
+    pub integration: crate::IntegrationKind,
     /// 文件级状态(已暂存/已修改/未跟踪等)。
     pub files: Vec<FileStatus>,
     /// 子仓库列表。
@@ -77,6 +80,7 @@ pub(crate) fn status(repo: &Repo) -> Result<RepoStatus, Error> {
         conflicted: parsed.conflicted,
         files: parsed.files,
         submodules,
+        integration: crate::update::integration_kind(repo)?,
     })
 }
 

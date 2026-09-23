@@ -143,6 +143,12 @@ impl Repo {
         resolve::resolve_take_side(self, path, side)
     }
 
+    /// 撤销一次已解决,把文件放回冲突态(内容冲突 / add-add / 二进制;
+    /// 一侧修改一侧删除的类型缺版本,会返回 Precondition 说明原因)。
+    pub fn unresolve_file(&self, path: &Path) -> Result<(), Error> {
+        resolve::unresolve(self, path)
+    }
+
     /// 整文件对齐三路 diff(供 WebStorm 式三栏合并编辑器渲染)。
     pub fn merge_file_regions(&self, path: &Path) -> Result<Vec<MergeRegion>, Error> {
         let v = conflict::three_versions(self, path)?;
