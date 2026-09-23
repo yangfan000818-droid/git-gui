@@ -53,9 +53,41 @@ jobs:
           npx svelte-check --tsconfig ./tsconfig.json
           npm run format:check
 
+  # ── 创建 Release,正文由提交记录生成(构建前完成,避免各平台并发创建) ──
+  release:
+    needs: [lint-test, svelte-check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # 需要完整历史与 tag 计算上一版本
+
+      - name: Create or update release
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          node scripts/release-notes.mjs "$TAG" > notes.md
+          cat >> notes.md <<'EOF'
+
+          ---
+
+          > **macOS 用户**：首次打开提示「已损坏无法打开」是因为应用未签名。
+          > 解决方法：打开终端，运行 `xattr -cr /Applications/GitSail.app` 后再打开即可。
+          > 或右键点击 app → 打开 → 再点一次「打开」。
+          EOF
+          cat notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file notes.md --verify-tag
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   # ── 三平台构建 ──
   build:
-    needs: [lint-test, svelte-check]
+    needs: [release]
     strategy:
       matrix:
         include:
@@ -99,22 +131,18 @@ jobs:
           npm ci
           npx tauri build --ci
 
-      # ── 上传到 Release ──
-      - name: Upload to Release (macOS)
-        if: runner.os == 'macOS'
-        uses: softprops/action-gh-release@v3
-        with:
-          body: |
-            > **macOS 用户**：首次打开提示「已损坏无法打开」是因为应用未签名。
-            > 解决方法：打开终端，运行 `xattr -cr /Applications/GitSail.app` 后再打开即可。
-            > 或右键点击 app → 打开 → 再点一次「打开」。
-          files: target/release/bundle/dmg/*.dmg
-
-      - name: Upload to Release (Windows)
-        if: runner.os == 'Windows'
-        uses: softprops/action-gh-release@v3
-        with:
-          files: target/release/bundle/nsis/*.exe
+      # ── 上传到 Release(Release 已由 release job 创建,这里只传文件、不动正文) ──
+      - name: Upload to Release
+        shell: bash
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            gh release upload "$TAG" target/release/bundle/dmg/*.dmg --clobber
+          else
+            gh release upload "$TAG" target/release/bundle/nsis/*.exe --clobber
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # ── 更新 manifest:下载 Windows 安装包,签名,生成 latest.json ──
   manifest:
@@ -125,6 +153,8 @@ jobs:
     if: github.event.repository.private == false
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # release-notes.mjs 需要完整历史与 tag
 
       - uses: actions/setup-node@v6
         with:
@@ -169,6 +199,9 @@ jobs:
           export WIN_URL VERSION
           WIN_SIG=$(cat "$SIG_FILE")
           export WIN_SIG
+          # 更新说明与 Release 正文同源(不含 macOS 提示,manifest 只服务 Windows)。
+          node scripts/release-notes.mjs "$TAG" > notes.md
+          export NOTES_FILE=notes.md
           node scripts/build-manifest.mjs
           cat latest.json
         env:
