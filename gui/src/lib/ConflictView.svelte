@@ -10,11 +10,7 @@
   import MergeEditor from "$lib/MergeEditor.svelte";
 
   type ConflictKind =
-    | "BothModified"
-    | "ModifyDelete"
-    | "DeleteModify"
-    | "AddAdd"
-    | "Binary";
+    "BothModified" | "ModifyDelete" | "DeleteModify" | "AddAdd" | "Binary";
 
   interface StashRef {
     label: string;

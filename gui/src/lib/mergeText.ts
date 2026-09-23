@@ -2,11 +2,7 @@
 // 从 MergeEditor 抽出(纯函数,便于单测)。
 
 export type RegionKind =
-  | "Unchanged"
-  | "OursOnly"
-  | "TheirsOnly"
-  | "BothSame"
-  | "Conflict";
+  "Unchanged" | "OursOnly" | "TheirsOnly" | "BothSame" | "Conflict";
 export interface MergeRegion {
   kind: RegionKind;
   ours: string[];
@@ -15,13 +11,7 @@ export interface MergeRegion {
 }
 // 单边:applied|ignored;冲突:undecided|left|right|both|edited。
 export type Decision =
-  | "applied"
-  | "ignored"
-  | "undecided"
-  | "left"
-  | "right"
-  | "both"
-  | "edited";
+  "applied" | "ignored" | "undecided" | "left" | "right" | "both" | "edited";
 
 // 文本段末尾补换行:拼接时少一个换行会把下一段粘到同一行。
 export function nlTerm(t: string): string {

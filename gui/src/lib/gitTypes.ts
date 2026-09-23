@@ -8,10 +8,7 @@ export interface AppearanceSettings {
 }
 
 export type FileState =
-  | "Staged"
-  | "Modified"
-  | "Untracked"
-  | "StagedAndModified";
+  "Staged" | "Modified" | "Untracked" | "StagedAndModified";
 export type LineKind = "Context" | "Added" | "Removed";
 
 export interface DiffLine {
@@ -77,11 +74,7 @@ export interface RepoView {
 
 export interface PrecommitWarning {
   kind:
-    | "SensitiveInfo"
-    | "ConflictMarker"
-    | "LargeFile"
-    | "DebugResidue"
-    | "Todo";
+    "SensitiveInfo" | "ConflictMarker" | "LargeFile" | "DebugResidue" | "Todo";
   file: string;
   line: number | null;
   detail: string;
@@ -102,17 +95,9 @@ export interface StashRef {
 }
 
 export type ConflictKind =
-  | "BothModified"
-  | "ModifyDelete"
-  | "DeleteModify"
-  | "AddAdd"
-  | "Binary";
+  "BothModified" | "ModifyDelete" | "DeleteModify" | "AddAdd" | "Binary";
 export type IntegrationKind =
-  | "Merge"
-  | "Rebase"
-  | "CherryPick"
-  | "Revert"
-  | "None";
+  "Merge" | "Rebase" | "CherryPick" | "Revert" | "None";
 
 export interface ConflictFile {
   path: string;

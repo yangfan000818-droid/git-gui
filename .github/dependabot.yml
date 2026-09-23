@@ -1,0 +1,41 @@
+# Dependabot:每周一检查依赖更新。
+# 小版本 / 补丁按生态合成一个 PR;大版本各自单独 PR(需人工评估迁移)。
+#
+# ⚠️ Tauri 的 npm 包(@tauri-apps/*)与 Rust crate(tauri / tauri-*)必须在同一
+# major.minor,否则 `tauri build` 报 "Found version mismatched Tauri packages"。
+# 两边各有一个 tauri 分组 PR,minor 变化时单独合任何一个都会让构建失败 ——
+# 需在其中一个分支上合入另一个,一起合并。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /gui
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      tauri:
+        patterns: ["@tauri-apps/*"]
+      minor-patch:
+        update-types: [minor, patch]
+        exclude-patterns: ["@tauri-apps/*"]
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      tauri:
+        patterns: ["tauri", "tauri-*"]
+      minor-patch:
+        update-types: [minor, patch]
+        exclude-patterns: ["tauri", "tauri-*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
