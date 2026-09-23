@@ -100,7 +100,7 @@ path = "../frontend"
 
 ## 发布
 
-经 GitHub Releases 分发:macOS(aarch64,`.dmg`)+ Windows(x64,`.exe`),推 `v*` tag 触发 CI 构建。**当前未签名 / 未公证**,macOS 首次打开若被 Gatekeeper 拦,执行 `xattr -cr <App>` 解除隔离属性。
+经 GitHub Releases 分发:macOS(aarch64,`.dmg`)+ Windows(x64,`.exe`),不提供 Linux / Intel Mac 安装包,推 `v*` tag 触发 CI 构建。**当前未签名 / 未公证**,macOS 首次打开若被 Gatekeeper 拦,执行 `xattr -cr <App>` 解除隔离属性。
 
 ## 路线图
 

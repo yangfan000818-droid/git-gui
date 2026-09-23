@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: gui/package-lock.json
       - name: Install & check
@@ -86,7 +86,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # ── 三平台构建 ──
+  # ── 双平台构建(macOS aarch64 / Windows x64;不出 Linux / Intel Mac) ──
   build:
     needs: [release]
     strategy:
@@ -108,7 +108,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: gui/package-lock.json
 
@@ -159,7 +159,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install deps
         run: cd gui && npm ci
