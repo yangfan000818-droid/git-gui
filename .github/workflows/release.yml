@@ -167,10 +167,18 @@ jobs:
       - name: Download Windows installer from this release
         run: |
           TAG=${GITHUB_REF#refs/tags/}
-          # GitHub release 可能还在创建中,稍等
-          sleep 10
-          gh release download "$TAG" --pattern "*x64-setup.exe" --dir assets 2>/dev/null || \
-          gh release download "$TAG" --pattern "*.exe" --dir assets
+          # build 已上传完安装包,但 GitHub API 读 release 可能短暂滞后:v1.3.1 曾在上传
+          # 近 1 分钟后仍读到空附件列表("no assets to download")。轮询重试,最多约 3 分钟。
+          for i in $(seq 1 18); do
+            if gh release download "$TAG" --pattern "*x64-setup.exe" --dir assets --clobber ||
+              gh release download "$TAG" --pattern "*.exe" --dir assets --clobber; then
+              exit 0
+            fi
+            echo "第 $i 次未取到 Windows 安装包,10 秒后重试"
+            sleep 10
+          done
+          echo "ERROR: 多次重试后仍未取到 Windows 安装包"
+          exit 1
         env:
           GH_TOKEN: ${{ github.token }}
 
