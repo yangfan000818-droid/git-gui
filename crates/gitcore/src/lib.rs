@@ -42,8 +42,8 @@ pub use config::{parse_repos_config, RepoConfig};
 pub use conflict::{conflicted_files, three_versions, ConflictFile, ConflictKind, ThreeVersions};
 pub use diff::DiffOptions;
 pub use diff3::{MergeRegion, RegionKind};
-pub use error::Error;
-pub use git::{CancelToken, Progress};
+pub use error::{Error, AUTH_CANCELLED_MARKER};
+pub use git::{set_process_env, CancelToken, Progress};
 pub use hunk::{DiffLine, FileDiff, Hunk, LineKind};
 pub use log::{BranchComparison, GraphRow, LogEntry, LogOptions, MergedLog, MergedLogEntry};
 pub use precommit::{PrecommitReport, PrecommitWarning, WarningKind};
@@ -453,17 +453,13 @@ impl Repo {
             "diff.mnemonicprefix=false",
             "diff",
             "--no-color",
+            "--no-ext-diff",
         ])?;
         let mut files = hunk::parse(&text);
         // git diff 不含未跟踪文件,单独列出并补成"全新增"的 FileDiff。
-        let untracked = self.git(&[
-            "-c",
-            "core.quotepath=false",
-            "ls-files",
-            "--others",
-            "--exclude-standard",
-        ])?;
-        for path in untracked.lines() {
+        // -z:路径逐字输出。否则含 `"` `\` 的名字会被加引号转义,读文件失败后被静默丢弃。
+        let untracked = self.git(&["ls-files", "--others", "--exclude-standard", "-z"])?;
+        for path in untracked.split('\0').filter(|p| !p.is_empty()) {
             if let Some(fd) = hunk::untracked_file(self, path) {
                 files.push(fd);
             }
@@ -498,6 +494,7 @@ impl Repo {
             "diff",
             "--cached",
             "--no-color",
+            "--no-ext-diff",
         ])
     }
 
@@ -514,6 +511,7 @@ impl Repo {
             "diff.mnemonicprefix=false",
             "diff",
             "--no-color",
+            "--no-ext-diff",
             "--",
             p,
         ])?;
@@ -537,6 +535,7 @@ impl Repo {
             "diff",
             "--cached",
             "--no-color",
+            "--no-ext-diff",
             "--",
             p,
         ])?;
@@ -628,6 +627,7 @@ impl Repo {
             "diff",
             "HEAD",
             "--no-color",
+            "--no-ext-diff",
             "--",
             p,
         ])?;
@@ -771,6 +771,15 @@ impl Repo {
     // 跑一个 git 子命令,返回原始结果,不把非零当错误(用于可能冲突的整合)。
     pub(crate) fn git_checked(&self, args: &[&str]) -> Result<git::Output, Error> {
         git::run_checked(&self.workdir, args)
+    }
+
+    // 同 `git_checked`,但附加环境变量(如 LC_ALL=C 强制英文输出,供按 stderr 文案判断的命令)。
+    pub(crate) fn git_checked_env(
+        &self,
+        args: &[&str],
+        env: &[(&str, &str)],
+    ) -> Result<git::Output, Error> {
+        git::run_checked_env(&self.workdir, args, env)
     }
 
     // 跑一个 git 子命令并附加环境变量(如 LC_ALL=C 强制英文输出),非零退出 → Err。

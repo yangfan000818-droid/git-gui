@@ -2,7 +2,7 @@
 //! 每个测试自建临时 repo、用完即删。
 
 use gitcore::{
-    CancelToken, ConflictKind, IntegrationKind, IntegrationStrategy, PendingConflicts,
+    CancelToken, ConflictKind, FileState, IntegrationKind, IntegrationStrategy, PendingConflicts,
     RebaseAction, RebaseItem, RegionKind, Repo, Side, SwitchOutcome, UpdateOptions, UpdateOutcome,
 };
 use std::path::{Path, PathBuf};
@@ -120,6 +120,109 @@ fn status_keeps_paths_with_quote_backslash_and_tab() {
             "status 应原样返回 {name:?},实际 {names:?}"
         );
     }
+
+    cleanup(&[&dir]);
+}
+
+// 回归:AD(暂存新增后删除)、MD(暂存修改后删除)、.A(`git add -N`)曾被 status 丢弃,
+// 只剩这类改动时仓库还被判为干净。
+#[test]
+fn status_keeps_staged_then_deleted_and_intent_to_add() {
+    let dir = init_repo("xy-combos");
+    write(&dir, "md.txt", "v1");
+    commit_all(&dir, "init");
+    write(&dir, "ad.txt", "new");
+    write(&dir, "md.txt", "v2");
+    git(&dir, &["add", "ad.txt", "md.txt"]);
+    std::fs::remove_file(dir.join("ad.txt")).unwrap();
+    std::fs::remove_file(dir.join("md.txt")).unwrap();
+    write(&dir, "ita.txt", "x");
+    git(&dir, &["add", "-N", "ita.txt"]);
+
+    let st = Repo::open(&dir).unwrap().status().unwrap();
+    let state_of = |name: &str| {
+        st.files
+            .iter()
+            .find(|f| f.path == Path::new(name))
+            .map(|f| f.state)
+    };
+    assert!(st.dirty, "有改动不应判为干净");
+    assert_eq!(state_of("ad.txt"), Some(FileState::StagedAndModified));
+    assert_eq!(state_of("md.txt"), Some(FileState::StagedAndModified));
+    assert_eq!(state_of("ita.txt"), Some(FileState::Modified));
+
+    cleanup(&[&dir]);
+}
+
+// 回归:git 默认 core.quotePath=true 会把 diff 头里的非 ASCII 路径转义成
+// `"b/\344..."`,unstaged_diff 曾把这串字面量当路径返回。测试显式打开 quotePath,
+// 不受本机全局配置影响。
+#[test]
+fn unstaged_diff_keeps_non_ascii_paths() {
+    let dir = init_repo("diff-quotepath");
+    git(&dir, &["config", "core.quotePath", "true"]);
+    let tracked = "\u{4e2d}\u{6587}.txt";
+    let untracked = "\u{65b0}\u{6587}\u{4ef6}.txt";
+    write(&dir, tracked, "a\n");
+    commit_all(&dir, "init");
+    write(&dir, tracked, "b\n");
+    write(&dir, untracked, "c\n");
+
+    let files = Repo::open(&dir).unwrap().unstaged_diff().unwrap();
+    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, vec![tracked, untracked]);
+
+    cleanup(&[&dir]);
+}
+
+// 回归:路径含 `"` `\` 时 git 无论 quotePath 都会加引号。已跟踪改动曾返回转义串,
+// 未跟踪文件读盘失败被静默丢弃。这些字符在 Windows 上非法,故只在类 Unix 上跑。
+#[cfg(not(windows))]
+#[test]
+fn unstaged_diff_keeps_paths_with_quote_and_backslash() {
+    let dir = init_repo("diff-weirdpath");
+    let tracked = "has\"quote.txt";
+    let untracked = "back\\slash.txt";
+    write(&dir, tracked, "a\n");
+    commit_all(&dir, "init");
+    write(&dir, tracked, "b\n");
+    write(&dir, untracked, "c\n");
+
+    let repo = Repo::open(&dir).unwrap();
+    let files = repo.unstaged_diff().unwrap();
+    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, vec![tracked, untracked]);
+
+    // 未跟踪文件按 hunk 暂存(git apply --cached)也要能用。
+    let ut = files.iter().find(|f| f.path == untracked).unwrap();
+    repo.stage_hunk(ut, &ut.hunks[0]).unwrap();
+    assert!(repo
+        .staged_diff()
+        .unwrap()
+        .iter()
+        .any(|f| f.path == untracked));
+
+    cleanup(&[&dir]);
+}
+
+// 回归:用户配置了 diff.external(如 difftastic)时,`git diff` 会改走外部工具,
+// 输出不再是 unified diff,Changes 视图解析不出任何 hunk。
+#[test]
+fn unstaged_diff_ignores_external_diff_tool() {
+    let dir = init_repo("diff-external");
+    write(&dir, "a.txt", "a\n");
+    commit_all(&dir, "init");
+    git(&dir, &["config", "diff.external", "echo"]);
+    write(&dir, "a.txt", "b\n");
+
+    let repo = Repo::open(&dir).unwrap();
+    let files = repo.unstaged_diff().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].hunks.len(), 1, "应解析出原生 unified diff 的 hunk");
+    assert!(repo
+        .file_unstaged_diff(Path::new("a.txt"))
+        .unwrap()
+        .is_some());
 
     cleanup(&[&dir]);
 }
@@ -2664,6 +2767,24 @@ fn undo_discard_none_when_no_changes() {
     let repo = Repo::open(&dir).unwrap();
     let undo = repo.discard(&[Path::new("a.txt")]).unwrap();
     assert!(undo.is_none(), "无改动 → 无凭据,不出撤销按钮");
+
+    cleanup(&[&dir]);
+}
+
+// 回归:已有无关 stash 时,对无改动路径 discard 不得把栈顶那个旧 stash 记成撤销凭据
+// (旧实现靠匹配 "No local changes" 判断,本地化的 git 输出译文时会误判)。
+#[test]
+fn undo_discard_none_when_no_changes_with_existing_stash() {
+    let dir = init_repo("undo-discard-noop-stash");
+    write(&dir, "a.txt", "v1");
+    write(&dir, "b.txt", "v1");
+    commit_all(&dir, "c1");
+    write(&dir, "b.txt", "unrelated");
+    git(&dir, &["stash", "push", "-m", "unrelated"]);
+
+    let repo = Repo::open(&dir).unwrap();
+    let undo = repo.discard(&[Path::new("a.txt")]).unwrap();
+    assert!(undo.is_none(), "无改动 → 无凭据,不能指向无关的旧 stash");
 
     cleanup(&[&dir]);
 }

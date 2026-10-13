@@ -139,8 +139,8 @@ fn parse_v2(output: &str) -> ParsedV2 {
             // 源路径本身长得像一条记录时(如文件名以 "? " 开头)会被当成条目解析。
             records.next();
             if let Some((_, y, path)) = split_xy_path(rest, 8) {
-                // rename/copy 总是已暂存;其后工作区又改动(Y=M)则同时未暂存。
-                let state = if y == 'M' {
+                // rename/copy 总是已暂存;其后工作区又有改动(Y 非 '.',如 M/D/T)则同时未暂存。
+                let state = if y != '.' {
                     FileState::StagedAndModified
                 } else {
                     FileState::Staged
@@ -209,13 +209,15 @@ fn split_xy_path(rest: &str, path_idx: usize) -> Option<(char, char, String)> {
 }
 
 // porcelain v2 XY 状态码 → FileState(X=暂存区,Y=工作区,'.'=无变化)。
-// 未覆盖的组合返回 None(冲突走 `u` 行,不经此处)。
+// 按"哪一侧有变化"归类,不枚举具体字母:逐个列组合会漏掉 AD(暂存新增后删除)、
+// MD、.A(`git add -N`)、.T(文件 ↔ 软链接)等,漏掉的文件会从改动列表消失,
+// 只剩这类改动时仓库还会被判为干净。冲突走 `u` 行,不经此处。
 fn xy_to_state(x: char, y: char) -> Option<FileState> {
-    match (x, y) {
-        ('.', 'M') | ('.', 'D') => Some(FileState::Modified),
-        ('M', '.') | ('A', '.') | ('D', '.') | ('R', '.') | ('C', '.') => Some(FileState::Staged),
-        ('M', 'M') | ('A', 'M') => Some(FileState::StagedAndModified),
-        _ => None,
+    match (x != '.', y != '.') {
+        (false, true) => Some(FileState::Modified),
+        (true, false) => Some(FileState::Staged),
+        (true, true) => Some(FileState::StagedAndModified),
+        (false, false) => None,
     }
 }
 
@@ -301,6 +303,42 @@ mod tests {
             names,
             vec![Path::new("renamed.txt"), Path::new("after.txt")],
             "源路径不得被解析成未跟踪文件,其后的记录仍要正常解析"
+        );
+    }
+
+    // 回归:这些组合曾因未被枚举而落入 None,文件从改动列表消失(实测 git 2.54 输出)。
+    #[test]
+    fn parse_v2_keeps_less_common_xy_combinations() {
+        let out = concat!(
+            "1 AD N... 000000 100644 000000 aaa bbb added_then_deleted.txt\0",
+            "1 MD N... 100644 100644 000000 aaa bbb staged_then_deleted.txt\0",
+            "1 .A N... 000000 000000 100644 aaa bbb intent_to_add.txt\0",
+            "1 .T N... 100644 100644 120000 aaa bbb became_symlink\0",
+            "1 T. N... 100644 120000 120000 aaa bbb staged_typechange\0",
+            "2 RD N... 100644 100644 000000 aaa bbb R100 renamed_then_deleted.txt\0",
+            "old.txt\0",
+        );
+        let p = parse_v2(out);
+        let find = |name: &str| {
+            p.files
+                .iter()
+                .find(|f| f.path.as_path() == Path::new(name))
+                .map(|f| f.state)
+        };
+        assert_eq!(
+            find("added_then_deleted.txt"),
+            Some(FileState::StagedAndModified)
+        );
+        assert_eq!(
+            find("staged_then_deleted.txt"),
+            Some(FileState::StagedAndModified)
+        );
+        assert_eq!(find("intent_to_add.txt"), Some(FileState::Modified));
+        assert_eq!(find("became_symlink"), Some(FileState::Modified));
+        assert_eq!(find("staged_typechange"), Some(FileState::Staged));
+        assert_eq!(
+            find("renamed_then_deleted.txt"),
+            Some(FileState::StagedAndModified)
         );
     }
 

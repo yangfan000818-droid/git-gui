@@ -216,7 +216,8 @@ pub(crate) fn resolve_take_side(repo: &Repo, path: &Path, side: Side) -> Result<
 /// 不预判类型,让 git 自己裁决,只把它的错误翻译成用户能懂的话。
 pub(crate) fn unresolve(repo: &Repo, path: &Path) -> Result<(), Error> {
     let p = path_str(path)?;
-    let out = repo.git_checked(&["checkout", "-m", "--", &p])?;
+    // 固定 C locale:下面按 stderr 原文识别"缺版本",本地化的 git 会输出译文。
+    let out = repo.git_checked_env(&["checkout", "-m", "--", &p], &[("LC_ALL", "C")])?;
     if out.success {
         return Ok(());
     }

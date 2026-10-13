@@ -91,12 +91,13 @@ fn local_name_from_remote(remote_branch: &str) -> Option<&str> {
         .filter(|s| !s.is_empty())
 }
 
-/// 判断 git checkout 失败是否因为"本地改动会被覆盖"(中/英文均支持)。
+/// 需按 stderr 文案判断结果的 checkout 固定 C locale:本地化的 git(如 Git for Windows
+/// 跟随系统语言)会输出译文,逐个语言补匹配串补不全。
+const C_LOCALE: &[(&str, &str)] = &[("LC_ALL", "C")];
+
+/// 判断 git checkout 失败是否因为"本地改动会被覆盖"(stderr 须来自 [`C_LOCALE`] 下的调用)。
 fn is_checkout_blocked_by_local_changes(stderr: &str) -> bool {
-    stderr.contains("would be overwritten")
-        || stderr.contains("将被检出")
-        || stderr.contains("commit your changes or stash")
-        || stderr.contains("提交或贮藏")
+    stderr.contains("would be overwritten") || stderr.contains("commit your changes or stash")
 }
 
 /// 把 checkout 的执行结果归一:成功→Ok;"改动会被覆盖"→可识别的 Precondition
@@ -150,7 +151,10 @@ pub(crate) fn checkout_remote(repo: &Repo, remote_branch: &str) -> Result<(), Er
     let local = resolve_remote_checkout_target(repo, remote_branch)?;
     // 不预检脏区:让 git checkout 自己判。改动不冲突则成功(静默带到新分支),
     // 冲突则返回可识别错误给前端做 Smart Checkout。
-    finish_checkout(repo.git(&["checkout", "-b", local, "--track", remote_branch]))
+    finish_checkout(repo.git_env(
+        &["checkout", "-b", local, "--track", remote_branch],
+        C_LOCALE,
+    ))
 }
 
 /// 解析 upstream:track 字段，如 "ahead 1"、"behind 2"、"ahead 1, behind 3"。
@@ -180,13 +184,13 @@ pub(crate) fn create_branch(repo: &Repo, name: &str, start: Option<&str>) -> Res
 /// 切换到指定分支。不预检脏区:让 git checkout 自己判——改动与目标分支无冲突则成功,
 /// 冲突则返回可识别错误给前端做 Smart Checkout(对标 WebStorm)。
 pub(crate) fn switch_branch(repo: &Repo, name: &str) -> Result<(), Error> {
-    finish_checkout(repo.git(&["checkout", name]))
+    finish_checkout(repo.git_env(&["checkout", name], C_LOCALE))
 }
 
 /// 检出某个提交,进入 detached HEAD(对标 WebStorm Checkout Revision)。
 /// 不预检脏区:让 git checkout 自己判,冲突才拒(与 [`switch_branch`] 一致)。
 pub(crate) fn checkout_commit(repo: &Repo, sha: &str) -> Result<(), Error> {
-    finish_checkout(repo.git(&["checkout", sha]))
+    finish_checkout(repo.git_env(&["checkout", sha], C_LOCALE))
 }
 
 /// 脏工作区切换(smart checkout)的结果。
@@ -311,9 +315,6 @@ mod tests {
         // 英文 git(本机 Apple Git 实测原文)
         let en = "error: Your local changes to the following files would be overwritten by checkout:\n\ta.txt\nPlease commit your changes or stash them before you switch branches.\nAborting\n";
         assert!(is_checkout_blocked_by_local_changes(en));
-        // 中文 git(对照 git 官方 zh_CN.po 译文)
-        let zh = "error: 您对下列文件的本地修改将被检出操作覆盖:\n\ta.txt\n请在切换分支前提交或贮藏您的修改。\n正在终止\n";
-        assert!(is_checkout_blocked_by_local_changes(zh));
         // 其它失败(分支不存在等)不应误判为脏区冲突
         let other = "error: pathspec 'nope' did not match any file(s) known to git";
         assert!(!is_checkout_blocked_by_local_changes(other));
