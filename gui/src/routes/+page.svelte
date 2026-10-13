@@ -8,6 +8,7 @@
   import HistoryView from "$lib/HistoryView.svelte";
   import PushDialog from "$lib/PushDialog.svelte";
   import PrecommitCheckDialog from "$lib/PrecommitCheckDialog.svelte";
+  import AskpassDialog from "$lib/AskpassDialog.svelte";
   import DiffView from "$lib/DiffView.svelte";
   import FileTree from "$lib/FileTree.svelte";
   import FileViewer from "$lib/FileViewer.svelte";
@@ -1587,6 +1588,9 @@
 
   <!-- ── 新版本提醒条(有更新时显示) ── -->
   <UpdateBanner />
+
+  <!-- ── git 凭据询问弹框(git / ssh 需要账号密码时由后端推送) ── -->
+  <AskpassDialog />
 
   <!-- ── 顶栏 ── -->
   <header class="topbar">
