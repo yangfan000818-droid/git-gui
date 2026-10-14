@@ -1,5 +1,10 @@
 use std::fmt;
 
+/// askpass 程序在用户取消凭据输入时写到 stderr 的标记行。git 会把 askpass 的 stderr
+/// 原样带进自己的报错,gitcore 据此把这次失败展示为"已取消身份验证",而不是
+/// `unable to read askpass response …` 这类技术原文。由宿主的 askpass 实现负责输出。
+pub const AUTH_CANCELLED_MARKER: &str = "gitcore: authentication cancelled by user";
+
 /// gitcore 的统一错误类型。
 #[derive(Debug)]
 pub enum Error {
@@ -22,6 +27,9 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Error::Git { stderr, .. } if stderr.contains(AUTH_CANCELLED_MARKER) => {
+                write!(f, "已取消身份验证")
+            }
             Error::Git { args, code, stderr } => write!(
                 f,
                 "git {} 失败(退出码 {}): {}",
@@ -50,5 +58,36 @@ impl std::error::Error for Error {
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Error::Io(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn git_err(stderr: &str) -> Error {
+        Error::Git {
+            args: vec!["fetch".into()],
+            code: Some(128),
+            stderr: stderr.into(),
+        }
+    }
+
+    #[test]
+    fn auth_cancel_marker_shows_friendly_message() {
+        let stderr = format!(
+            "{AUTH_CANCELLED_MARKER}\nerror: unable to read askpass response from '/x/GitSail'\n\
+             fatal: could not read Username for 'https://example.com': terminal prompts disabled\n"
+        );
+        assert_eq!(git_err(&stderr).to_string(), "已取消身份验证");
+    }
+
+    #[test]
+    fn other_git_failures_keep_original_text() {
+        let e = git_err("fatal: Authentication failed for 'https://example.com/'\n");
+        assert_eq!(
+            e.to_string(),
+            "git fetch 失败(退出码 128): fatal: Authentication failed for 'https://example.com/'"
+        );
     }
 }

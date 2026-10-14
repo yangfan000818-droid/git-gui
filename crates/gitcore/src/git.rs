@@ -3,23 +3,43 @@ use std::io::{BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-/// 创建一个预置 Windows `CREATE_NO_WINDOW` flag 的 git Command,
-/// 避免每次 spawn 闪黑框。
+/// 进程级附加环境变量,注入到之后每一次 git 调用(见 [`set_process_env`])。
+static PROCESS_ENV: RwLock<Vec<(String, String)>> = RwLock::new(Vec::new());
+
+/// 设置注入到每次 git 调用的附加环境变量(整体替换)。供宿主注入 askpass 等
+/// 进程级配置;gitcore 自身不关心其含义。
+pub fn set_process_env(vars: Vec<(String, String)>) {
+    *PROCESS_ENV.write().unwrap_or_else(|e| e.into_inner()) = vars;
+}
+
+/// 创建 git Command,统一注入每次调用都需要的配置(对标 IntelliJ `GitHandler`):
+/// - `core.quotepath=false`:非 ASCII 路径逐字输出。git 默认会转义成 `"\344\270\255..."`,
+///   各处按路径解析的输出全部失配;逐命令加容易漏,在此收口。
+/// - `log.showSignature=false`:用户开了签名展示时,log/show 输出会夹带 gpg 校验文本。
+/// - `GIT_TERMINAL_PROMPT=0`:GUI 无人应答终端提示。需凭据又无 askpass 时直接失败,
+///   不在启动 GUI 的终端上挂起等输入(askpass 优先于终端提示,不受影响)。
+/// - Windows 预置 `CREATE_NO_WINDOW`,避免每次 spawn 闪黑框。
 fn git_command() -> Command {
+    let mut cmd = Command::new("git");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let mut cmd = Command::new("git");
         let _ = cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd
     }
-    #[cfg(not(windows))]
-    {
-        Command::new("git")
+    cmd.args([
+        "-c",
+        "core.quotepath=false",
+        "-c",
+        "log.showSignature=false",
+    ])
+    .env("GIT_TERMINAL_PROMPT", "0");
+    for (k, v) in PROCESS_ENV.read().unwrap_or_else(|e| e.into_inner()).iter() {
+        cmd.env(k, v);
     }
+    cmd
 }
 
 /// 检查 git 是否在 PATH 中可用。不可用返回友好错误。
@@ -336,6 +356,36 @@ mod tests {
         assert!(parse_progress("hint: use --force to override").is_none());
         assert!(parse_progress("just some text").is_none());
         assert!(parse_progress("").is_none());
+    }
+
+    // 回归:需凭据而无 askpass / helper 时必须立即失败,不能在启动 GUI 的终端上挂起等输入。
+    #[test]
+    fn credential_prompt_fails_fast_without_terminal() {
+        let mut child = git_command()
+            .args(["-c", "credential.helper=", "-c", "core.askPass="])
+            .args(["credential", "fill"])
+            .current_dir(std::env::temp_dir())
+            .env("LC_ALL", "C")
+            .env_remove("GIT_ASKPASS")
+            .env_remove("SSH_ASKPASS")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"protocol=https\nhost=example.invalid\n\n")
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success());
+        assert!(
+            stderr.contains("terminal prompts disabled"),
+            "应因禁用终端提示而失败,实际 stderr: {stderr}"
+        );
     }
 
     #[test]

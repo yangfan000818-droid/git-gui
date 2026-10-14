@@ -112,6 +112,12 @@ jobs:
           npm ci
           npx tauri build --ci
 
+      # askpass 端到端测试须用 release 编译:windows_subsystem="windows" 只在 release 生效,
+      # 正式包这种 GUI 子系统程序被 git 拉起时能否经 stdout 交回答案,只有这样才测得到。
+      - name: askpass e2e (release, Windows)
+        if: runner.os == 'Windows'
+        run: cargo test --release -p gui --test askpass
+
       - name: Upload artifacts (macOS)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7

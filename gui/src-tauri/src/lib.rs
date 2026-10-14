@@ -1,4 +1,5 @@
 mod ai;
+pub mod askpass;
 mod credentials;
 mod panic_log;
 
@@ -1137,6 +1138,42 @@ async fn repo_clone(
     res
 }
 
+/// 启动凭据弹框服务并把 askpass 环境注入之后的每次 git 调用。失败不阻断启动:
+/// 没有 askpass 时 git 需凭据会直接报错(gitcore 已禁用终端提示),只是少了弹框。
+fn start_askpass(app: &AppHandle) {
+    let handle = app.clone();
+    let started = askpass::AskpassServer::start(move |_, ev| match ev {
+        askpass::AskpassEvent::Request(req) => {
+            // 询问可能来自后台操作,把主窗口提到前台免得用户看不到弹框。
+            if let Some(w) = handle.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            let _ = handle.emit_to("main", "askpass-request", req);
+        }
+        askpass::AskpassEvent::Expired(id) => {
+            let _ = handle.emit_to("main", "askpass-expired", id);
+        }
+    });
+    let exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_string));
+    match (started, exe) {
+        (Ok(server), Some(exe)) => {
+            gitcore::set_process_env(server.git_env(&exe));
+            app.manage(server);
+        }
+        (Err(e), _) => eprintln!("askpass 服务启动失败: {e}"),
+        (Ok(_), None) => eprintln!("askpass 不可用:可执行文件路径非 UTF-8"),
+    }
+}
+
+/// 回答一次 git 凭据询问;`answer` 为 None 表示用户取消。
+#[tauri::command]
+fn askpass_respond(id: u64, answer: Option<String>, state: State<'_, Arc<askpass::AskpassServer>>) {
+    state.respond(id, answer);
+}
+
 /// 取消某个进行中的长操作(查 CancelRegistry 并 token.cancel())。
 #[tauri::command]
 fn cancel_op(op_id: String, state: State<'_, CancelRegistry>) {
@@ -2026,6 +2063,10 @@ fn check_git() -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 被 git / ssh 当作 askpass 拉起时只做一次凭据询问,不启动 GUI。
+    if let Some(code) = askpass::client_main_if_requested() {
+        std::process::exit(code);
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -2034,6 +2075,7 @@ pub fn run() {
             if let Ok(dir) = app.path().app_log_dir() {
                 panic_log::install(dir);
             }
+            start_askpass(app.handle());
             Ok(())
         })
         .manage(CancelRegistry::default())
@@ -2080,6 +2122,7 @@ pub fn run() {
             execute_update,
             repo_clone,
             cancel_op,
+            askpass_respond,
             read_repo_file,
             repo_cat_file,
             repo_file_diff_head,

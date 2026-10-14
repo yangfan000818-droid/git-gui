@@ -57,20 +57,27 @@ pub(crate) fn discard_files(
         "--",
     ];
     args.extend(paths.iter().map(|p| p.as_os_str().to_str().unwrap()));
+    // 按 stash 栈顶前后是否变化判断是否真的建出了兜底,不匹配 "No local changes" 文案:
+    // 本地化的 git 输出译文,匹配不上会把栈顶一个无关的旧 stash 记成撤销凭据。
+    let stash_top = || -> Result<Option<String>, Error> {
+        let out = repo.git_checked(&["rev-parse", "-q", "--verify", "refs/stash"])?;
+        Ok(out.success.then(|| out.stdout.trim().to_string()))
+    };
+    let before = stash_top()?;
     let out = repo.git_checked(&args)?;
-    // 注意顺序:无改动时 push 也是 exit 0,必须先判 "No local changes" 再判 success,
-    // 否则会去 rev-parse 不存在的 refs/stash。
-    if out.stdout.contains("No local changes") || out.stderr.contains("No local changes") {
-        Ok(None)
-    } else if out.success {
-        // 刚创建的兜底在栈顶;记 commit sha(stash@{N} 会漂移,sha 不会)。
-        let sha = repo.git(&["rev-parse", "refs/stash"])?.trim().to_string();
-        Ok(Some(crate::undo::UndoAction::RestoreDiscard { sha }))
-    } else {
-        Err(Error::Git {
+    if !out.success {
+        return Err(Error::Git {
             args: args.iter().map(|s| s.to_string()).collect(),
             code: out.code,
             stderr: out.stderr,
-        })
+        });
+    }
+    // 无改动时 push 也是 exit 0 但不建 stash,栈顶不变。
+    // 新建的兜底在栈顶;记 commit sha(stash@{N} 会漂移,sha 不会)。
+    match stash_top()? {
+        Some(sha) if before.as_ref() != Some(&sha) => {
+            Ok(Some(crate::undo::UndoAction::RestoreDiscard { sha }))
+        }
+        _ => Ok(None),
     }
 }

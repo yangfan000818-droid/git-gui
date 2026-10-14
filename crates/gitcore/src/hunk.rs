@@ -211,22 +211,66 @@ fn line_body(l: &str) -> String {
 
 // 去掉 "a/"/"b/" 前缀和行尾换行;"/dev/null" 原样返回。
 fn clean_path(s: &str) -> String {
-    let s = s.trim_end();
+    let s = unquote_c_style(s.trim_end());
     if s == "/dev/null" {
-        return s.to_string();
+        return s;
     }
     s.strip_prefix("a/")
         .or_else(|| s.strip_prefix("b/"))
-        .unwrap_or(s)
+        .unwrap_or(&s)
         .to_string()
 }
 
 // 兜底:从 "diff --git a/X b/X" 提取路径(取 b/ 一侧)。
 fn parse_path_from_git_line(l: &str) -> Option<String> {
     let rest = l.trim_end().strip_prefix("diff --git ")?;
+    // 带引号形如 `"a/path" "b/path"`(rename 时可能只有一侧带引号)。
+    if let Some(idx) = rest.rfind(" \"b/") {
+        return Some(clean_path(&rest[idx + 1..]));
+    }
     // 形如 "a/path b/path";取后半。
     let idx = rest.find(" b/")?;
     Some(rest[idx + 3..].to_string())
+}
+
+// 还原 git 的 C 风格引号路径(`"a/\344\270\255.txt"` → `a/中.txt`)。
+// 路径含 `"` `\` 控制字符(core.quotepath=true 时还有非 ASCII)时,git 会把整个路径
+// 加引号并转义;quotepath=false 挡不住前几类。未加引号的原样返回。
+fn unquote_c_style(s: &str) -> String {
+    let Some(inner) = s.strip_prefix('"').and_then(|r| r.strip_suffix('"')) else {
+        return s.to_string();
+    };
+    let b = inner.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'\\' || i + 1 == b.len() {
+            out.push(b[i]);
+            i += 1;
+            continue;
+        }
+        // git 对 >= 0x80 的字节与控制字符用三位八进制 `\ooo`(首位 0-3)。
+        let octal = b.get(i + 1..i + 4).filter(|d| {
+            (b'0'..=b'3').contains(&d[0]) && d[1..].iter().all(|c| (b'0'..=b'7').contains(c))
+        });
+        if let Some(d) = octal {
+            out.push((d[0] - b'0') * 64 + (d[1] - b'0') * 8 + (d[2] - b'0'));
+            i += 4;
+            continue;
+        }
+        out.push(match b[i + 1] {
+            b'a' => 0x07,
+            b'b' => 0x08,
+            b't' => b'\t',
+            b'n' => b'\n',
+            b'v' => 0x0b,
+            b'f' => 0x0c,
+            b'r' => b'\r',
+            other => other, // `\"` 与 `\\`
+        });
+        i += 2;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// 暂存某文件的某个 hunk(基于 unstaged diff)。
@@ -306,6 +350,7 @@ pub(crate) fn diff_with_workdir(repo: &Repo, rev: &str) -> Result<Vec<FileDiff>,
         "diff.mnemonicprefix=false",
         "diff",
         "--no-color",
+        "--no-ext-diff",
         rev,
     ])?;
     Ok(parse(&text))
@@ -449,6 +494,43 @@ fn push_line(buf: &mut String, marker: char, content: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // 回归:路径被 git 加引号转义时,必须还原成真实路径,而不是 `"b/\344..."` 字面量。
+    #[test]
+    fn parse_unquotes_c_style_paths() {
+        let sample = concat!(
+            "diff --git \"a/\\344\\270\\255.txt\" \"b/\\344\\270\\255.txt\"\n",
+            "index e69de29..d95f3ad 100644\n",
+            "--- \"a/\\344\\270\\255.txt\"\n",
+            "+++ \"b/\\344\\270\\255.txt\"\n",
+            "@@ -1 +1 @@\n",
+            "-a\n",
+            "+b\n",
+            "diff --git \"a/has\\\"quote\\\\back\\ttab.txt\" \"b/has\\\"quote\\\\back\\ttab.txt\"\n",
+            "new file mode 100644\n",
+            "--- /dev/null\n",
+            "+++ \"b/has\\\"quote\\\\back\\ttab.txt\"\n",
+            "@@ -0,0 +1 @@\n",
+            "+x\n",
+            // 二进制文件没有 ---/+++ 行,只能从 diff --git 行取路径。
+            "diff --git \"a/\\344\\270\\255.bin\" \"b/\\344\\270\\255.bin\"\n",
+            "index e69de29..d95f3ad 100644\n",
+            "Binary files \"a/\\344\\270\\255.bin\" and \"b/\\344\\270\\255.bin\" differ\n",
+        );
+        let paths: Vec<String> = parse(sample).into_iter().map(|f| f.path).collect();
+        assert_eq!(
+            paths,
+            vec!["中.txt", "has\"quote\\back\ttab.txt", "中.bin"],
+            "引号路径应还原为真实路径"
+        );
+    }
+
+    #[test]
+    fn unquote_c_style_leaves_plain_paths_untouched() {
+        assert_eq!(unquote_c_style("a/plain.txt"), "a/plain.txt");
+        assert_eq!(unquote_c_style("a/中文.txt"), "a/中文.txt");
+        assert_eq!(unquote_c_style("/dev/null"), "/dev/null");
+    }
 
     #[test]
     fn parses_single_file_single_hunk() {
