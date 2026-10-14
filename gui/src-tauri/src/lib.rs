@@ -1247,10 +1247,11 @@ async fn read_conflict_segments(path: String, file_path: String) -> Result<Vec<S
 }
 
 /// 打开(或聚焦)独立的冲突解决窗口,可自由调整大小/全屏;上下文经托管状态传递。
+/// 必须是 async:同步命令跑在主线程的 WebView2 回调里,Windows 上建窗会死锁(wry#583)。
 #[tauri::command]
-fn open_conflict_window(
+async fn open_conflict_window(
     app: AppHandle,
-    state: State<ConflictCtx>,
+    state: State<'_, ConflictCtx>,
     path: String,
     initial_file: Option<String>,
 ) -> Result<(), String> {
